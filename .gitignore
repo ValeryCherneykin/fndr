@@ -1,0 +1,21 @@
+# Project-specific ignores only. Editor and OS files (.idea/, *.swp,
+# .DS_Store, ...) belong in your global gitignore (~/.config/git/ignore),
+# not here: they describe your machine, not this project.
+
+# Binary produced by `go build -o fndr ./cmd/fndr`. Anchored with a leading
+# slash so it does not also match the cmd/fndr/ source directory.
+/fndr
+
+# Output directories: `make build` and goreleaser.
+/bin/
+/dist/
+
+# Test coverage and profiling artifacts.
+*.out
+*.prof
+*.test
+coverage.html
+
+# Local Go workspace; it points at paths on one developer's machine.
+go.work
+go.work.sum

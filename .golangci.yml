@@ -1,0 +1,96 @@
+# golangci-lint v2 configuration. Run with `make lint`; `make fmt` applies
+# the formatters below.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  # Fail instead of silently editing go.mod: dependency changes must be
+  # deliberate and show up in review.
+  modules-download-mode: readonly
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      # Group our own imports after stdlib and third-party ones.
+      local-prefixes:
+        - github.com/ValeryCherneykin/fndr
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - prealloc
+    - unparam
+    - errorlint
+    - gocritic
+    - revive
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+
+    govet:
+      enable-all: true
+      disable:
+        # Reports every struct whose fields could be reordered to save bytes.
+        # Too noisy project-wide; the hot structs (indexer.Entry) get explicit
+        # size checks in their own tests instead.
+        - fieldalignment
+        # Flags the idiomatic `if err := ...; err != nil` inside a function
+        # that already has an err. More noise than bugs.
+        - shadow
+
+    gosec:
+      severity: medium
+      confidence: medium
+      excludes:
+        # A file manager opens $EDITOR, tmux and system openers with
+        # user-chosen arguments by design.
+        - G204
+        # Reading files at user-chosen paths is the whole point of fndr.
+        - G304
+        # New files are created 0644 like any other tool (touch, editors);
+        # gosec wants 0600, which is wrong for user documents.
+        - G306
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        # nolint directives must still be justified in review, but forcing a
+        # comment on every obvious one only adds noise.
+        - whyNoLint
+
+    revive:
+      rules:
+        # Every exported identifier needs a doc comment; this is a public
+        # project and `go doc` output is part of its quality.
+        - name: exported
+          arguments:
+            - checkPrivateReceivers
+        - name: package-comments
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: var-naming
+        - name: receiver-naming
+        - name: context-as-argument
+
+    unparam:
+      check-exported: false
+
+issues:
+  # Show every issue; hiding them behind a cap only delays the cleanup.
+  max-issues-per-linter: 0
+  max-same-issues: 0

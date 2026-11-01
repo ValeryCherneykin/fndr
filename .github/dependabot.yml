@@ -1,0 +1,13 @@
+# Weekly pull requests for outdated dependencies. Actions are pinned to major
+# versions, so without this they silently age until GitHub deprecates them.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
