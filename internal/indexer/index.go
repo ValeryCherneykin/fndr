@@ -1,8 +1,6 @@
 package indexer
 
 import (
-	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -106,18 +104,7 @@ func (ix *Index) Len() int {
 // `git checkout`) would want sorted roots and a binary search instead.
 func underAny(path string, roots []string) bool {
 	for _, r := range roots {
-		if path == r {
-			return true
-		}
-		if r == "" || !strings.HasPrefix(path, r) {
-			continue
-		}
-		// A prefix match alone is not enough: removing /a/foo must not remove
-		// /a/foobar, a sibling that merely shares the prefix. The byte after
-		// the prefix has to be a separator, unless r already ends with one,
-		// which in a cleaned path happens only for the root "/". Checking a
-		// byte avoids allocating r + "/" per comparison.
-		if r[len(r)-1] == filepath.Separator || path[len(r)] == filepath.Separator {
+		if path == r || isBelow(path, r) {
 			return true
 		}
 	}

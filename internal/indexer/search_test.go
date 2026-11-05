@@ -1,6 +1,8 @@
 package indexer
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -17,51 +19,154 @@ func benchEntries(n int) []Entry {
 	return es
 }
 
-// TestMatchAllParallelEqualsSequential is the key property of the fan-out:
-// splitting the work must never change the answer, for any size and any
-// number of workers, including more workers than chunks.
-func TestMatchAllParallelEqualsSequential(t *testing.T) {
-	for _, n := range []int{0, 1, chunkSize - 1, chunkSize, 3*chunkSize + 17, 100_000} {
+// naiveSearch is the obvious algorithm: score every entry, sort everything,
+// keep the first limit. It is the reference that Search must agree with,
+// whatever the worker count, and the baseline for the benchmark.
+func naiveSearch(snap []Entry, q Query) (paths []string, total int) {
+	limit := q.Limit
+	if limit <= 0 {
+		limit = DefaultLimit
+	}
+	lq := strings.ToLower(q.Text)
+	var all []candidate
+	for i := range snap {
+		if q.Under != "" && !isBelow(snap[i].Path, q.Under) {
+			continue
+		}
+		if s, ok := fuzzyScore(&snap[i], lq, nil); ok {
+			all = append(all, candidate{idx: int32(i), score: int32(s)}) //nolint:gosec // test data is small
+		}
+	}
+	slices.SortFunc(all, func(a, b candidate) int { return rank(snap, a, b) })
+	total = len(all)
+	for _, c := range all[:min(limit, len(all))] {
+		paths = append(paths, snap[c.idx].Path)
+	}
+	return paths, total
+}
+
+func resultPaths(rs []Result) []string {
+	ps := make([]string, len(rs))
+	for i := range rs {
+		ps[i] = rs[i].Entry.Path
+	}
+	return ps
+}
+
+// TestSearchMatchesNaive is the key property: the parallel top-K search gives
+// exactly the answer of scoring and sorting everything, for any snapshot
+// size, query, limit and number of workers.
+func TestSearchMatchesNaive(t *testing.T) {
+	for _, n := range []int{0, 1, chunkSize - 1, chunkSize, 3*chunkSize + 17, 50_000} {
 		snap := benchEntries(n)
-		for _, query := range []string{"", "intfile9", "nomatch!", "FILE_1"} {
-			lq := strings.ToLower(query)
-			want := matchRange(snap, lq, 0)
-			for _, workers := range []int{1, 2, 3, 8, 64} {
-				t.Run(fmt.Sprintf("n=%d/q=%q/w=%d", n, query, workers), func(t *testing.T) {
-					got := matchAllN(snap, lq, workers)
-					if !slices.Equal(got, want) {
-						t.Errorf("got %d matches, want %d (or same count, different order)", len(got), len(want))
-					}
-				})
+		for _, text := range []string{"intfile9", "go", "nomatch!", "FILE_1"} {
+			for _, limit := range []int{1, 7, 100} {
+				q := Query{Text: text, Limit: limit}
+				wantPaths, wantTotal := naiveSearch(snap, q)
+				for _, workers := range []int{1, 3, 8, 64} {
+					t.Run(fmt.Sprintf("n=%d/q=%s/limit=%d/w=%d", n, text, limit, workers), func(t *testing.T) {
+						rs, total, err := search(context.Background(), snap, q, workers)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if total != wantTotal {
+							t.Errorf("total = %d, want %d", total, wantTotal)
+						}
+						if got := resultPaths(rs); !slices.Equal(got, wantPaths) {
+							t.Errorf("results differ from naive search:\n got  %q\n want %q", got, wantPaths)
+						}
+					})
+				}
 			}
 		}
 	}
 }
 
-func TestMatchAll(t *testing.T) {
-	snap := entries("/src/main.go", "/docs/readme.md", "/src/Makefile", "/src/mango.go")
-	got := matchAll(snap, "MNGO")
-	if want := []int32{0, 3}; !slices.Equal(got, want) {
-		t.Errorf("matchAll(MNGO) = %v, want %v", got, want)
+func TestSearchRanking(t *testing.T) {
+	snap := entries(
+		"/main/p.go",
+		"/src/domain.go",
+		"/p/main.go",
+		"/docs/readme.md",
+	)
+	rs, total, err := Search(context.Background(), snap, Query{Text: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3 (readme.md does not match)", total)
+	}
+	if len(rs) == 0 || rs[0].Entry.Path != "/p/main.go" {
+		t.Errorf("results = %q, want /p/main.go first", resultPaths(rs))
 	}
 }
 
-// BenchmarkMatchAll compares one core with all cores over the same snapshot:
-// the cost of the first search stage per keystroke.
-func BenchmarkMatchAll(b *testing.B) {
-	const query = "intfile9"
+func TestSearchUnder(t *testing.T) {
+	snap := entries("/a/foo/x.go", "/a/foo", "/a/foobar/x.go", "/b/x.go")
+	rs, _, err := Search(context.Background(), snap, Query{Text: "x", Under: "/a/foo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// /a/foo itself is not below /a/foo, and /a/foobar is a sibling.
+	if got, want := resultPaths(rs), []string{"/a/foo/x.go"}; !slices.Equal(got, want) {
+		t.Errorf("Under /a/foo: got %q, want %q", got, want)
+	}
+}
+
+func TestSearchEmptyQuery(t *testing.T) {
+	rs, total, err := Search(context.Background(), entries("/a", "/b"), Query{})
+	if err != nil || rs != nil || total != 0 {
+		t.Errorf("empty query: got %v, %d, %v; want nothing", rs, total, err)
+	}
+}
+
+func TestSearchPositions(t *testing.T) {
+	rs, _, err := Search(context.Background(), entries("/src/main.go"), Query{Text: "MNGO"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 1 {
+		t.Fatalf("got %d results, want 1", len(rs))
+	}
+	if got, want := rs[0].Positions, []int{5, 8, 10, 11}; !slices.Equal(got, want) {
+		t.Errorf("positions = %v, want %v", got, want)
+	}
+}
+
+func TestSearchCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err := Search(ctx, benchEntries(3*chunkSize), Query{Text: "go"})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+}
+
+// BenchmarkSearch measures a full search per keystroke. "narrow" matches a
+// few hundred entries; "broad" matches almost everything, which is where
+// top-K pays off against the naive score-and-sort-everything approach.
+func BenchmarkSearch(b *testing.B) {
 	for _, n := range []int{100_000, 1_000_000} {
 		snap := benchEntries(n)
-		lq := strings.ToLower(query)
-		b.Run(fmt.Sprintf("n=%d/cores=1", n), func(b *testing.B) {
-			for b.Loop() {
-				matchAllN(snap, lq, 1)
-			}
-		})
-		b.Run(fmt.Sprintf("n=%d/cores=all", n), func(b *testing.B) {
-			for b.Loop() {
-				matchAll(snap, query)
-			}
-		})
+		for _, tc := range []struct{ name, text string }{
+			{"narrow", "intfile9"},
+			{"broad", "go"},
+		} {
+			q := Query{Text: tc.text}
+			b.Run(fmt.Sprintf("n=%d/%s/search", n, tc.name), func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					if _, _, err := Search(context.Background(), snap, q); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			b.Run(fmt.Sprintf("n=%d/%s/naive", n, tc.name), func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					naiveSearch(snap, q)
+				}
+			})
+		}
 	}
 }
