@@ -4,22 +4,30 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
-// minChunk is the smallest number of entries worth a goroutine of its own.
-// Starting a goroutine and joining it costs about a microsecond; scanning
-// 8192 entries costs around half a millisecond, so below this size the
-// overhead would eat the gain.
-const minChunk = 8192
+// chunkSize is how many entries a worker claims at a time. Small enough that
+// a large snapshot splits into many more chunks than there are cores, so fast
+// cores keep claiming work while slow ones finish theirs. Large enough that
+// claiming (one atomic add) and per-chunk bookkeeping are negligible next to
+// scanning 4096 paths, roughly a quarter of a millisecond.
+const chunkSize = 4096
 
 // matchAll returns the positions in snap of every entry whose path contains
 // query as a case-insensitive subsequence, in ascending order.
 //
-// It fans the scan out over all available cores: snap is cut into one
-// contiguous chunk per worker, each worker collects matches into its own
-// slice, and the slices are concatenated in chunk order (fan-in). Workers
-// share nothing they write to, so there is no lock and no channel, and the
-// result is identical to a sequential scan.
+// It spreads the scan over all available cores with dynamic scheduling.
+// Splitting snap into one equal part per core would leave the fast cores idle
+// while the slowest one finishes, and Apple chips mix performance and
+// efficiency cores, so the slowest one is much slower. Instead snap is cut
+// into many small chunks, and every worker repeatedly claims the next
+// unclaimed chunk from a shared atomic counter until none are left. Fast
+// cores simply end up scanning more chunks.
+//
+// Each chunk's matches go into parts[chunk], indexed by chunk rather than by
+// worker, so concatenating parts in order yields exactly the result of a
+// sequential scan.
 func matchAll(snap []Entry, query string) []int32 {
 	return matchAllN(snap, strings.ToLower(query), runtime.GOMAXPROCS(0))
 }
@@ -27,22 +35,33 @@ func matchAll(snap []Entry, query string) []int32 {
 // matchAllN is matchAll with an explicit worker count, so tests and
 // benchmarks can compare one core against many.
 func matchAllN(snap []Entry, lowerQuery string, workers int) []int32 {
-	workers = min(workers, max(1, len(snap)/minChunk))
-	if workers == 1 {
+	chunks := (len(snap) + chunkSize - 1) / chunkSize // ceiling division
+	workers = min(workers, chunks)
+	if workers <= 1 {
 		return matchRange(snap, lowerQuery, 0)
 	}
 
-	// Each worker writes only parts[w]. Distinct elements of a slice are
-	// distinct memory, so concurrent writes to them are not a data race,
-	// and wg.Wait makes all of them visible to the code below.
-	parts := make([][]int32, workers)
-	chunk := (len(snap) + workers - 1) / workers // ceiling division
+	// Each chunk is claimed by exactly one worker, so each parts[c] has a
+	// single writer. Distinct slice elements are distinct memory, so the
+	// writes do not race, and wg.Wait makes them all visible below.
+	parts := make([][]int32, chunks)
+
+	// next is the only shared mutable state. An atomic add is a single CPU
+	// instruction; a mutex here could put a goroutine to sleep on every claim.
+	var next atomic.Int64
+
 	var wg sync.WaitGroup
-	for w := range workers {
-		lo := w * chunk
-		hi := min(lo+chunk, len(snap))
+	for range workers {
 		wg.Go(func() {
-			parts[w] = matchRange(snap[lo:hi], lowerQuery, lo)
+			for {
+				c := int(next.Add(1) - 1)
+				if c >= chunks {
+					return
+				}
+				lo := c * chunkSize
+				hi := min(lo+chunkSize, len(snap))
+				parts[c] = matchRange(snap[lo:hi], lowerQuery, lo)
+			}
 		})
 	}
 	wg.Wait()

@@ -21,7 +21,7 @@ func benchEntries(n int) []Entry {
 // splitting the work must never change the answer, for any size and any
 // number of workers, including more workers than chunks.
 func TestMatchAllParallelEqualsSequential(t *testing.T) {
-	for _, n := range []int{0, 1, minChunk - 1, minChunk, 3*minChunk + 17, 100_000} {
+	for _, n := range []int{0, 1, chunkSize - 1, chunkSize, 3*chunkSize + 17, 100_000} {
 		snap := benchEntries(n)
 		for _, query := range []string{"", "intfile9", "nomatch!", "FILE_1"} {
 			lq := strings.ToLower(query)
