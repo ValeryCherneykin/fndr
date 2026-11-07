@@ -52,6 +52,7 @@ type Stats struct {
 //     make the walk endless. A link to a directory has IsDir == false.
 //   - Unreadable paths below root are counted in Stats.Skipped and the walk
 //     continues; only an unreadable root is an error.
+//   - .git directories are skipped: git internals, never what the user wants.
 //   - Hidden files are included. Hiding them is a view decision, and dropping
 //     them here would force a full re-crawl to show them later.
 //
@@ -124,6 +125,13 @@ func (c *crawler) visit(path string, d fs.DirEntry, err error) error {
 
 	if path == c.root {
 		return nil
+	}
+
+	// Git internals: thousands of objects and refs nobody searches for,
+	// crowding real files out of the results. Checked after the root, so
+	// crawling a .git directory on purpose still works.
+	if d.IsDir() && d.Name() == ".git" {
+		return fs.SkipDir
 	}
 
 	// WalkDir already knows the name and type from reading the directory;

@@ -149,6 +149,35 @@ func TestCrawlDoesNotFollowSymlinks(t *testing.T) {
 	}
 }
 
+// TestCrawlSkipsGitDirs: a repository's .git holds thousands of objects and
+// refs nobody searches for, and they crowd real files out of the results.
+func TestCrawlSkipsGitDirs(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "fndr", "main.go"), "")
+	writeFile(t, filepath.Join(root, "fndr", ".gitignore"), "")
+	writeFile(t, filepath.Join(root, "fndr", ".git", "HEAD"), "")
+	writeFile(t, filepath.Join(root, "fndr", ".git", "refs", "heads", "main"), "")
+
+	entries, _, err := crawlAll(t, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := slices.Sorted(maps.Keys(byRel(t, root, entries)))
+	want := []string{"fndr", "fndr/.gitignore", "fndr/main.go"}
+	if !slices.Equal(got, want) {
+		t.Errorf("entries = %q, want %q", got, want)
+	}
+
+	// Crawling a .git directory itself is an explicit request: honour it.
+	entries, _, err = crawlAll(t, filepath.Join(root, "fndr", ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 4 { // HEAD, refs, refs/heads, refs/heads/main
+		t.Errorf("crawling .git as root: %d entries, want its contents", len(entries))
+	}
+}
+
 func TestCrawlSkipsUnreadableDirs(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
