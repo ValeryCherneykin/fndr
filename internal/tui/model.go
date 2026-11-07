@@ -178,9 +178,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.quit()
 
-	case "up", "ctrl+k", "alt+k":
+	case "up", "ctrl+p", "ctrl+k", "alt+k":
 		m.move(-1)
-	case "down", "ctrl+j", "alt+j":
+	case "down", "ctrl+n", "ctrl+j", "alt+j":
 		m.move(1)
 	case "pgup":
 		m.move(-m.listHeight())

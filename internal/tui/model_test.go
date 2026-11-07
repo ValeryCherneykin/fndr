@@ -114,6 +114,14 @@ func TestSelectionMovesAndClamps(t *testing.T) {
 	if m.cursor != 1 {
 		t.Errorf("cursor = %d after alt+k, want 1", m.cursor)
 	}
+	key(m, 'p', tea.ModCtrl)
+	if m.cursor != 0 {
+		t.Errorf("cursor = %d after ctrl+p, want 0", m.cursor)
+	}
+	key(m, 'n', tea.ModCtrl)
+	if m.cursor != 1 {
+		t.Errorf("cursor = %d after ctrl+n, want 1", m.cursor)
+	}
 
 	typeText(m, "1") // a new query starts at the top again
 	if m.cursor != 0 {
