@@ -4,6 +4,9 @@
 //
 //	fndr [flags]
 //
+// Without flags it opens the interface on the current directory: type to
+// search, arrows to move, Esc to clear the query or quit.
+//
 // The flags are:
 //
 //	-version
@@ -16,7 +19,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime/debug"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/ValeryCherneykin/fndr/internal/tui"
 )
 
 // version is set at build time by the linker:
@@ -29,13 +37,20 @@ import (
 var version string
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, runTUI))
+}
+
+// runTUI runs the interface on root until the user quits.
+func runTUI(root string) error {
+	_, err := tea.NewProgram(tui.New(root)).Run()
+	return err
 }
 
 // run is the real entry point. It takes its arguments and output streams as
 // parameters and returns an exit code instead of calling os.Exit, so tests can
-// drive the whole CLI in-process without spawning a binary.
-func run(args []string, stdout, stderr io.Writer) int {
+// drive the whole CLI in-process without spawning a binary. The interface is
+// passed in as ui for the same reason: tests must not take over a terminal.
+func run(args []string, stdout, stderr io.Writer, ui func(root string) error) int {
 	fs := flag.NewFlagSet("fndr", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "print the version and exit")
@@ -58,10 +73,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	// Explicitly ignored: if stderr itself is broken there is nowhere left to
-	// report the failure.
-	_, _ = fmt.Fprintln(stderr, "fndr: the interface is not implemented yet; try -version")
+	root, err := startDir()
+	if err == nil {
+		err = ui(root)
+	}
+	if err != nil {
+		// Explicitly ignored: if stderr itself is broken there is nowhere
+		// left to report the failure.
+		_, _ = fmt.Fprintf(stderr, "fndr: %v\n", err)
+		return 1
+	}
 	return 0
+}
+
+// startDir returns the directory to open: the current one, with symlinks
+// resolved. The crawler refuses a root that is itself a symlink, and common
+// directories are (/tmp on macOS is /private/tmp), so the real path is used.
+func startDir() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(wd)
 }
 
 // resolveVersion reports the most precise version information available.
