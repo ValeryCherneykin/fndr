@@ -245,6 +245,7 @@ func TestViewFillsScreenExactly(t *testing.T) {
 		"no matches":    func(m *Model) { typeText(m, "zzz") },
 		"long query":    func(m *Model) { typeText(m, strings.Repeat("g", 300)) },
 		"while crawled": func(m *Model) { m.crawling = true; m.skipped = 3 },
+		"long notice":   func(m *Model) { m.setNotice(strings.Repeat("cannot open ", 30), true) },
 	}
 	for name, setup := range states {
 		for _, sz := range sizes {

@@ -27,8 +27,9 @@ const promptWidth = 3
 // only reads it, which is what makes the interface testable without a
 // terminal: feed messages to Update, inspect the result.
 type Model struct {
-	root string // directory being indexed and searched (LOCAL scope)
-	home string // $HOME, shown as "~"
+	root   string // directory being indexed and searched (LOCAL scope)
+	home   string // $HOME, shown as "~"
+	editor string // editor command line; empty means $VISUAL, $EDITOR, then a fallback
 
 	ix *indexer.Index
 
@@ -57,6 +58,11 @@ type Model struct {
 	offset int // first visible row
 	width  int
 	height int
+
+	// notice reports the last action in the status bar until the next key:
+	// what was opened, or why it could not be.
+	notice    string
+	noticeErr bool
 }
 
 // New returns a model that will index and search root once the program
@@ -162,11 +168,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+
+	case openMsg:
+		return m, msg.run()
+
+	case openedMsg:
+		m.opened(msg)
+		return m, nil
 	}
 	return m, nil
 }
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.setNotice("", false) // a notice describes the last action; any key moves on
+
 	switch msg.String() {
 	case "ctrl+c":
 		return m.quit()
@@ -177,6 +192,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m.quit()
+
+	case "enter":
+		cmd := m.openSelected()
+		return m, cmd
 
 	case "up", "ctrl+p", "ctrl+k", "alt+k":
 		m.move(-1)
@@ -341,8 +360,17 @@ func (m *Model) viewList(b *strings.Builder) {
 
 // viewStatus renders the status bar: scope and directory on the left, honest
 // counts and problems on the right.
+//
+// When space runs out things give way in a fixed order. The scope block
+// always stays. The notice (what just happened) is cut rather than dropped,
+// and the counts make room for it. The directory, which is also visible in
+// every result row, shrinks from the left: "…/fndr/cmd".
 func (m *Model) viewStatus() string {
-	left := stMode.Render(" LOCAL ") + stBarText.Render(" "+m.tildify(m.root)+" ")
+	mode := stMode.Render(" LOCAL ")
+	sep := stBar.Render("  ")
+	// Cells left once the scope block, one cell of gap and one of right
+	// padding are placed.
+	avail := m.width - ansi.StringWidth(mode) - 2
 
 	var right []string
 	if m.crawlErr != nil {
@@ -359,13 +387,36 @@ func (m *Model) viewStatus() string {
 		count = "indexing " + count
 	}
 	right = append(right, stBar.Render(count))
-	r := strings.Join(right, stBar.Render("  ")) + stBar.Render(" ")
+	rest := strings.Join(right, sep)
 
-	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(r)
-	if gap < 1 {
-		return finish(left, m.width) // too narrow: scope beats counts
+	if m.notice != "" {
+		room := avail - ansi.StringWidth(rest) - ansi.StringWidth(sep)
+		if room < 16 {
+			rest, room = "", avail
+		}
+		if room > 0 {
+			n := pick(m.noticeErr, &stBarErr, &stBarText).Render(ansi.Truncate(m.notice, room, "…"))
+			if rest != "" {
+				n += sep
+			}
+			rest = n + rest
+		}
 	}
-	return left + stBar.Render(strings.Repeat(" ", gap)) + r
+
+	left := mode
+	dir := m.tildify(m.root)
+	if room := avail - ansi.StringWidth(rest) - 2; room >= 4 { // 2: spaces around dir
+		if w := ansi.StringWidth(dir); w > room {
+			dir = "…" + ansi.TruncateLeft(dir, w-room+1, "")
+		}
+		left += stBarText.Render(" " + dir + " ")
+	}
+
+	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(rest) - 1
+	if gap < 1 {
+		return finish(left, m.width) // too narrow even for the counts
+	}
+	return left + stBar.Render(strings.Repeat(" ", gap)) + rest + stBar.Render(" ")
 }
 
 // tildify shortens paths under $HOME to "~/...".

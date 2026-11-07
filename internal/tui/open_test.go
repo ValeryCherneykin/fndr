@@ -1,0 +1,100 @@
+package tui
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/ValeryCherneykin/fndr/internal/opener"
+)
+
+func TestResolveOpen(t *testing.T) {
+	dir := t.TempDir()
+	text := filepath.Join(dir, "notes.md")
+	binary := filepath.Join(dir, "photo.png")
+	if err := os.WriteFile(text, []byte("# notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, []byte("\x89PNG\r\n\x1a\n\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Text goes to the editor, in the terminal. A configured editor wins
+	// over the environment, which keeps this test independent of the
+	// machine.
+	got, ok := resolveOpen(text, "ed -s").(openMsg)
+	if !ok || !got.terminal || !slices.Equal(got.argv, []string{"ed", "-s", text}) {
+		t.Errorf("text file: got %+v, want the editor in the terminal", got)
+	}
+
+	// Anything else goes to the system opener, outside the terminal. A CI
+	// machine may have none installed; then the error must say so.
+	switch msg := resolveOpen(binary, "ed").(type) {
+	case openMsg:
+		if msg.terminal || msg.argv[len(msg.argv)-1] != binary {
+			t.Errorf("binary file: got %+v, want the system opener", msg)
+		}
+	case openedMsg:
+		if !errors.Is(msg.err, opener.ErrNoOpener) {
+			t.Errorf("binary file: err = %v, want ErrNoOpener", msg.err)
+		}
+	}
+
+	// A file deleted since it was indexed is reported, not ignored.
+	if msg, ok := resolveOpen(filepath.Join(dir, "gone.txt"), "ed").(openedMsg); !ok || msg.err == nil {
+		t.Errorf("missing file: got %+v, want an error", msg)
+	}
+}
+
+func TestEnterOnFolderSaysSo(t *testing.T) {
+	m := testModel(t, "/r/dir")
+	typeText(m, "dir")
+	if cmd := m.openSelected(); cmd != nil {
+		t.Error("enter on a folder returned a command")
+	}
+	if !strings.Contains(m.notice, "folders") {
+		t.Errorf("notice = %q, want it to say folders are not opened yet", m.notice)
+	}
+}
+
+func TestEnterWithNoResults(t *testing.T) {
+	m := testModel(t, "/r/a.go")
+	if quit := key(m, tea.KeyEnter, 0); quit || m.notice != "" {
+		t.Errorf("enter on an empty list: quit=%v notice=%q, want nothing", quit, m.notice)
+	}
+}
+
+// TestOpenOutcomeIsVisible: the result of an open is always reported, and
+// a failure never silently (CLAUDE.md, "Чего НЕ делать").
+func TestOpenOutcomeIsVisible(t *testing.T) {
+	m := testModel(t, "/r/a.go")
+
+	m.Update(openedMsg{name: "a.pdf", viaApp: true})
+	if status := ansi.Strip(m.viewStatus()); !strings.Contains(status, "opened a.pdf") {
+		t.Errorf("status %q, want the opened file named", status)
+	}
+
+	m.Update(openedMsg{name: "a.pdf", err: opener.ErrNoOpener})
+	if status := ansi.Strip(m.viewStatus()); !strings.Contains(status, "cannot open a.pdf") {
+		t.Errorf("status %q, want the failure reported", status)
+	}
+
+	// A long root must not push the notice off a narrow bar.
+	m.root = "/" + strings.Repeat("very-long-directory/", 10)
+	m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
+	m.setNotice("folders open in the next version", false)
+	if status := ansi.Strip(m.viewStatus()); !strings.Contains(status, "folders") {
+		t.Errorf("status %q, want the notice kept over the directory", status)
+	}
+
+	key(m, tea.KeyDown, 0)
+	if m.notice != "" {
+		t.Errorf("notice %q survived a key press", m.notice)
+	}
+}
