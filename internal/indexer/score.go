@@ -52,10 +52,14 @@ const (
 //     possible. This makes the match compact: for "go" in "/a/go.mod", pass
 //     one alone would take the "o" of "mod"; pass two takes "go".
 //
+// Only e.Path[from:] is matched: Search passes the offset just past the
+// search root, so the root's own directories, shared by every entry, never
+// match. Positions are still offsets into the whole path.
+//
 // Both passes are O(len(path)) and allocation-free. The result is a very good
 // match, not always the best one: fzf's optimal algorithm costs
 // O(len(path) * len(query)) per entry, which is not worth it for paths.
-func fuzzyScore(e *Entry, lowerQuery string, pos []int) (score int, ok bool) {
+func fuzzyScore(e *Entry, from int, lowerQuery string, pos []int) (score int, ok bool) {
 	if lowerQuery == "" {
 		return 0, true
 	}
@@ -64,7 +68,7 @@ func fuzzyScore(e *Entry, lowerQuery string, pos []int) (score int, ok bool) {
 	// Pass 1: find the latest start.
 	start := -1
 	qi := len(lowerQuery) // lowerQuery[:qi] is still unmatched
-	for i := len(s); i > 0 && qi > 0; {
+	for i := len(s); i > from && qi > 0; {
 		r, size := lastRune(s[:i])
 		i -= size // i is now the start of r
 		qr, qsize := lastRune(lowerQuery[:qi])

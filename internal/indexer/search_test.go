@@ -33,7 +33,7 @@ func naiveSearch(snap []Entry, q Query) (paths []string, total int) {
 		if q.Under != "" && !isBelow(snap[i].Path, q.Under) {
 			continue
 		}
-		if s, ok := fuzzyScore(&snap[i], lq, nil); ok {
+		if s, ok := fuzzyScore(&snap[i], tailStart(q.Under), lq, nil); ok {
 			all = append(all, candidate{idx: int32(i), score: int32(s)}) //nolint:gosec // test data is small
 		}
 	}
@@ -43,6 +43,37 @@ func naiveSearch(snap []Entry, q Query) (paths []string, total int) {
 		paths = append(paths, snap[c.idx].Path)
 	}
 	return paths, total
+}
+
+// TestSearchIgnoresRootPrefix: the directories above Under are the same for
+// every entry, so letters in them must not match. Without this, "home"
+// matches every file below /home/v.
+func TestSearchIgnoresRootPrefix(t *testing.T) {
+	snap := []Entry{
+		NewEntry("/home/v/dev/src/main.go", 0, 0, false),
+		NewEntry("/home/v/dev/hd.txt", 0, 0, false),
+	}
+	tests := []struct {
+		text, under string
+		want        []string
+	}{
+		{"home", "/home/v/dev", nil},
+		{"hd", "/home/v/dev", []string{"/home/v/dev/hd.txt"}},
+		{"srcmain", "/home/v/dev", []string{"/home/v/dev/src/main.go"}},
+		{"home", "", []string{"/home/v/dev/hd.txt", "/home/v/dev/src/main.go"}}, // GLOBAL: whole path
+		{"homevdev", "/", []string{"/home/v/dev/hd.txt", "/home/v/dev/src/main.go"}},
+	}
+	for _, tt := range tests {
+		rs, _, err := Search(context.Background(), snap, Query{Text: tt.text, Under: tt.under})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := resultPaths(rs)
+		slices.Sort(got)
+		if !slices.Equal(got, tt.want) {
+			t.Errorf("Search(%q under %q) = %q, want %q", tt.text, tt.under, got, tt.want)
+		}
+	}
 }
 
 func resultPaths(rs []Result) []string {

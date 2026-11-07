@@ -11,7 +11,7 @@ import (
 func score(t *testing.T, path, query string) int {
 	t.Helper()
 	e := NewEntry(path, 0, 0, false)
-	s, ok := fuzzyScore(&e, strings.ToLower(query), nil)
+	s, ok := fuzzyScore(&e, 0, strings.ToLower(query), nil)
 	if !ok {
 		t.Fatalf("fuzzyScore(%q, %q): no match", path, query)
 	}
@@ -61,7 +61,7 @@ func TestFuzzyScorePositions(t *testing.T) {
 		t.Run(tt.path+"/"+tt.query, func(t *testing.T) {
 			e := NewEntry(tt.path, 0, 0, false)
 			pos := make([]int, utf8.RuneCountInString(tt.query))
-			if _, ok := fuzzyScore(&e, strings.ToLower(tt.query), pos); !ok {
+			if _, ok := fuzzyScore(&e, 0, strings.ToLower(tt.query), pos); !ok {
 				t.Fatal("no match")
 			}
 			if !slices.Equal(pos, tt.want) {
@@ -89,7 +89,7 @@ func FuzzFuzzyScore(f *testing.F) {
 		qr := []rune(lq)
 		pos := make([]int, len(qr))
 
-		_, ok := fuzzyScore(&e, lq, pos)
+		_, ok := fuzzyScore(&e, 0, lq, pos)
 		if want := hasSubsequenceFold(path, lq); ok != want {
 			t.Fatalf("fuzzyScore ok = %v, hasSubsequenceFold = %v", ok, want)
 		}
@@ -116,7 +116,7 @@ func BenchmarkFuzzyScore(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		for i := range es {
-			fuzzyScore(&es[i], lq, nil)
+			fuzzyScore(&es[i], 0, lq, nil)
 		}
 	}
 }

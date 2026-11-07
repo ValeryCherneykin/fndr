@@ -266,7 +266,7 @@ func (m *Model) search() tea.Cmd {
 	m.cancelSearch = cancel
 	m.searching = true
 
-	seq, snap, q := m.seq, m.ix.Snapshot(), indexer.Query{Text: m.query}
+	seq, snap, q := m.seq, m.ix.Snapshot(), indexer.Query{Text: m.query, Under: m.root}
 	return func() tea.Msg {
 		defer cancel() // release the context once done; canceling twice is harmless
 		rs, total, err := indexer.Search(ctx, snap, q)

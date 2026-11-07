@@ -27,8 +27,10 @@ const chunkSize = 4096
 // Query describes one search.
 type Query struct {
 	// Text is what the user typed, matched fuzzily and case-insensitively
-	// against the whole path. An empty Text matches nothing: listing a
-	// directory is a different operation.
+	// against the part of the path below Under (the whole path if Under is
+	// empty). The directories above Under are the same for every entry;
+	// letters that happen to occur there would match everything. An empty
+	// Text matches nothing: listing a directory is a different operation.
 	Text string
 
 	// Under restricts the search to entries strictly below this directory,
@@ -84,6 +86,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 		limit = DefaultLimit
 	}
 	lq := strings.ToLower(q.Text)
+	from := tailStart(q.Under)
 
 	chunks := (len(snap) + chunkSize - 1) / chunkSize // ceiling division
 	workers = max(1, min(workers, chunks))
@@ -114,10 +117,10 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 					if q.Under != "" && !isBelow(e.Path, q.Under) {
 						continue
 					}
-					if !hasSubsequenceFold(e.Path, lq) {
+					if !hasSubsequenceFold(e.Path[from:], lq) {
 						continue
 					}
-					score, _ := fuzzyScore(e, lq, nil)
+					score, _ := fuzzyScore(e, from, lq, nil)
 					top.offer(candidate{idx: int32(i), score: int32(score)}) //nolint:gosec // see candidate
 				}
 			}
@@ -149,7 +152,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 	for i, c := range all {
 		e := &snap[c.idx]
 		pos := buf[i*nq : (i+1)*nq : (i+1)*nq] // capped, so appending to one result cannot overwrite the next
-		fuzzyScore(e, lq, pos)
+		fuzzyScore(e, from, lq, pos)
 		results[i] = Result{Entry: *e, Score: int(c.score), Positions: pos}
 	}
 	return results, total, nil
@@ -243,6 +246,20 @@ func (t *topK) down(i int) {
 		}
 		t.items[i], t.items[worst] = t.items[worst], t.items[i]
 		i = worst
+	}
+}
+
+// tailStart returns the byte offset where paths below dir continue past it:
+// "/home/v" + "/" is 8 bytes. Matching starts there. dir is absolute and
+// cleaned, so only the filesystem root ends in a separator.
+func tailStart(dir string) int {
+	switch {
+	case dir == "":
+		return 0
+	case strings.HasSuffix(dir, string(filepath.Separator)):
+		return len(dir)
+	default:
+		return len(dir) + 1
 	}
 }
 
