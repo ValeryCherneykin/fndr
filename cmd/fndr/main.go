@@ -7,7 +7,7 @@
 //
 // Without flags it opens the interface on the current directory: type to
 // search, arrows to move, Esc to clear the query or quit, Ctrl+E to quit
-// and jump to the selected folder.
+// and jump to the selected folder, Ctrl+V to show or hide the preview.
 //
 // The flags are:
 //

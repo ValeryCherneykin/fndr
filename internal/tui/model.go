@@ -71,6 +71,10 @@ type Model struct {
 	width  int
 	height int
 
+	// preview is the ctrl+v switch. Off by default: most of the time the list
+	// is all that is needed, and with the pane off nothing is read at all.
+	preview bool
+
 	// exitDir is the folder the shell should change to once fndr exits: set
 	// by ctrl+e, left empty by esc and ctrl+c, which leave the shell where
 	// it was.
@@ -234,6 +238,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+e":
 		m.exitDir = m.jumpTarget()
 		return m.quit()
+	case "ctrl+v":
+		// A switch, not a mode: every other key works the same with the pane
+		// on or off.
+		m.preview = !m.preview
 
 	case "enter", "right":
 		cmd := m.activate()
@@ -392,7 +400,7 @@ func (m *Model) View() tea.View {
 	var b strings.Builder
 	b.WriteString(finish(" "+stPrompt.Render("❯")+" "+stQuery.Render(m.query), m.width))
 	b.WriteByte('\n')
-	b.WriteString(stHair.Render(strings.Repeat("─", m.width)))
+	b.WriteString(m.viewHairline())
 	b.WriteByte('\n')
 	m.viewList(&b)
 	b.WriteString(m.viewStatus())
@@ -409,7 +417,7 @@ func (m *Model) View() tea.View {
 // viewList writes listHeight lines: the visible results, or an empty state
 // that says what fndr is doing, so the screen is never silently blank.
 func (m *Model) viewList(b *strings.Builder) {
-	h := m.listHeight()
+	h, w := m.listHeight(), m.listWidth()
 
 	var hint string
 	switch {
@@ -424,9 +432,10 @@ func (m *Model) viewList(b *strings.Builder) {
 		for i := range h {
 			line := ""
 			if i == h/3 {
-				line = stEmptyState.Render(centered(hint, m.width))
+				line = stEmptyState.Render(centered(hint, w))
 			}
-			b.WriteString(finish(line, m.width))
+			b.WriteString(finish(line, w))
+			m.viewPaneLine(b, i)
 			b.WriteByte('\n')
 		}
 		return
@@ -434,10 +443,11 @@ func (m *Model) viewList(b *strings.Builder) {
 
 	for i := range h {
 		if r := m.offset + i; r < len(m.results) {
-			b.WriteString(renderRow(&m.results[r], m.cwd, m.width, r == m.cursor))
+			b.WriteString(renderRow(&m.results[r], m.cwd, w, r == m.cursor))
 		} else {
-			b.WriteString(strings.Repeat(" ", m.width))
+			b.WriteString(strings.Repeat(" ", w))
 		}
+		m.viewPaneLine(b, i)
 		b.WriteByte('\n')
 	}
 }
