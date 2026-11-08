@@ -45,6 +45,12 @@ type Query struct {
 
 	// Limit caps the number of results; zero or less means DefaultLimit.
 	Limit int
+
+	// Boost adds points to the score of the paths it holds: how much the
+	// user is in the habit of going there. Search only reads it, from every
+	// worker at once, so the caller must never change a map once it has
+	// been passed here; build a new one instead.
+	Boost map[string]int
 }
 
 // Result is one search hit.
@@ -128,6 +134,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 						continue
 					}
 					score, _ := fuzzyScore(e, from, lq, nil)
+					score += q.Boost[e.Path]                                 // a nil map reads as 0
 					top.offer(candidate{idx: int32(i), score: int32(score)}) //nolint:gosec // see candidate
 				}
 			}

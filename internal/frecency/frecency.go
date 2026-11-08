@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -152,6 +153,28 @@ func weight(age time.Duration) float64 {
 	default:
 		return 0.25
 	}
+}
+
+// Boosts returns the ranking bonus of every remembered path at now, for
+// indexer.Query.Boost. The map is new on every call and never changed
+// afterwards, so searches running in parallel can read it without locks
+// while the store keeps recording visits.
+func (s *Store) Boosts(now time.Time) map[string]int {
+	m := make(map[string]int, len(s.entries))
+	for p := range s.entries {
+		if b := boost(s.Score(p, now)); b > 0 {
+			m[p] = b
+		}
+	}
+	return m
+}
+
+// boost turns a frecency score into ranking points. The scale is
+// logarithmic: the first visits matter most, and a path visited a thousand
+// times gets about a hundred points, enough to lead among matches of
+// similar quality, not to beat a clearly better match of what was typed.
+func boost(score float64) int {
+	return int(10 * math.Log2(1+score))
 }
 
 // Len is the number of remembered paths.

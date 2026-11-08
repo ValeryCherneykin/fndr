@@ -64,6 +64,11 @@ func runTUI(root string) (string, error) {
 	if !ok {
 		return "", nil
 	}
+	// Losing the history is not worth failing the jump the user asked for:
+	// say so, and still change directory.
+	if err := m.SaveHistory(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "fndr: %v\n", err)
+	}
 	return m.ExitDir(), nil
 }
 

@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/ValeryCherneykin/fndr/internal/frecency"
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
 
@@ -32,6 +34,14 @@ type Model struct {
 	editor string // editor command line; empty means $VISUAL, $EDITOR, then a fallback
 
 	ix *indexer.Index
+
+	// hist is what fndr has learned about where the user goes: entered
+	// folders, opened files, jumps. nil when it could not be opened; fndr
+	// then works as before and just does not learn. boosts is its snapshot
+	// for search: replaced after every visit, never modified, so parallel
+	// searches read it without locks.
+	hist   *frecency.Store
+	boosts map[string]int
 
 	// ctx lives as long as the program; quitting cancels it, which stops the
 	// crawl and any running search.
@@ -98,7 +108,49 @@ func New(root string) *Model {
 	home, _ := os.UserHomeDir() // best effort: without it paths just are not shortened
 	m := newModel(root, home, &indexer.Index{})
 	m.crawling = true // Init starts it
+
+	hist, err := openHistory()
+	if err != nil {
+		m.setNotice("not learning this time: "+err.Error(), true)
+	}
+	m.useHistory(hist)
 	return m
+}
+
+func openHistory() (*frecency.Store, error) {
+	path, err := frecency.DefaultPath()
+	if err != nil {
+		return nil, err
+	}
+	return frecency.Open(path)
+}
+
+// useHistory makes fndr learn into hist and rank by it; nil turns learning
+// off.
+func (m *Model) useHistory(hist *frecency.Store) {
+	m.hist = hist
+	if hist != nil {
+		m.boosts = hist.Boosts(time.Now())
+	}
+}
+
+// learn records that the user went to path.
+func (m *Model) learn(path string) {
+	if m.hist == nil || path == "" {
+		return
+	}
+	now := time.Now()
+	m.hist.Visit(path, now)
+	m.boosts = m.hist.Boosts(now) // a new map: searches in flight keep the old one
+}
+
+// SaveHistory writes what fndr learned this session. The program calls it
+// once, after the interface has closed.
+func (m *Model) SaveHistory() error {
+	if m.hist == nil {
+		return nil
+	}
+	return m.hist.Save()
 }
 
 // newModel builds a model around an existing index without starting a crawl,
@@ -262,6 +314,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.quit()
 	case "ctrl+e":
 		m.exitDir = m.jumpTarget()
+		m.learn(m.exitDir)
 		return m.quit()
 	case "ctrl+v":
 		// A switch, not a mode: every other key works the same with the pane
@@ -388,7 +441,7 @@ func (m *Model) search() tea.Cmd {
 	// A trailing "/" asks for folders only, the way a path names a folder:
 	// "internal/" finds the folder, not the files that live in it.
 	text, dirs := strings.CutSuffix(m.query, "/")
-	seq, snap, q := m.seq, m.ix.Snapshot(), indexer.Query{Text: text, Under: m.cwd, Dirs: dirs}
+	seq, snap, q := m.seq, m.ix.Snapshot(), indexer.Query{Text: text, Under: m.cwd, Dirs: dirs, Boost: m.boosts}
 	return func() tea.Msg {
 		defer cancel() // release the context once done; canceling twice is harmless
 		rs, total, err := indexer.Search(ctx, snap, q)

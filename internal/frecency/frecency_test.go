@@ -158,3 +158,38 @@ func TestDefaultPath(t *testing.T) {
 		t.Errorf("without XDG_STATE_HOME: %q", p)
 	}
 }
+
+func TestBoosts(t *testing.T) {
+	s := open(t)
+	for range 20 {
+		s.Visit("/dev", now)
+	}
+	s.Visit("/once", now.Add(-365*24*time.Hour))
+
+	b := s.Boosts(now)
+	if b["/dev"] <= b["/once"] || b["/never"] != 0 {
+		t.Errorf("boosts %v: want the habit above the one-off, nothing for the unknown", b)
+	}
+
+	// The map is a snapshot: later visits must not change it under a
+	// search that is reading it.
+	before := b["/dev"]
+	s.Visit("/dev", now)
+	if b["/dev"] != before {
+		t.Error("a visit changed a snapshot already handed out")
+	}
+}
+
+// TestBoostScale: the first visits matter most, and even a huge habit stays
+// in the range of a few good fuzzy matches.
+func TestBoostScale(t *testing.T) {
+	if boost(0) != 0 {
+		t.Errorf("boost(0) = %d, want 0", boost(0))
+	}
+	if b1, b2 := boost(4), boost(8); b2-b1 >= b1 {
+		t.Errorf("boost(4) = %d, boost(8) = %d: doubling should add less than the first visits did", b1, b2)
+	}
+	if b := boost(4000); b < 100 || b > 130 {
+		t.Errorf("boost(4000) = %d, want about 120", b)
+	}
+}

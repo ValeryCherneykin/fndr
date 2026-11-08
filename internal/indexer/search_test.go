@@ -101,6 +101,28 @@ func TestSearchDirsOnly(t *testing.T) {
 	}
 }
 
+// TestSearchBoost: a habit lifts a path above an equally good match, and
+// the boost decides the order even when the top-K cut is tight, which is
+// why it is applied in the workers, before the cut, not afterwards.
+func TestSearchBoost(t *testing.T) {
+	snap := []Entry{
+		NewEntry("/r/a/main.go", 0, 0, false),
+		NewEntry("/r/b/main.go", 0, 0, false),
+		NewEntry("/r/c/main.go", 0, 0, false),
+	}
+	q := Query{Text: "main", Limit: 1}
+	rs, _, _ := Search(context.Background(), snap, q)
+	if len(rs) != 1 || rs[0].Entry.Path == "/r/c/main.go" {
+		t.Fatalf("without a boost got %q; the test needs c not to win on its own", resultPaths(rs))
+	}
+
+	q.Boost = map[string]int{"/r/c/main.go": 30}
+	rs, _, _ = Search(context.Background(), snap, q)
+	if len(rs) != 1 || rs[0].Entry.Path != "/r/c/main.go" {
+		t.Errorf("with c boosted got %q, want c first", resultPaths(rs))
+	}
+}
+
 func resultPaths(rs []Result) []string {
 	ps := make([]string, len(rs))
 	for i := range rs {

@@ -64,7 +64,9 @@ func (m *Model) activate() tea.Cmd {
 	if len(m.results) == 0 {
 		return nil
 	}
-	if e := &m.results[m.cursor].Entry; e.IsDir {
+	e := &m.results[m.cursor].Entry
+	m.learn(e.Path)
+	if e.IsDir {
 		return m.chdir(e.Path, "")
 	}
 	return m.openSelected()
