@@ -213,6 +213,10 @@ func rendered(icons map[string]icon) map[string]string {
 var (
 	iconDirStyled  = stIconDir.Render(iconDir)
 	iconFileStyled = stIconFile.Render(iconFile)
+
+	// iconHabitStyled marks a place shown because the user often goes
+	// there: a clock (nf-md-history), in the scope accent.
+	iconHabitStyled = stIconDir.Render("\U000F02DA")
 )
 
 // iconFor returns the styled icon for an entry: folder, whole name,

@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -17,24 +19,53 @@ import (
 // The listing is read from disk, not from the index (see indexer.List), in
 // a command like everything else that touches the disk.
 
-// loadListing reads dir in the background.
-func loadListing(dir string) tea.Cmd {
+// habitsShown is how many habits are offered above a folder's contents:
+// enough for the few places that matter, few enough not to push the folder
+// itself off the screen.
+const habitsShown = 5
+
+// loadListing reads dir in the background, along with the habits below it
+// that still exist. habits come from the history, in memory; checking that
+// they exist takes the disk, so it happens here and not in Update. A place
+// that was deleted or moved simply is not offered.
+func loadListing(dir string, habits []string) tea.Cmd {
 	return func() tea.Msg {
 		es, err := indexer.List(dir)
-		return listMsg{dir: dir, entries: es, err: err}
+		msg := listMsg{dir: dir, entries: es, err: err}
+		for _, p := range habits {
+			if info, err := os.Stat(p); err == nil {
+				msg.habits = append(msg.habits, indexer.NewEntry(p, info.Size(), info.ModTime().UnixNano(), info.IsDir()))
+			}
+		}
+		return msg
 	}
+}
+
+// load reads dir with the habits below it.
+func (m *Model) load(dir string) tea.Cmd {
+	var habits []string
+	if m.hist != nil {
+		habits = m.hist.Top(dir, habitsShown, time.Now())
+	}
+	return loadListing(dir, habits)
 }
 
 // listed stores a directory listing, unless the user has moved on since it
 // was requested.
-func (m *Model) listed(msg listMsg) {
+func (m *Model) listed(msg *listMsg) {
 	if msg.dir != m.cwd {
 		return
 	}
 	m.listErr = msg.err
-	m.listing = make([]indexer.Result, len(msg.entries))
-	for i, e := range msg.entries {
-		m.listing[i].Entry = e
+	m.habits = len(msg.habits)
+	// Habits first, then the folder's contents: one list, so moving,
+	// Enter and Ctrl+E work on habit rows exactly as on any other.
+	m.listing = make([]indexer.Result, 0, len(msg.habits)+len(msg.entries))
+	for _, e := range msg.habits {
+		m.listing = append(m.listing, indexer.Result{Entry: e})
+	}
+	for _, e := range msg.entries {
+		m.listing = append(m.listing, indexer.Result{Entry: e})
 	}
 	if m.query == "" {
 		m.showListing()
@@ -49,7 +80,9 @@ func (m *Model) showListing() {
 	if m.listing == nil {
 		return // not read yet; keep reveal for when it is
 	}
-	for i := range m.listing {
+	// The folder just left is looked for among the contents, not the
+	// habits above them: that is where it sits in the folder.
+	for i := m.habits; i < len(m.listing); i++ {
 		if m.listing[i].Entry.Path == m.reveal {
 			m.cursor = i
 			break
@@ -91,7 +124,7 @@ func (m *Model) chdir(dir, reveal string) tea.Cmd {
 	m.query, m.qpos = "", 0 // the cursor must never point past the query
 	m.search()              // cancels any search in flight and shows the (empty) listing
 
-	cmds := []tea.Cmd{loadListing(dir)}
+	cmds := []tea.Cmd{m.load(dir)}
 	if !within(dir, m.root) {
 		m.root, m.ix = dir, &indexer.Index{}
 		cmds = append(cmds, m.startCrawl())

@@ -61,6 +61,7 @@ type Model struct {
 	// With an empty query the list shows cwd's contents (browse); otherwise
 	// search results. listing is nil until the directory has been read.
 	listing []indexer.Result
+	habits  int // the first habits rows of listing are places the user goes, not contents
 	listErr error
 	reveal  string // path to select when the listing arrives: the folder just left
 
@@ -175,6 +176,7 @@ type (
 	listMsg struct {
 		dir     string
 		entries []indexer.Entry
+		habits  []indexer.Entry // places below dir the user goes to, that still exist
 		err     error
 	}
 	searchMsg struct {
@@ -189,9 +191,9 @@ type (
 // Init reads the starting directory and starts the crawl.
 func (m *Model) Init() tea.Cmd {
 	if !m.crawling {
-		return loadListing(m.cwd)
+		return m.load(m.cwd)
 	}
-	return tea.Batch(loadListing(m.cwd), m.startCrawl())
+	return tea.Batch(m.load(m.cwd), m.startCrawl())
 }
 
 // Update applies one event to the model. After every event the preview pane
@@ -276,7 +278,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case listMsg:
-		m.listed(msg)
+		m.listed(&msg)
 		return m, nil
 
 	case openMsg:
@@ -527,7 +529,8 @@ func (m *Model) viewList(b *strings.Builder) {
 
 	for i := range h {
 		if r := m.offset + i; r < len(m.results) {
-			b.WriteString(renderRow(&m.results[r], m.cwd, w, r == m.cursor))
+			habit := m.query == "" && r < m.habits
+			b.WriteString(renderRow(&m.results[r], m.cwd, w, r == m.cursor, habit))
 		} else {
 			b.WriteString(strings.Repeat(" ", w))
 		}

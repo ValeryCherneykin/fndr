@@ -34,7 +34,10 @@ const (
 //
 // Matched characters are highlighted wherever they are, in the name or in the
 // directory, so the user can see why a result matched.
-func renderRow(r *indexer.Result, root string, width int, selected bool) string {
+//
+// A habit row (a place the user often goes, shown above a folder's contents)
+// carries a clock instead of its type icon: it says why the row is there.
+func renderRow(r *indexer.Result, root string, width int, selected, habit bool) string {
 	path := r.Entry.Path
 	nameLo := len(path) - len(r.Entry.Name())
 	dirLo, dirHi := relDir(path, nameLo, root)
@@ -59,7 +62,11 @@ func renderRow(r *indexer.Result, root string, width int, selected bool) string 
 		b.WriteByte(' ')
 	}
 	b.WriteByte(' ')
-	b.WriteString(iconFor(r.Entry.Name(), r.Entry.IsDir))
+	if habit {
+		b.WriteString(iconHabitStyled)
+	} else {
+		b.WriteString(iconFor(r.Entry.Name(), r.Entry.IsDir))
+	}
 	b.WriteByte(' ')
 
 	nameW := ansi.StringWidth(path[nameLo:])

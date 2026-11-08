@@ -15,7 +15,7 @@ func result(path string, positions ...int) indexer.Result {
 
 // plain renders a row and strips the colours, leaving what the user reads.
 func plain(r indexer.Result, root string, width int, selected bool) string {
-	return ansi.Strip(renderRow(&r, root, width, selected))
+	return ansi.Strip(renderRow(&r, root, width, selected, false))
 }
 
 func TestRenderRowLayout(t *testing.T) {
@@ -84,7 +84,7 @@ func TestRenderRowExactWidth(t *testing.T) {
 		for _, w := range []int{1, 5, 6, 10, 20, 37, 80, 200} {
 			for _, sel := range []bool{false, true} {
 				r := result(p, len(p)-1) // highlight the last byte
-				row := renderRow(&r, "/r", w, sel)
+				row := renderRow(&r, "/r", w, sel, sel)
 				if got := ansi.StringWidth(row); got != w {
 					t.Errorf("path %q, width %d: row is %d cells: %q", p, w, got, ansi.Strip(row))
 				}

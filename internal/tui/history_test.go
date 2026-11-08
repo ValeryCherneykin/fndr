@@ -2,6 +2,7 @@ package tui
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -85,5 +86,66 @@ func TestNoHistoryStillWorks(t *testing.T) {
 	key(m, tea.KeyEnter, 0)
 	if err := m.SaveHistory(); err != nil {
 		t.Errorf("SaveHistory without a history: %v", err)
+	}
+}
+
+// habitModel is browseModel with a history in which src/main.go is a strong
+// habit and docs a weaker one, loaded the way a start-up would load it.
+func habitModel(t *testing.T) (m *Model, root string) {
+	t.Helper()
+	m, root = browseModel(t, "")
+	withHistory(t, m)
+	now := time.Now()
+	for range 5 {
+		m.hist.Visit(filepath.Join(root, "src", "main.go"), now)
+	}
+	m.hist.Visit(filepath.Join(root, "docs"), now)
+	m.hist.Visit(filepath.Join(root, "gone"), now) // deleted since: must not be offered
+	send(m, m.load(m.cwd)())
+	return m, root
+}
+
+// TestHabitsComeFirst: open fndr, and the places you go are on top, the
+// strongest selected: Enter takes you there.
+func TestHabitsComeFirst(t *testing.T) {
+	m, root := habitModel(t)
+
+	want := []string{"main.go", "docs", "docs", "src", "README.md", ".git"}
+	if got := m.names(); !slices.Equal(got, want) {
+		t.Errorf("list %q, want habits (main.go, docs) above the contents", got)
+	}
+	if m.habits != 2 || m.cursor != 0 {
+		t.Errorf("habits %d, cursor %d; want 2 habits and the first selected", m.habits, m.cursor)
+	}
+	if m.selectedPath() != filepath.Join(root, "src", "main.go") {
+		t.Errorf("selected %q, want the strongest habit", m.selectedPath())
+	}
+}
+
+// TestHabitsOnlyWhileBrowsing: a query shows search results, no habit rows.
+func TestHabitsOnlyWhileBrowsing(t *testing.T) {
+	m, _ := habitModel(t)
+	typeText(m, "read")
+	if got := m.names(); !slices.Equal(got, []string{"README.md"}) {
+		t.Errorf("search shows %q, want just the match", got)
+	}
+	key(m, tea.KeyBackspace, 0)
+	key(m, tea.KeyBackspace, 0)
+	key(m, tea.KeyBackspace, 0)
+	key(m, tea.KeyBackspace, 0)
+	if m.habits != 2 || m.names()[0] != "main.go" {
+		t.Errorf("back to browsing: %q, want the habits again", m.names())
+	}
+}
+
+// TestRevealSkipsHabits: coming back up out of docs selects docs in the
+// folder's contents, not the docs habit row above them.
+func TestRevealSkipsHabits(t *testing.T) {
+	m, _ := habitModel(t)
+	m.cursor = 2 // docs, in the contents
+	key(m, tea.KeyEnter, 0)
+	key(m, tea.KeyBackspace, 0)
+	if m.cursor != 2 {
+		t.Errorf("cursor %d after coming back up, want 2: docs in the contents", m.cursor)
 	}
 }

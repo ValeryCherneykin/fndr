@@ -13,12 +13,14 @@ package frecency
 
 import (
 	"bufio"
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -175,6 +177,50 @@ func (s *Store) Boosts(now time.Time) map[string]int {
 // similar quality, not to beat a clearly better match of what was typed.
 func boost(score float64) int {
 	return int(10 * math.Log2(1+score))
+}
+
+// minTop is the score a path needs to be offered by Top: one visit today
+// (weight 2) qualifies, one visit last month (0.25) does not. Top is a
+// short list of habits, and a one-off from long ago is noise there.
+const minTop = 1
+
+// Top returns up to n remembered paths strictly below dir, the strongest
+// habit first.
+func (s *Store) Top(dir string, n int, now time.Time) []string {
+	prefix := dir
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	var c []scored
+	for p := range s.entries {
+		if strings.HasPrefix(p, prefix) {
+			if sc := s.Score(p, now); sc >= minTop {
+				c = append(c, scored{p, sc})
+			}
+		}
+	}
+	slices.SortFunc(c, byHabit)
+
+	out := make([]string, 0, min(n, len(c)))
+	for _, x := range c[:min(n, len(c))] {
+		out = append(out, x.path)
+	}
+	return out
+}
+
+type scored struct {
+	path  string
+	score float64
+}
+
+// byHabit orders paths for Top: the highest score first, and on a tie by
+// path, so the list does not reshuffle between runs (map order is random).
+func byHabit(a, b scored) int {
+	// b before a: the higher score sorts first.
+	if c := cmp.Compare(b.score, a.score); c != 0 {
+		return c
+	}
+	return strings.Compare(a.path, b.path)
 }
 
 // Len is the number of remembered paths.
