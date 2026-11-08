@@ -155,8 +155,42 @@ func TestEscStepsBack(t *testing.T) {
 	if quit := key(m, tea.KeyEscape, 0); !quit {
 		t.Error("second esc on an empty query must quit")
 	}
-	if m.ExitDir() != m.cwd {
-		t.Errorf("ExitDir = %q after esc, want the current folder %q", m.ExitDir(), m.cwd)
+	if m.ExitDir() != "" {
+		t.Errorf("ExitDir = %q after esc, want no folder change", m.ExitDir())
+	}
+}
+
+func TestCtrlEJumps(t *testing.T) {
+	m := testModel(t, "/r/src/main.go", "/r/fndr/dir")
+	if quit := key(m, 'e', tea.ModCtrl); !quit || m.ExitDir() != "/r" {
+		t.Errorf("ctrl+e with nothing selected: quit=%v ExitDir=%q, want the current folder", quit, m.ExitDir())
+	}
+
+	m = testModel(t, "/r/src/main.go", "/r/fndr/dir")
+	typeText(m, "fndrdir")
+	key(m, 'e', tea.ModCtrl)
+	if m.ExitDir() != "/r/fndr/dir" {
+		t.Errorf("ctrl+e on a folder: ExitDir = %q, want the folder itself", m.ExitDir())
+	}
+
+	m = testModel(t, "/r/src/main.go", "/r/fndr/dir")
+	typeText(m, "main")
+	key(m, 'e', tea.ModCtrl)
+	if m.ExitDir() != "/r/src" {
+		t.Errorf("ctrl+e on a file: ExitDir = %q, want its folder", m.ExitDir())
+	}
+}
+
+// TestCtrlEWhileBrowsingStaysPut: browsing, the selection after going up
+// rests on the folder just left; ctrl+e must not jump back into it.
+func TestCtrlEWhileBrowsingStaysPut(t *testing.T) {
+	m, root := browseModel(t, "")
+	m.selectName(t, "src")
+	key(m, tea.KeyEnter, 0)
+	typeText(m, "-") // back up; the selection rests on src
+	key(m, 'e', tea.ModCtrl)
+	if m.ExitDir() != root {
+		t.Errorf("ExitDir = %q, want the folder being browsed %q", m.ExitDir(), root)
 	}
 }
 

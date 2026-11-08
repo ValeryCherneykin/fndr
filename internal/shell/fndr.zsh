@@ -3,7 +3,7 @@
 #   eval "$(fndr init zsh)"
 #
 # It defines a function named fndr that runs the real program and then cds
-# to the folder it was left in with Esc. Ctrl+C leaves you where you were.
+# to the folder picked with Ctrl+E. Esc and Ctrl+C leave you where you were.
 
 fndr() {
   local tmp="$(mktemp)"

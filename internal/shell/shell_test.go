@@ -19,7 +19,7 @@ func TestInit(t *testing.T) {
 
 // TestZshChangesDirectory runs the real function in a real zsh, with a fake
 // fndr on PATH that writes a folder to its -cwd-file the way fndr does on
-// Esc, and checks that the shell ends up there. Skipped where zsh is not
+// Ctrl+E, and checks that the shell ends up there. Skipped where zsh is not
 // installed (it is on every Mac, not on every CI runner).
 func TestZshChangesDirectory(t *testing.T) {
 	zshPath, err := exec.LookPath("zsh")
@@ -35,7 +35,7 @@ func TestZshChangesDirectory(t *testing.T) {
 	if err := os.Mkdir(bin, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	// The fake fndr behaves like fndr quit with Esc: it writes $TARGET to
+	// The fake fndr behaves like fndr quit with Ctrl+E: it writes $TARGET to
 	// the file named after --cwd-file.
 	fake := "#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = --cwd-file ]; then printf %s \"$TARGET\" > \"$2\"; fi\n  shift\ndone\n"
 	if err := os.WriteFile(filepath.Join(bin, "fndr"), []byte(fake), 0o700); err != nil { //nolint:gosec // test helper must be executable

@@ -72,7 +72,8 @@ type Model struct {
 	height int
 
 	// exitDir is the folder the shell should change to once fndr exits: set
-	// by esc, left empty by ctrl+c, which leaves the shell where it was.
+	// by ctrl+e, left empty by esc and ctrl+c, which leave the shell where
+	// it was.
 	exitDir string
 
 	// notice reports the last action in the status bar until the next key:
@@ -224,13 +225,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m.quit()
 	case "esc":
-		// Esc is always one step back: first the query, then the program,
-		// taking the shell along to the folder the user ended up in.
+		// Esc is always one step back: first the query, then the program.
 		if m.query != "" {
 			cmd := m.setQuery("")
 			return m, cmd
 		}
-		m.exitDir = m.cwd
+		return m.quit()
+	case "ctrl+e":
+		m.exitDir = m.jumpTarget()
 		return m.quit()
 
 	case "enter", "right":
@@ -292,6 +294,24 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ExitDir returns the folder the shell should change to after the program
 // exits, or "" to stay where it was.
 func (m *Model) ExitDir() string { return m.exitDir }
+
+// jumpTarget is where ctrl+e takes the shell.
+//
+// Browsing (empty query), the user is in cwd, whatever is selected: after
+// going up, the selection rests on the folder just left, and jumping back
+// into it would be a surprise. Searching, the user has found something:
+// the selected folder, or the folder holding the selected file. Search,
+// then jump: a zoxide that knows the whole disk.
+func (m *Model) jumpTarget() string {
+	if m.query == "" || len(m.results) == 0 {
+		return m.cwd
+	}
+	e := &m.results[m.cursor].Entry
+	if e.IsDir {
+		return e.Path
+	}
+	return filepath.Dir(e.Path)
+}
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
 	m.stop()

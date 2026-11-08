@@ -6,14 +6,15 @@
 //	fndr init zsh
 //
 // Without flags it opens the interface on the current directory: type to
-// search, arrows to move, Esc to clear the query or quit.
+// search, arrows to move, Esc to clear the query or quit, Ctrl+E to quit
+// and jump to the selected folder.
 //
 // The flags are:
 //
 //	-version
 //		Print the version and exit.
 //	-cwd-file path
-//		On exit with Esc, write the folder fndr was in to path, for a shell
+//		On exit with Ctrl+E, write the folder to jump to to path, for a shell
 //		function to cd into. A program cannot change its parent shell's
 //		directory itself.
 //
@@ -96,7 +97,7 @@ func run(args []string, stdout, stderr io.Writer, ui ui) int {
 	fs := flag.NewFlagSet("fndr", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "print the version and exit")
-	cwdFile := fs.String("cwd-file", "", "on exit with Esc, write the current folder to this file")
+	cwdFile := fs.String("cwd-file", "", "on exit with Ctrl+E, write the folder to jump to to this file")
 
 	if err := fs.Parse(args); err != nil {
 		// -h and -help are a successful request for usage, not a mistake.
