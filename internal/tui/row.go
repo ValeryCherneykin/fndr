@@ -59,11 +59,7 @@ func renderRow(r *indexer.Result, root string, width int, selected bool) string 
 		b.WriteByte(' ')
 	}
 	b.WriteByte(' ')
-	if r.Entry.IsDir {
-		b.WriteString(stIconDir.Render(iconDir))
-	} else {
-		b.WriteString(stIconFile.Render(iconFile))
-	}
+	b.WriteString(iconFor(r.Entry.Name(), r.Entry.IsDir))
 	b.WriteByte(' ')
 
 	nameW := ansi.StringWidth(path[nameLo:])

@@ -49,8 +49,9 @@ var (
 	stMode    = lipgloss.NewStyle().Background(colLocal).Foreground(colBar).Bold(true)
 )
 
-// Icons from Nerd Fonts (Font Awesome set). Per-category icons and colours,
-// and the icons = false fallback, come with the config step.
+// The two icons every entry falls back to; icons by file type live in
+// icons.go. The icons = false fallback, for terminals without a Nerd Font,
+// comes with the config step.
 const (
 	iconDir  = "" // nf-fa-folder
 	iconFile = "" // nf-fa-file

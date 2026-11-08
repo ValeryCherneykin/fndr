@@ -183,13 +183,9 @@ func paneDir(es []indexer.Entry, cw, h int) []string {
 	es = es[:min(len(es), h)]
 	out := make([]string, len(es))
 	for i := range es {
-		icon := stIconFile.Render(iconFile)
-		if es[i].IsDir {
-			icon = stIconDir.Render(iconDir)
-		}
 		name := es[i].Name()
 		st := pick(strings.HasPrefix(name, "."), &stNameHidden, &stName)
-		out[i] = icon + " " + st.Render(ansi.Truncate(name, max(cw-2, 0), "…"))
+		out[i] = iconFor(name, es[i].IsDir) + " " + st.Render(ansi.Truncate(name, max(cw-2, 0), "…"))
 	}
 	return out
 }

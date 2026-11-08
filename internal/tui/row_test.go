@@ -22,7 +22,7 @@ func TestRenderRowLayout(t *testing.T) {
 	r := result("/home/v/dev/fndr/cmd/fndr/main.go")
 	got := plain(r, "/home/v/dev", 50, true)
 
-	if !strings.HasPrefix(got, "▎ "+iconFile+" main.go ") {
+	if !strings.HasPrefix(got, "▎ "+ansi.Strip(iconFor("main.go", false))+" main.go ") {
 		t.Errorf("row = %q, want marker, icon, then the name", got)
 	}
 	if !strings.HasSuffix(got, "fndr/cmd/fndr ") {
@@ -64,7 +64,7 @@ func TestRenderRowLongNameIsCut(t *testing.T) {
 
 func TestRenderRowEntryInRootHasNoDirectory(t *testing.T) {
 	got := plain(result("/r/main.go"), "/r", 30, false)
-	if strings.TrimRight(got, " ") != "  "+iconFile+" main.go" {
+	if strings.TrimRight(got, " ") != "  "+ansi.Strip(iconFor("main.go", false))+" main.go" {
 		t.Errorf("row = %q, want just the name", got)
 	}
 }
