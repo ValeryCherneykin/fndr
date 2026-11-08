@@ -33,30 +33,53 @@ func TestLooksLikeText(t *testing.T) {
 	}
 }
 
-func TestIsText(t *testing.T) {
+func TestClassify(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]struct {
 		content string
-		want    bool
+		want    Kind
 	}{
-		"Makefile":  {"build:\n\tgo build\n", true},
-		"empty":     {"", true},
-		"photo.png": {"\x89PNG\r\n\x1a\n\x00\x00", false},
+		"Makefile":  {"build:\n\tgo build\n", Text},
+		"empty":     {"", Text},
+		"run.sh":    {"#!/bin/sh\necho hi\n", Text}, // scripts are edited, not run
+		"photo.png": {"\x89PNG\r\n\x1a\n\x00\x00", Other},
+		"fndr":      {"\xcf\xfa\xed\xfe\x0c\x00\x00\x01", Program},
+		"fndr-elf":  {"\x7fELF\x02\x01\x01\x00", Program},
 		// Longer than sniffLen, with a NUL after it: only the head counts.
-		"long.txt": {strings.Repeat("a", sniffLen) + "\x00", true},
+		"long.txt": {strings.Repeat("a", sniffLen) + "\x00", Text},
 	}
 	for name, f := range files {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(f.content), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		got, err := IsText(path)
+		got, err := Classify(path)
 		if err != nil || got != f.want {
-			t.Errorf("IsText(%s) = %v, %v; want %v, nil", name, got, err, f.want)
+			t.Errorf("Classify(%s) = %v, %v; want %v, nil", name, got, err, f.want)
 		}
 	}
 
-	if _, err := IsText(filepath.Join(dir, "missing")); !os.IsNotExist(err) {
-		t.Errorf("IsText(missing) error = %v, want not-exist", err)
+	if _, err := Classify(filepath.Join(dir, "missing")); !os.IsNotExist(err) {
+		t.Errorf("Classify(missing) error = %v, want not-exist", err)
+	}
+}
+
+func TestLooksLikeProgram(t *testing.T) {
+	tests := []struct {
+		head string
+		want bool
+	}{
+		{"\x7fELF\x02\x01", true},
+		{"\xcf\xfa\xed\xfe\x0c", true},
+		{"\xca\xfe\xba\xbe\x00", true},
+		{"%PDF-1.7", false},
+		{"ELF", false},    // not the signature: it starts with \x7f
+		{"\x7fEL", false}, // too short to be a whole signature
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := looksLikeProgram([]byte(tt.head)); got != tt.want {
+			t.Errorf("looksLikeProgram(%q) = %v, want %v", tt.head, got, tt.want)
+		}
 	}
 }

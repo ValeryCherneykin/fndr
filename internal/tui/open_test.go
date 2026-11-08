@@ -46,6 +46,15 @@ func TestResolveOpen(t *testing.T) {
 		}
 	}
 
+	// A program is never run: enter on a binary only says what it is.
+	program := filepath.Join(dir, "fndr")
+	if err := os.WriteFile(program, []byte("\xcf\xfa\xed\xfe\x0c\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if msg, ok := resolveOpen(program, "ed").(openedMsg); !ok || !msg.program {
+		t.Errorf("program: got %+v, want it reported, not opened", msg)
+	}
+
 	// A file deleted since it was indexed is reported, not ignored.
 	if msg, ok := resolveOpen(filepath.Join(dir, "gone.txt"), "ed").(openedMsg); !ok || msg.err == nil {
 		t.Errorf("missing file: got %+v, want an error", msg)
@@ -67,6 +76,11 @@ func TestOpenOutcomeIsVisible(t *testing.T) {
 	m.Update(openedMsg{name: "a.pdf", viaApp: true})
 	if status := ansi.Strip(m.viewStatus()); !strings.Contains(status, "opened a.pdf") {
 		t.Errorf("status %q, want the opened file named", status)
+	}
+
+	m.Update(openedMsg{name: "fndr", program: true})
+	if status := ansi.Strip(m.viewStatus()); !strings.Contains(status, "fndr is a program") {
+		t.Errorf("status %q, want the program named and not run", status)
 	}
 
 	m.Update(openedMsg{name: "a.pdf", err: opener.ErrNoOpener})

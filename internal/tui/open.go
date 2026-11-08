@@ -24,9 +24,10 @@ type (
 		terminal bool // a terminal editor: suspend the UI while it runs
 	}
 	openedMsg struct {
-		name   string
-		viaApp bool // opened by the system opener, which returns at once
-		err    error
+		name    string
+		viaApp  bool // opened by the system opener, which returns at once
+		program bool // a native executable, deliberately not opened
+		err     error
 	}
 )
 
@@ -48,11 +49,14 @@ func (m *Model) openSelected() tea.Cmd {
 // so it must run in a command, never in Update.
 func resolveOpen(path, editor string) tea.Msg {
 	name := filepath.Base(path)
-	text, err := opener.IsText(path)
+	kind, err := opener.Classify(path)
 	if err != nil {
 		return openedMsg{name: name, err: err}
 	}
-	if text {
+	if kind == opener.Program {
+		return openedMsg{name: name, program: true}
+	}
+	if kind == opener.Text {
 		argv, err := opener.Editor(editor)
 		if err != nil {
 			return openedMsg{name: name, err: err}
@@ -97,6 +101,8 @@ func (m *Model) opened(msg openedMsg) {
 	switch {
 	case msg.err != nil:
 		m.setNotice("cannot open "+msg.name+": "+msg.err.Error(), true)
+	case msg.program:
+		m.setNotice(msg.name+" is a program — not running it", false)
 	case msg.viaApp:
 		m.setNotice("opened "+msg.name, false)
 	}
