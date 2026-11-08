@@ -52,17 +52,6 @@ func TestResolveOpen(t *testing.T) {
 	}
 }
 
-func TestEnterOnFolderSaysSo(t *testing.T) {
-	m := testModel(t, "/r/dir")
-	typeText(m, "dir")
-	if cmd := m.openSelected(); cmd != nil {
-		t.Error("enter on a folder returned a command")
-	}
-	if !strings.Contains(m.notice, "folders") {
-		t.Errorf("notice = %q, want it to say folders are not opened yet", m.notice)
-	}
-}
-
 func TestEnterWithNoResults(t *testing.T) {
 	m := testModel(t, "/r/a.go")
 	if quit := key(m, tea.KeyEnter, 0); quit || m.notice != "" {
@@ -85,11 +74,11 @@ func TestOpenOutcomeIsVisible(t *testing.T) {
 		t.Errorf("status %q, want the failure reported", status)
 	}
 
-	// A long root must not push the notice off a narrow bar.
-	m.root = "/" + strings.Repeat("very-long-directory/", 10)
+	// A long path must not push the notice off a narrow bar.
+	m.cwd = "/" + strings.Repeat("very-long-directory/", 10)
 	m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
-	m.setNotice("folders open in the next version", false)
-	if status := ansi.Strip(m.viewStatus()); !strings.Contains(status, "folders") {
+	m.setNotice("already at the top", false)
+	if status := ansi.Strip(m.viewStatus()); !strings.Contains(status, "already at the top") {
 		t.Errorf("status %q, want the notice kept over the directory", status)
 	}
 

@@ -40,8 +40,11 @@ func renderRow(r *indexer.Result, root string, width int, selected bool) string 
 	dirLo, dirHi := relDir(path, nameLo, root)
 
 	nameSt, dirSt := &stName, &stDir
-	if selected {
+	switch {
+	case selected:
 		nameSt, dirSt = &stNameSel, &stDirSel
+	case strings.HasPrefix(r.Entry.Name(), "."):
+		nameSt = &stNameHidden // there when looked for, never competing with the rest
 	}
 
 	avail := width - rowFixed

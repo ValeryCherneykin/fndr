@@ -27,7 +27,8 @@ const promptWidth = 3
 // only reads it, which is what makes the interface testable without a
 // terminal: feed messages to Update, inspect the result.
 type Model struct {
-	root   string // directory being indexed and searched (LOCAL scope)
+	root   string // directory the index covers: where the current crawl started
+	cwd    string // directory shown and searched (LOCAL scope); always at or below root
 	home   string // $HOME, shown as "~"
 	editor string // editor command line; empty means $VISUAL, $EDITOR, then a fallback
 
@@ -38,14 +39,25 @@ type Model struct {
 	ctx  context.Context
 	stop context.CancelFunc
 
-	crawl    *crawlStream
-	crawling bool
-	skipped  int
-	crawlErr error
+	// The crawl is restarted when the user goes above root. Every crawl gets
+	// a new gen, and messages from an older one are dropped, so a batch that
+	// was already on its way cannot leak into the new index.
+	crawlGen  int
+	crawlStop context.CancelFunc
+	crawl     *crawlStream
+	crawling  bool
+	skipped   int
+	crawlErr  error
+
+	// With an empty query the list shows cwd's contents (browse); otherwise
+	// search results. listing is nil until the directory has been read.
+	listing []indexer.Result
+	listErr error
+	reveal  string // path to select when the listing arrives: the folder just left
 
 	query   string
-	results []indexer.Result
-	total   int // matches in the index, of which results holds the best
+	results []indexer.Result // what the list shows: the listing or search results
+	total   int              // matches in the index, of which results holds the best
 
 	// Searches run off the UI goroutine. Every new search gets a fresh seq and
 	// cancels the previous one; a reply whose seq is not the latest is stale
@@ -70,7 +82,7 @@ type Model struct {
 func New(root string) *Model {
 	home, _ := os.UserHomeDir() // best effort: without it paths just are not shortened
 	m := newModel(root, home, &indexer.Index{})
-	m.crawling = true
+	m.crawling = true // Init starts it
 	return m
 }
 
@@ -78,16 +90,25 @@ func New(root string) *Model {
 // so tests can control exactly what is indexed.
 func newModel(root, home string, ix *indexer.Index) *Model {
 	ctx, stop := context.WithCancel(context.Background())
-	return &Model{root: root, home: home, ix: ix, ctx: ctx, stop: stop}
+	return &Model{root: root, cwd: root, home: home, ix: ix, ctx: ctx, stop: stop}
 }
 
 // Messages produced by commands. Each carries exactly what Update needs.
 type (
 	crawlStartedMsg struct{ stream *crawlStream }
-	batchMsg        []indexer.Entry
-	crawlDoneMsg    struct {
+	batchMsg        struct {
+		gen     int
+		entries []indexer.Entry
+	}
+	crawlDoneMsg struct {
+		gen   int
 		stats indexer.Stats
 		err   error
+	}
+	listMsg struct {
+		dir     string
+		entries []indexer.Entry
+		err     error
 	}
 	searchMsg struct {
 		seq     int
@@ -98,12 +119,12 @@ type (
 	}
 )
 
-// Init starts the crawl.
+// Init reads the starting directory and starts the crawl.
 func (m *Model) Init() tea.Cmd {
 	if !m.crawling {
-		return nil
+		return loadListing(m.cwd)
 	}
-	return startCrawl(m.ctx, m.root)
+	return tea.Batch(loadListing(m.cwd), m.startCrawl())
 }
 
 // Update applies one event to the model.
@@ -125,11 +146,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case crawlStartedMsg:
+		if msg.stream.gen != m.crawlGen {
+			return m, nil // replaced before it started; its context is canceled
+		}
 		m.crawl = msg.stream
 		return m, m.crawl.next()
 
 	case batchMsg:
-		m.ix.Add(msg)
+		if msg.gen != m.crawlGen {
+			return m, nil
+		}
+		m.ix.Add(msg.entries)
 		cmd := m.crawl.next()
 		// Refresh results as the index grows, but never queue searches: if one
 		// is running, its reply triggers the next (see searchMsg).
@@ -139,6 +166,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case crawlDoneMsg:
+		if msg.gen != m.crawlGen {
+			return m, nil
+		}
 		m.crawling = false
 		m.skipped = msg.stats.Skipped
 		if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
@@ -169,6 +199,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case listMsg:
+		m.listed(msg)
+		return m, nil
+
 	case openMsg:
 		return m, msg.run()
 
@@ -193,8 +227,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.quit()
 
-	case "enter":
-		cmd := m.openSelected()
+	case "enter", "right":
+		cmd := m.activate()
+		return m, cmd
+	case "left":
+		cmd := m.up()
 		return m, cmd
 
 	case "up", "ctrl+p", "ctrl+k", "alt+k":
@@ -211,16 +248,29 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.move(len(m.results))
 
 	case "backspace":
-		if m.query != "" {
-			_, size := utf8.DecodeLastRuneInString(m.query)
-			cmd := m.setQuery(m.query[:len(m.query)-size])
+		if m.query == "" {
+			// Nothing left to erase: backspace steps back out of the folder.
+			cmd := m.up()
 			return m, cmd
 		}
+		_, size := utf8.DecodeLastRuneInString(m.query)
+		cmd := m.setQuery(m.query[:len(m.query)-size])
+		return m, cmd
 	case "ctrl+w":
 		cmd := m.setQuery(deleteLastWord(m.query))
 		return m, cmd
 	case "ctrl+u":
 		cmd := m.setQuery("")
+		return m, cmd
+
+	case "-":
+		// As in Oil.nvim: "-" goes up a folder, but only with nothing typed;
+		// in a query it is just a character ("vless-tun").
+		if m.query == "" {
+			cmd := m.up()
+			return m, cmd
+		}
+		cmd := m.setQuery(m.query + "-")
 		return m, cmd
 
 	default:
@@ -258,7 +308,8 @@ func (m *Model) search() tea.Cmd {
 	}
 	m.seq++
 	if m.query == "" {
-		m.results, m.total, m.searching, m.cancelSearch = nil, 0, false, nil
+		m.searching, m.cancelSearch = false, nil
+		m.showListing()
 		return nil
 	}
 
@@ -266,7 +317,7 @@ func (m *Model) search() tea.Cmd {
 	m.cancelSearch = cancel
 	m.searching = true
 
-	seq, snap, q := m.seq, m.ix.Snapshot(), indexer.Query{Text: m.query, Under: m.root}
+	seq, snap, q := m.seq, m.ix.Snapshot(), indexer.Query{Text: m.query, Under: m.cwd}
 	return func() tea.Msg {
 		defer cancel() // release the context once done; canceling twice is harmless
 		rs, total, err := indexer.Search(ctx, snap, q)
@@ -329,11 +380,11 @@ func (m *Model) viewList(b *strings.Builder) {
 
 	var hint string
 	switch {
-	case m.query == "" && m.crawling:
-		hint = "indexing " + humanCount(m.ix.Len()) + " files…"
-	case m.query == "":
-		hint = "type to search " + humanCount(m.ix.Len()) + " files"
-	case len(m.results) == 0 && !m.searching:
+	case m.query == "" && m.listErr != nil:
+		hint = "cannot read this folder: " + m.listErr.Error()
+	case m.query == "" && m.listing != nil && len(m.listing) == 0:
+		hint = "empty folder"
+	case m.query != "" && len(m.results) == 0 && !m.searching:
 		hint = "no matches"
 	}
 	if hint != "" {
@@ -350,7 +401,7 @@ func (m *Model) viewList(b *strings.Builder) {
 
 	for i := range h {
 		if r := m.offset + i; r < len(m.results) {
-			b.WriteString(renderRow(&m.results[r], m.root, m.width, r == m.cursor))
+			b.WriteString(renderRow(&m.results[r], m.cwd, m.width, r == m.cursor))
 		} else {
 			b.WriteString(strings.Repeat(" ", m.width))
 		}
@@ -404,7 +455,7 @@ func (m *Model) viewStatus() string {
 	}
 
 	left := mode
-	dir := m.tildify(m.root)
+	dir := m.tildify(m.cwd)
 	if room := avail - ansi.StringWidth(rest) - 2; room >= 4 { // 2: spaces around dir
 		if w := ansi.StringWidth(dir); w > room {
 			dir = "…" + ansi.TruncateLeft(dir, w-room+1, "")
@@ -461,24 +512,39 @@ func deleteLastWord(s string) string {
 // at a time by a command, the standard Bubble Tea way to consume a channel:
 // each batchMsg schedules the read of the next one.
 type crawlStream struct {
+	gen     int
 	batches chan []indexer.Entry
 	done    chan crawlDoneMsg
 }
 
-// startCrawl launches indexer.Crawl in its own goroutine. A small buffer lets
+// startCrawl stops any running crawl and starts one over a fresh index
+// rooted at m.root.
+func (m *Model) startCrawl() tea.Cmd {
+	if m.crawlStop != nil {
+		m.crawlStop()
+	}
+	m.crawlGen++
+	ctx, stop := context.WithCancel(m.ctx)
+	m.crawlStop = stop
+	m.crawling, m.skipped, m.crawlErr = true, 0, nil
+	return runCrawl(ctx, m.crawlGen, m.root)
+}
+
+// runCrawl launches indexer.Crawl in its own goroutine. A small buffer lets
 // the crawl run a few batches ahead of the UI instead of waiting on every
 // handoff. The goroutine always ends: Crawl returns when ctx is canceled, and
 // done has room for its one result even if nobody reads it.
-func startCrawl(ctx context.Context, root string) tea.Cmd {
+func runCrawl(ctx context.Context, gen int, root string) tea.Cmd {
 	return func() tea.Msg {
 		s := &crawlStream{
+			gen:     gen,
 			batches: make(chan []indexer.Entry, 4),
 			done:    make(chan crawlDoneMsg, 1),
 		}
 		go func() {
 			stats, err := indexer.Crawl(ctx, root, s.batches)
 			close(s.batches)
-			s.done <- crawlDoneMsg{stats: stats, err: err}
+			s.done <- crawlDoneMsg{gen: gen, stats: stats, err: err}
 		}()
 		return crawlStartedMsg{stream: s}
 	}
@@ -489,7 +555,7 @@ func startCrawl(ctx context.Context, root string) tea.Cmd {
 func (s *crawlStream) next() tea.Cmd {
 	return func() tea.Msg {
 		if batch, ok := <-s.batches; ok {
-			return batchMsg(batch)
+			return batchMsg{gen: s.gen, entries: batch}
 		}
 		return <-s.done
 	}

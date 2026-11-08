@@ -214,7 +214,7 @@ func TestIndexGrowthRefreshesResults(t *testing.T) {
 		t.Fatalf("results = %q before b.go is indexed", m.resultPaths())
 	}
 
-	send(m, batchMsg{indexer.NewEntry("/r/b.go", 0, 0, false)})
+	send(m, batchMsg{gen: m.crawlGen, entries: []indexer.Entry{indexer.NewEntry("/r/b.go", 0, 0, false)}})
 	if got := m.resultPaths(); len(got) != 1 || got[0] != "/r/b.go" {
 		t.Errorf("results = %q after indexing b.go, want it found", got)
 	}

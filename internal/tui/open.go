@@ -30,19 +30,14 @@ type (
 	}
 )
 
-// openSelected opens the selected result: text in the editor, anything
-// else in the system's default application.
+// openSelected opens the selected file: text in the editor, anything else
+// in the system's default application. Folders are entered instead (see
+// activate).
 func (m *Model) openSelected() tea.Cmd {
 	if len(m.results) == 0 {
 		return nil
 	}
 	e := &m.results[m.cursor].Entry
-	if e.IsDir {
-		// Entering folders is the next step (browse). Say so rather than
-		// leave the key looking broken.
-		m.setNotice("folders open in the next version", false)
-		return nil
-	}
 	// Copied out of m: the command runs on another goroutine and must not
 	// touch the model.
 	path, editor := e.Path, m.editor

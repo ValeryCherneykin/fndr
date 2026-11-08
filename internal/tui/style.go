@@ -30,6 +30,7 @@ var (
 	stName       = lipgloss.NewStyle().Foreground(colText)
 	stNameSel    = lipgloss.NewStyle().Foreground(colBright).Bold(true)
 	stNameHit    = lipgloss.NewStyle().Foreground(colLocalHi).Bold(true)
+	stNameHidden = lipgloss.NewStyle().Foreground(colDim)
 	stDir        = lipgloss.NewStyle().Foreground(colMuted)
 	stDirSel     = lipgloss.NewStyle().Foreground(colDim)
 	stDirHit     = lipgloss.NewStyle().Foreground(colLocal)
