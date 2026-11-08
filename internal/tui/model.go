@@ -70,6 +70,13 @@ type Model struct {
 	results []indexer.Result // what the list shows: the listing or search results
 	total   int              // matches in the index, of which results holds the best
 
+	// naming: the query line edits name, of something to create
+	// (create.go), with npos as its cursor. The query is left alone, and so
+	// is everything that reads it: searches, the listing, the counts.
+	naming bool
+	name   string
+	npos   int
+
 	// Searches run off the UI goroutine. Every new search gets a fresh seq and
 	// cancels the previous one; a reply whose seq is not the latest is stale
 	// (the user has typed since) and is dropped.
@@ -293,6 +300,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.listed(&msg)
 		return m, nil
 
+	case createdMsg:
+		cmd := m.created(&msg)
+		return m, cmd
+
 	case openMsg:
 		return m, msg.run()
 
@@ -319,6 +330,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.setNotice("", false) // a notice describes the last action; any key moves on
+	if m.naming {
+		return m.handleNameKey(msg)
+	}
 
 	switch msg.String() {
 	case "ctrl+c":
@@ -342,6 +356,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		cmd := m.activate()
 		return m, cmd
+	case "ctrl+o":
+		m.startNaming()
 
 	// Arrows left and right belong to the text, as in any input field; the
 	// held-ctrl pair is the same with hands on the home row, h and l as in
@@ -372,11 +388,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		cmd := m.backspace()
 		return m, cmd
-	case "ctrl+w":
-		cmd := m.edit(deleteLastWord(m.query[:m.qpos]), m.query[m.qpos:])
-		return m, cmd
-	case "ctrl+u":
-		cmd := m.edit("", m.query[m.qpos:]) // as in a shell: up to the cursor
+	case "ctrl+w", "ctrl+u":
+		cmd := m.editKey(msg.String())
 		return m, cmd
 
 	case "-":
@@ -502,7 +515,7 @@ func (m *Model) View() tea.View {
 	}
 
 	var b strings.Builder
-	b.WriteString(finish(" "+stPrompt.Render("❯")+" "+stQuery.Render(m.query), m.width))
+	b.WriteString(finish(m.viewPrompt(), m.width))
 	b.WriteByte('\n')
 	b.WriteString(m.viewHairline())
 	b.WriteByte('\n')
@@ -512,10 +525,28 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
-	v.Cursor = tea.NewCursor(min(promptWidth+ansi.StringWidth(m.query[:m.qpos]), m.width-1), 0)
+	text, pos := m.line()
+	v.Cursor = tea.NewCursor(min(promptWidth+ansi.StringWidth((*text)[:*pos]), m.width-1), 0)
 	v.Cursor.Shape = tea.CursorBar
 	v.Cursor.Color = colLocal
+	if m.naming {
+		v.Cursor.Color = colWarn
+	}
 	return v
+}
+
+// viewPrompt renders the query line. While naming, the prompt takes the NEW
+// colour and an empty field says what can be typed, so the change of meaning
+// is seen where the eyes are, not only in the status bar.
+func (m *Model) viewPrompt() string {
+	if !m.naming {
+		return " " + stPrompt.Render("❯") + " " + stQuery.Render(m.query)
+	}
+	text := stQuery.Render(m.name)
+	if m.name == "" {
+		text = stEmptyState.Render("name, or name/ for a folder")
+	}
+	return " " + stPromptNew.Render("+") + " " + text
 }
 
 // viewList writes listHeight lines: the visible results, or an empty state
@@ -567,6 +598,9 @@ func (m *Model) viewList(b *strings.Builder) {
 // every result row, shrinks from the left: "…/fndr/cmd".
 func (m *Model) viewStatus() string {
 	mode := stMode.Render(" LOCAL ")
+	if m.naming {
+		mode = stModeNew.Render(" NEW ")
+	}
 	sep := stBar.Render("  ")
 	// Cells left once the scope block, one cell of gap and one of right
 	// padding are placed.

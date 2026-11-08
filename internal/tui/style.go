@@ -26,10 +26,11 @@ var (
 // Styles are built once. A lipgloss.Style is a value, so these are safe to
 // share and to derive from.
 var (
-	stPrompt = lipgloss.NewStyle().Foreground(colLocal).Bold(true)
-	stQuery  = lipgloss.NewStyle().Foreground(colBright)
-	stHair   = lipgloss.NewStyle().Foreground(colHair)
-	stMarker = lipgloss.NewStyle().Foreground(colLocal)
+	stPrompt    = lipgloss.NewStyle().Foreground(colLocal).Bold(true)
+	stPromptNew = lipgloss.NewStyle().Foreground(colWarn).Bold(true)
+	stQuery     = lipgloss.NewStyle().Foreground(colBright)
+	stHair      = lipgloss.NewStyle().Foreground(colHair)
+	stMarker    = lipgloss.NewStyle().Foreground(colLocal)
 
 	stName       = lipgloss.NewStyle().Foreground(colText)
 	stNameSel    = lipgloss.NewStyle().Foreground(colBright).Bold(true)
@@ -50,6 +51,7 @@ var (
 	stBarWarn = lipgloss.NewStyle().Background(colBar).Foreground(colWarn)
 	stBarErr  = lipgloss.NewStyle().Background(colBar).Foreground(colAlert)
 	stMode    = lipgloss.NewStyle().Background(colLocal).Foreground(colBar).Bold(true)
+	stModeNew = stMode.Background(colWarn) // creating: the line means something else now
 )
 
 // stCode colours highlighted code, in the spirit of Tokyo Night: muted

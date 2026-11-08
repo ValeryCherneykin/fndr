@@ -118,6 +118,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+H` / `Ctrl+L`, `←` / `→` | Move through the query |
 | `Ctrl+W` · `Ctrl+U` | Delete a word · delete to the start |
 | `Ctrl+V` | Show or hide the preview (from 100 columns) |
+| `Ctrl+O` | New file · `name/` for a folder · `a/b/c.txt` makes the folders |
 | `Ctrl+E` | Quit and jump there |
 | `Esc` | Clear the query, then quit |
 | `Ctrl+C` | Quit |
