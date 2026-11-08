@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -62,5 +63,40 @@ func TestPreviewLayout(t *testing.T) {
 		if got := []rune(lines[i])[lw]; got != '│' {
 			t.Errorf("line %d has %q at the split, want │", i, got)
 		}
+	}
+}
+
+func TestPaneLoadsSelection(t *testing.T) {
+	m, root := browseModel(t, "")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	m.selectName(t, "src")
+	key(m, 'v', tea.ModCtrl) // runs the timer and the build, as the runtime would
+
+	got, ok := m.paneCache[filepath.Join(root, "src")]
+	if !ok || got.err != nil || len(got.p.Entries) != 2 {
+		t.Errorf("pane for src = %+v (cached %v), want its two files", got, ok)
+	}
+}
+
+func TestStalePaneTickIsDropped(t *testing.T) {
+	m := testModel(t, "/r/a.go", "/r/b.go")
+	m.paneWant = "/r/b.go" // the user has moved on from a.go
+
+	if cmd := m.paneTick(paneTickMsg{path: "/r/a.go"}); cmd != nil {
+		t.Error("a tick for a row no longer selected still reads the disk")
+	}
+	if cmd := m.paneTick(paneTickMsg{path: "/r/b.go"}); cmd == nil {
+		t.Error("a tick for the selected row reads nothing")
+	}
+}
+
+func TestHiddenPaneReadsNothing(t *testing.T) {
+	m, _ := browseModel(t, "")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	key(m, 'n', tea.ModCtrl)
+	key(m, 'n', tea.ModCtrl)
+
+	if m.paneWant != "" || m.paneCache != nil {
+		t.Errorf("preview off, yet want %q, cache %v", m.paneWant, m.paneCache)
 	}
 }

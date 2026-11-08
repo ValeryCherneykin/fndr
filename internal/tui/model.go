@@ -75,6 +75,12 @@ type Model struct {
 	// is all that is needed, and with the pane off nothing is read at all.
 	preview bool
 
+	// paneWant is the path the pane should show: the selection, once the
+	// pane is shown. paneCache holds previews already read, by path; see
+	// pane.go for how they are loaded.
+	paneWant  string
+	paneCache map[string]paneEntry
+
 	// exitDir is the folder the shell should change to once fndr exits: set
 	// by ctrl+e, left empty by esc and ctrl+c, which leave the shell where
 	// it was.
@@ -136,8 +142,17 @@ func (m *Model) Init() tea.Cmd {
 	return tea.Batch(loadListing(m.cwd), m.startCrawl())
 }
 
-// Update applies one event to the model.
+// Update applies one event to the model. After every event the preview pane
+// catches up with the selection, wherever the event moved it: a key, a search
+// reply, a folder listing.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	_, cmd := m.update(msg)
+	return m, tea.Batch(cmd, m.wantPreview())
+}
+
+// update does the work of Update for one event; Update wraps it so the pane
+// check cannot be forgotten on any of its many return paths.
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -217,6 +232,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case openedMsg:
 		m.opened(msg)
+		// The file may have just been edited: forget previews read before.
+		m.paneCache = nil
+		return m, nil
+
+	case paneTickMsg:
+		cmd := m.paneTick(msg)
+		return m, cmd
+
+	case paneMsg:
+		m.paneLoaded(&msg)
 		return m, nil
 	}
 	return m, nil
