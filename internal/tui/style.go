@@ -38,6 +38,10 @@ var (
 	stIconFile   = lipgloss.NewStyle().Foreground(colDim)
 	stEmptyState = lipgloss.NewStyle().Foreground(colMuted)
 
+	stPaneTitle = lipgloss.NewStyle().Foreground(colBright).Bold(true)
+	stPaneText  = lipgloss.NewStyle().Foreground(colText)
+	stPaneDim   = lipgloss.NewStyle().Foreground(colDim)
+
 	stBar     = lipgloss.NewStyle().Background(colBar).Foreground(colDim)
 	stBarText = lipgloss.NewStyle().Background(colBar).Foreground(colText)
 	stBarWarn = lipgloss.NewStyle().Background(colBar).Foreground(colWarn)

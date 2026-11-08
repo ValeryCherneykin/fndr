@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 	"github.com/ValeryCherneykin/fndr/internal/preview"
 )
 
@@ -24,6 +27,7 @@ const (
 	// with the preview switched on.
 	previewMinWidth = 100
 
+	// previewDelay is how long the selection must rest before it is read.
 	previewDelay = 60 * time.Millisecond
 
 	// paneMaxLines is how many lines of text a preview keeps: more than any
@@ -123,13 +127,110 @@ func (m *Model) viewHairline() string {
 	return stHair.Render(strings.Repeat("─", lw) + "┬" + strings.Repeat("─", m.width-lw-1))
 }
 
-// viewPaneLine appends line i of the preview pane, border included, after a
-// list row. Without the pane it appends nothing.
-func (m *Model) viewPaneLine(b *strings.Builder, i int) {
-	if !m.paneShown() {
+// writePaneLine appends line i of the pane, border included, after a list
+// row. Without the pane (lines is nil) it appends nothing.
+func writePaneLine(b *strings.Builder, lines []string, i int) {
+	if lines == nil {
 		return
 	}
-	_ = i // the pane's contents come with the next step
 	b.WriteString(stHair.Render("│"))
-	b.WriteString(strings.Repeat(" ", m.width-m.listWidth()-1))
+	b.WriteString(lines[i])
+}
+
+// paneLines renders the pane as h lines of exactly its width, or returns nil
+// when the pane is not shown. Content starts one cell in from the border.
+//
+// Until the preview arrives the pane stays blank: it takes 60 ms, and a
+// "loading…" flashing on every row would be noisier than the wait.
+func (m *Model) paneLines(h int) []string {
+	if !m.paneShown() {
+		return nil
+	}
+	pw := m.width - m.listWidth() - 1 // the border takes one cell
+	cw := max(pw-2, 0)                // content: a cell of margin each side
+
+	var body []string
+	if e, ok := m.paneCache[m.paneWant]; ok && m.paneWant != "" {
+		switch {
+		case e.err != nil:
+			body = []string{stPaneDim.Render(ansi.Truncate("cannot preview: "+e.err.Error(), cw, "…"))}
+		case e.p.Kind == preview.Dir:
+			body = paneDir(e.p.Entries, cw, h)
+		case e.p.Kind == preview.Text:
+			body = paneText(e.p.Lines, cw)
+		default:
+			body = paneCard(&e.p)
+		}
+	}
+
+	out := make([]string, h)
+	for i := range out {
+		line := ""
+		if i < len(body) {
+			line = body[i]
+		}
+		out[i] = finish(" "+line, pw)
+	}
+	return out
+}
+
+// paneDir draws a folder's contents the way the list draws rows: icon, then
+// name, hidden entries dimmed.
+func paneDir(es []indexer.Entry, cw, h int) []string {
+	if len(es) == 0 {
+		return []string{stPaneDim.Render("empty folder")}
+	}
+	es = es[:min(len(es), h)]
+	out := make([]string, len(es))
+	for i := range es {
+		icon := stIconFile.Render(iconFile)
+		if es[i].IsDir {
+			icon = stIconDir.Render(iconDir)
+		}
+		name := es[i].Name()
+		st := pick(strings.HasPrefix(name, "."), &stNameHidden, &stName)
+		out[i] = icon + " " + st.Render(ansi.Truncate(name, max(cw-2, 0), "…"))
+	}
+	return out
+}
+
+// paneTabWidth is how many spaces a tab becomes. Tabs must be expanded:
+// printed raw, the terminal moves to its own tab stops, measured from the
+// screen's edge rather than the pane's, and the layout breaks.
+const paneTabWidth = 4
+
+// paneText draws the first lines of a text file, cut at the pane's edge
+// rather than wrapped, the way an editor shows a long line.
+func paneText(lines []string, cw int) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		l = strings.ReplaceAll(l, "\t", strings.Repeat(" ", paneTabWidth))
+		out[i] = stPaneText.Render(ansi.Truncate(l, cw, ""))
+	}
+	return out
+}
+
+// paneCard draws the facts about a file with nothing readable to show.
+func paneCard(p *preview.Preview) []string {
+	return []string{
+		"",
+		stPaneTitle.Render(p.Type),
+		stPaneDim.Render(humanSize(p.Size)),
+		stPaneDim.Render(p.ModTime.Format("2 Jan 2006 15:04")),
+	}
+}
+
+// humanSize formats a file size the way Finder does, in powers of 1000:
+// 999 B, 4.2 KB, 1.3 MB, 5 GB.
+func humanSize(n int64) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprint(n) + " B"
+	case n < 1_000_000:
+		return trimZero(fmt.Sprintf("%.1f", float64(n)/1e3)) + " KB"
+	case n < 1_000_000_000:
+		return trimZero(fmt.Sprintf("%.1f", float64(n)/1e6)) + " MB"
+	default:
+		return trimZero(fmt.Sprintf("%.1f", float64(n)/1e9)) + " GB"
+	}
 }

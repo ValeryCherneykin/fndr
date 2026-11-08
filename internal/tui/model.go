@@ -443,6 +443,7 @@ func (m *Model) View() tea.View {
 // that says what fndr is doing, so the screen is never silently blank.
 func (m *Model) viewList(b *strings.Builder) {
 	h, w := m.listHeight(), m.listWidth()
+	pane := m.paneLines(h) // nil without the pane
 
 	var hint string
 	switch {
@@ -460,7 +461,7 @@ func (m *Model) viewList(b *strings.Builder) {
 				line = stEmptyState.Render(centered(hint, w))
 			}
 			b.WriteString(finish(line, w))
-			m.viewPaneLine(b, i)
+			writePaneLine(b, pane, i)
 			b.WriteByte('\n')
 		}
 		return
@@ -472,7 +473,7 @@ func (m *Model) viewList(b *strings.Builder) {
 		} else {
 			b.WriteString(strings.Repeat(" ", w))
 		}
-		m.viewPaneLine(b, i)
+		writePaneLine(b, pane, i)
 		b.WriteByte('\n')
 	}
 }
