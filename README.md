@@ -74,8 +74,7 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
 ### Homebrew (macOS, Linux)
 
 ```bash
-brew tap ValeryCherneykin/fndr
-brew install fndr
+brew install --cask ValeryCherneykin/fndr/fndr
 ```
 
 ### Go

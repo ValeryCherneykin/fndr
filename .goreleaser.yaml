@@ -1,0 +1,88 @@
+# Release configuration. A pushed tag (v0.1.0) triggers
+# .github/workflows/release.yml, which runs GoReleaser with this file: build
+# for every platform, attach archives and checksums to a GitHub release,
+# and update the Homebrew tap.
+#
+# Check it locally without publishing anything:
+#
+#	go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean
+version: 2
+
+project_name: fndr
+
+builds:
+  - main: ./cmd/fndr
+    binary: fndr
+    env:
+      # A static binary: no libc to match on the user's machine.
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath # no build machine paths baked into the binary
+    ldflags:
+      # Same stamp as `make install`, so `fndr -version` reads the same
+      # however it was installed.
+      - -s -w -X main.version=v{{ .Version }}
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    # Windows is left out until fndr is tested there: the opener and the
+    # shell integration are written for macOS, Linux and WSL.
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+# Release notes are built from Conventional Commits: features and fixes are
+# what a user wants to read; docs, tests and chores are not.
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Performance
+      regexp: '^perf(\(.+\))?!?:'
+      order: 2
+  filters:
+    exclude:
+      - '^docs'
+      - '^test'
+      - '^chore'
+      - '^ci'
+      - '^style'
+      - '^refactor'
+
+# A Homebrew cask in ValeryCherneykin/homebrew-fndr, so users get
+# `brew install --cask ValeryCherneykin/fndr/fndr`. Casks replaced formulas
+# for pre-built binaries in GoReleaser v2.
+homebrew_casks:
+  - name: fndr
+    repository:
+      owner: ValeryCherneykin
+      name: homebrew-fndr
+      # GITHUB_TOKEN can only write to this repository; the tap is another
+      # one, so a separate token with access to it is needed.
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/ValeryCherneykin/fndr
+    description: Search-first file manager for the terminal
+    license: MIT
+    hooks:
+      post:
+        # The binary is not signed by Apple (that costs a yearly fee), and
+        # brew marks cask downloads as quarantined: without this, macOS
+        # refuses to run it ("fndr is damaged and cannot be opened").
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/fndr"]
+          end
+    caveats: |
+      To let Ctrl+E change your shell's directory, add to ~/.zshrc:
+        eval "$(fndr init zsh)"
