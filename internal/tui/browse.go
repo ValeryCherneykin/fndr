@@ -86,8 +86,8 @@ func (m *Model) up() tea.Cmd {
 func (m *Model) chdir(dir, reveal string) tea.Cmd {
 	m.cwd, m.reveal = dir, reveal
 	m.listing, m.listErr = nil, nil
-	m.query = ""
-	m.search() // cancels any search in flight and shows the (empty) listing
+	m.query, m.qpos = "", 0 // the cursor must never point past the query
+	m.search()              // cancels any search in flight and shows the (empty) listing
 
 	cmds := []tea.Cmd{loadListing(dir)}
 	if !within(dir, m.root) {

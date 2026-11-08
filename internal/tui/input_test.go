@@ -89,3 +89,16 @@ func TestArrowsNoLongerChangeFolder(t *testing.T) {
 		t.Errorf("arrows moved to %q", m.cwd)
 	}
 }
+
+// TestEnteringFolderFromSearchResetsCursor: entering a found folder clears
+// the query; a cursor left behind pointed past its end and crashed View.
+func TestEnteringFolderFromSearchResetsCursor(t *testing.T) {
+	m, _ := browseModel(t, "")
+	typeText(m, "src")
+	key(m, tea.KeyEnter, 0)
+
+	if m.query != "" || m.qpos != 0 {
+		t.Fatalf("query %q cursor %d after entering a folder, want both reset", m.query, m.qpos)
+	}
+	_ = m.View() // must not panic
+}
