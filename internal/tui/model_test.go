@@ -155,6 +155,16 @@ func TestEscStepsBack(t *testing.T) {
 	if quit := key(m, tea.KeyEscape, 0); !quit {
 		t.Error("second esc on an empty query must quit")
 	}
+	if m.ExitDir() != m.cwd {
+		t.Errorf("ExitDir = %q after esc, want the current folder %q", m.ExitDir(), m.cwd)
+	}
+}
+
+func TestCtrlCLeavesTheShellWhereItWas(t *testing.T) {
+	m := testModel(t, "/r/main.go")
+	if quit := key(m, 'c', tea.ModCtrl); !quit || m.ExitDir() != "" {
+		t.Errorf("ctrl+c: quit=%v ExitDir=%q, want quit and no folder change", quit, m.ExitDir())
+	}
 }
 
 func TestEditingKeys(t *testing.T) {

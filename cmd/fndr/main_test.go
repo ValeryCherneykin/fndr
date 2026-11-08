@@ -3,13 +3,14 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // noUI stands in for the interface, so tests never take over the terminal.
-func noUI(string) error { return nil }
+func noUI(string) (string, error) { return "", nil }
 
 func TestRun(t *testing.T) {
 	tests := []struct {
@@ -59,7 +60,7 @@ func TestRunOpensUIOnCurrentDir(t *testing.T) {
 	t.Chdir(dir)
 
 	var got string
-	ui := func(root string) error { got = root; return nil }
+	ui := func(root string) (string, error) { got = root; return "", nil }
 	if code := run(nil, &bytes.Buffer{}, &bytes.Buffer{}, ui); code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
@@ -72,11 +73,50 @@ func TestRunOpensUIOnCurrentDir(t *testing.T) {
 
 func TestRunReportsUIError(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := func(string) error { return errors.New("no tty") }
+	ui := func(string) (string, error) { return "", errors.New("no tty") }
 	if code := run(nil, &bytes.Buffer{}, &stderr, ui); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
 	if !strings.Contains(stderr.String(), "no tty") {
 		t.Errorf("stderr = %q, want the error", stderr.String())
+	}
+}
+
+func TestRunWritesCwdFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "cwd")
+	ui := func(string) (string, error) { return "/home/v/dev", nil }
+	if code := run([]string{"-cwd-file", file}, &bytes.Buffer{}, &bytes.Buffer{}, ui); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	got, err := os.ReadFile(file)
+	if err != nil || string(got) != "/home/v/dev" {
+		t.Errorf("cwd file = %q, %v; want /home/v/dev", got, err)
+	}
+}
+
+// TestRunCtrlCWritesNothing: no folder to change to means no file content,
+// so the shell function stays put.
+func TestRunCtrlCWritesNothing(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "cwd")
+	if code := run([]string{"-cwd-file", file}, &bytes.Buffer{}, &bytes.Buffer{}, noUI); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Errorf("cwd file written for an exit without a folder: %v", err)
+	}
+}
+
+func TestRunInit(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"init", "zsh"}, &stdout, &stderr, noUI); code != 0 {
+		t.Fatalf("init zsh: exit code %d, stderr %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "--cwd-file") {
+		t.Errorf("init zsh printed %q, want a function passing --cwd-file", stdout.String())
+	}
+	for _, args := range [][]string{{"init"}, {"init", "powershell"}} {
+		if code := run(args, &bytes.Buffer{}, &bytes.Buffer{}, noUI); code != 2 {
+			t.Errorf("%q: exit code %d, want 2", args, code)
+		}
 	}
 }

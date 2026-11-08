@@ -23,6 +23,10 @@ help: ## Show this help
 build: ## Build the binary into bin/
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY) $(PKG)
 
+.PHONY: install
+install: ## Install fndr into $GOBIN (~/go/bin) with the version stamped
+	go install -trimpath -ldflags '$(LDFLAGS)' $(PKG)
+
 .PHONY: run
 run: ## Run fndr; pass flags with ARGS="-version"
 	go run $(PKG) $(ARGS)

@@ -71,6 +71,10 @@ type Model struct {
 	width  int
 	height int
 
+	// exitDir is the folder the shell should change to once fndr exits: set
+	// by esc, left empty by ctrl+c, which leaves the shell where it was.
+	exitDir string
+
 	// notice reports the last action in the status bar until the next key:
 	// what was opened, or why it could not be.
 	notice    string
@@ -220,11 +224,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m.quit()
 	case "esc":
-		// Esc is always one step back: first the query, then the program.
+		// Esc is always one step back: first the query, then the program,
+		// taking the shell along to the folder the user ended up in.
 		if m.query != "" {
 			cmd := m.setQuery("")
 			return m, cmd
 		}
+		m.exitDir = m.cwd
 		return m.quit()
 
 	case "enter", "right":
@@ -282,6 +288,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
+// ExitDir returns the folder the shell should change to after the program
+// exits, or "" to stay where it was.
+func (m *Model) ExitDir() string { return m.exitDir }
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
 	m.stop()
