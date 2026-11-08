@@ -1,6 +1,10 @@
 package tui
 
-import "charm.land/lipgloss/v2"
+import (
+	"charm.land/lipgloss/v2"
+
+	"github.com/ValeryCherneykin/fndr/internal/highlight"
+)
 
 // Palette is the "noir" scheme: near-black surfaces, greys for hierarchy, and
 // one accent colour per scope. The hierarchy is the point. The file name is
@@ -39,7 +43,6 @@ var (
 	stEmptyState = lipgloss.NewStyle().Foreground(colMuted)
 
 	stPaneTitle = lipgloss.NewStyle().Foreground(colBright).Bold(true)
-	stPaneText  = lipgloss.NewStyle().Foreground(colText)
 	stPaneDim   = lipgloss.NewStyle().Foreground(colDim)
 
 	stBar     = lipgloss.NewStyle().Background(colBar).Foreground(colDim)
@@ -48,6 +51,20 @@ var (
 	stBarErr  = lipgloss.NewStyle().Background(colBar).Foreground(colAlert)
 	stMode    = lipgloss.NewStyle().Background(colLocal).Foreground(colBar).Bold(true)
 )
+
+// stCode colours highlighted code, in the spirit of Tokyo Night: muted
+// enough to sit inside the noir frame, distinct enough to read structure at a
+// glance. Plain code keeps the interface's own text colour.
+var stCode = [...]lipgloss.Style{
+	highlight.Plain:    lipgloss.NewStyle().Foreground(colText),
+	highlight.Comment:  lipgloss.NewStyle().Foreground(lipgloss.Color("#565f89")).Italic(true),
+	highlight.String:   lipgloss.NewStyle().Foreground(lipgloss.Color("#9ece6a")),
+	highlight.Number:   lipgloss.NewStyle().Foreground(lipgloss.Color("#ff9e64")),
+	highlight.Keyword:  lipgloss.NewStyle().Foreground(lipgloss.Color("#bb9af7")),
+	highlight.Type:     lipgloss.NewStyle().Foreground(lipgloss.Color("#2ac3de")),
+	highlight.Constant: lipgloss.NewStyle().Foreground(lipgloss.Color("#ff9e64")),
+	highlight.Func:     lipgloss.NewStyle().Foreground(lipgloss.Color("#7aa2f7")),
+}
 
 // The two icons every entry falls back to; icons by file type live in
 // icons.go. The icons = false fallback, for terminals without a Nerd Font,

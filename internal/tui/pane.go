@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/ValeryCherneykin/fndr/internal/highlight"
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 	"github.com/ValeryCherneykin/fndr/internal/preview"
 )
@@ -49,10 +50,13 @@ type (
 		paneEntry
 	}
 
-	// paneEntry is a cached preview, or why it could not be built.
+	// paneEntry is a cached preview, or why it could not be built. Text
+	// is highlighted when it is read, off the UI goroutine, so drawing only
+	// paints spans that are already there.
 	paneEntry struct {
-		p   preview.Preview
-		err error
+		p    preview.Preview
+		code [][]highlight.Span // Text only: p.Lines, highlighted
+		err  error
 	}
 )
 
@@ -92,7 +96,11 @@ func (m *Model) paneTick(msg paneTickMsg) tea.Cmd {
 	path := msg.path
 	return func() tea.Msg {
 		p, err := preview.Build(path, paneMaxLines)
-		return paneMsg{path: path, paneEntry: paneEntry{p, err}}
+		e := paneEntry{p: p, err: err}
+		if err == nil && p.Kind == preview.Text {
+			e.code = highlight.Lines(path, p.Lines)
+		}
+		return paneMsg{path: path, paneEntry: e}
 	}
 }
 
@@ -157,7 +165,7 @@ func (m *Model) paneLines(h int) []string {
 		case e.p.Kind == preview.Dir:
 			body = paneDir(e.p.Entries, cw, h)
 		case e.p.Kind == preview.Text:
-			body = paneText(e.p.Lines, cw)
+			body = paneText(e.code, cw, h)
 		default:
 			body = paneCard(&e.p)
 		}
@@ -195,13 +203,26 @@ func paneDir(es []indexer.Entry, cw, h int) []string {
 // screen's edge rather than the pane's, and the layout breaks.
 const paneTabWidth = 4
 
-// paneText draws the first lines of a text file, cut at the pane's edge
-// rather than wrapped, the way an editor shows a long line.
-func paneText(lines []string, cw int) []string {
-	out := make([]string, len(lines))
-	for i, l := range lines {
-		l = strings.ReplaceAll(l, "\t", strings.Repeat(" ", paneTabWidth))
-		out[i] = stPaneText.Render(ansi.Truncate(l, cw, ""))
+// paneText draws the first h lines of highlighted text, cut at the pane's
+// edge rather than wrapped, the way an editor shows a long line.
+func paneText(code [][]highlight.Span, cw, h int) []string {
+	code = code[:min(len(code), h)] // only what is on screen gets styled
+	tab := strings.Repeat(" ", paneTabWidth)
+	out := make([]string, len(code))
+	for i, spans := range code {
+		var b strings.Builder
+		room := cw
+		for _, sp := range spans {
+			text := strings.ReplaceAll(sp.Text, "\t", tab)
+			if w := ansi.StringWidth(text); w > room {
+				text = ansi.Truncate(text, room, "")
+			}
+			b.WriteString(stCode[sp.Kind].Render(text))
+			if room -= ansi.StringWidth(text); room <= 0 {
+				break
+			}
+		}
+		out[i] = b.String()
 	}
 	return out
 }
