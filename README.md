@@ -51,10 +51,16 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
   folders first, hidden files dimmed. `Enter` goes in, `-` goes up, and
   search narrows to wherever you are.
 - **`internal/`** — end the query with a slash and only folders come back.
-- **Preview pane** (`Ctrl+V`). Folders show their contents, text files their
-  first lines, everything else a card: *PDF document · 2.1 MB · 8 Nov 2026*.
-  Loaded off the UI thread with a 60 ms settle delay and a cache, so holding
-  `↓` never lags.
+- **fndr learns you.** Folders you enter, files you open and places you jump
+  to are remembered, frecency-style, as in zoxide. Search ranks your habits
+  first, and an empty query offers the places you usually go from here,
+  the strongest one selected: open fndr, press Enter, you're there.
+- **Preview pane** (`Ctrl+V`). Code with syntax highlighting (Go, Rust,
+  Python, JS/TS, C/C++, Java, Lua, shell, SQL, YAML/TOML/JSON and more),
+  folders with their contents, **pictures as pictures** in kitty-compatible
+  terminals (Ghostty, kitty; tmux works too), and a card for everything else:
+  *PDF document · 2.1 MB · 8 Nov 2026*. Loaded off the UI thread with a 60 ms
+  settle delay and a cache, so holding `↓` never lags.
 - **Icons by file type.** ~150 types by name and extension (`Dockerfile`,
   `go.mod`, `.rs`, `.png`…), in the same glyphs and colours as
   nvim-web-devicons, so a file looks the same here as in your editor.
@@ -167,10 +173,10 @@ noticeably slower is treated as a bug.
 
 - [x] Fuzzy search, browse, open, jump on exit
 - [x] Preview pane, icons by type, query cursor
-- [ ] **fndr learns you** — frecency for files *and* folders you visit
+- [x] **fndr learns you** — frecency for files *and* folders you visit
+- [x] Syntax highlighting and pictures in the preview
 - [ ] **Instant start** — an on-disk index, caught up in the background
   (FSEvents on macOS)
-- [ ] Syntax highlighting and images (kitty graphics) in the preview
 - [ ] Stackable filters: `main .go >1mb @today`
 - [ ] Oil-style editing: rename and delete by editing a buffer with Vim keys
 - [ ] Config: rebind any key, choose your editor

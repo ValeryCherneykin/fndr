@@ -41,6 +41,7 @@ checksum:
 # what a user wants to read; docs, tests and chores are not.
 changelog:
   sort: asc
+  abbrev: 7 # short hashes: the full 40 characters are noise in release notes
   groups:
     - title: Features
       regexp: '^feat(\(.+\))?!?:'
