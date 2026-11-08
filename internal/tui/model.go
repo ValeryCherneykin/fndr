@@ -347,7 +347,10 @@ func (m *Model) search() tea.Cmd {
 	m.cancelSearch = cancel
 	m.searching = true
 
-	seq, snap, q := m.seq, m.ix.Snapshot(), indexer.Query{Text: m.query, Under: m.cwd}
+	// A trailing "/" asks for folders only, the way a path names a folder:
+	// "internal/" finds the folder, not the files that live in it.
+	text, dirs := strings.CutSuffix(m.query, "/")
+	seq, snap, q := m.seq, m.ix.Snapshot(), indexer.Query{Text: text, Under: m.cwd, Dirs: dirs}
 	return func() tea.Msg {
 		defer cancel() // release the context once done; canceling twice is harmless
 		rs, total, err := indexer.Search(ctx, snap, q)

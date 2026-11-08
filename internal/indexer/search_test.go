@@ -33,6 +33,9 @@ func naiveSearch(snap []Entry, q Query) (paths []string, total int) {
 		if q.Under != "" && !isBelow(snap[i].Path, q.Under) {
 			continue
 		}
+		if q.Dirs && !snap[i].IsDir {
+			continue
+		}
 		if s, ok := fuzzyScore(&snap[i], tailStart(q.Under), lq, nil); ok {
 			all = append(all, candidate{idx: int32(i), score: int32(s)}) //nolint:gosec // test data is small
 		}
@@ -73,6 +76,28 @@ func TestSearchIgnoresRootPrefix(t *testing.T) {
 		if !slices.Equal(got, tt.want) {
 			t.Errorf("Search(%q under %q) = %q, want %q", tt.text, tt.under, got, tt.want)
 		}
+	}
+}
+
+func TestSearchDirsOnly(t *testing.T) {
+	snap := []Entry{
+		NewEntry("/r/internal", 0, 0, true),
+		NewEntry("/r/internal/tui", 0, 0, true),
+		NewEntry("/r/internal/tui/model.go", 0, 0, false),
+		NewEntry("/r/internal.md", 0, 0, false),
+	}
+	rs, total, err := Search(context.Background(), snap, Query{Text: "internal", Dirs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := resultPaths(rs)
+	slices.Sort(got)
+	if want := []string{"/r/internal", "/r/internal/tui"}; !slices.Equal(got, want) || total != 2 {
+		t.Errorf("Dirs search = %q (total %d), want only the folders %q", got, total, want)
+	}
+	// Without Dirs, folders and files are both found.
+	if _, total, _ := Search(context.Background(), snap, Query{Text: "internal"}); total != 4 {
+		t.Errorf("plain search found %d entries, want all 4, folders included", total)
 	}
 }
 

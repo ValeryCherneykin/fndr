@@ -39,6 +39,10 @@ type Query struct {
 	// it to the current directory.
 	Under string
 
+	// Dirs restricts the search to directories. The TUI sets it for a query
+	// ending in "/", the way a path names a folder.
+	Dirs bool
+
 	// Limit caps the number of results; zero or less means DefaultLimit.
 	Limit int
 }
@@ -115,6 +119,9 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 				for i := lo; i < hi; i++ {
 					e := &snap[i]
 					if q.Under != "" && !isBelow(e.Path, q.Under) {
+						continue
+					}
+					if q.Dirs && !e.IsDir {
 						continue
 					}
 					if !hasSubsequenceFold(e.Path[from:], lq) {

@@ -92,6 +92,14 @@ func TestTypingSearches(t *testing.T) {
 	}
 }
 
+func TestTrailingSlashFindsFolders(t *testing.T) {
+	m := testModel(t, "/r/internal/dir", "/r/internal/model.go", "/r/internal.md")
+	typeText(m, "internal/")
+	if got := m.resultPaths(); len(got) != 1 || got[0] != "/r/internal/dir" {
+		t.Errorf("results = %q, want only the folder", got)
+	}
+}
+
 func TestSelectionMovesAndClamps(t *testing.T) {
 	m := testModel(t, "/r/a1.go", "/r/a2.go", "/r/a3.go")
 	typeText(m, "a")
