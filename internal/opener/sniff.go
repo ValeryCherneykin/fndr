@@ -46,14 +46,19 @@ func Classify(path string) (Kind, error) {
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		return Other, err
 	}
-	head := buf[:n]
+	return ClassifyHead(buf[:n]), nil
+}
+
+// ClassifyHead is Classify for a file whose start the caller has already
+// read, such as the previewer, which reads more than sniffLen anyway.
+func ClassifyHead(head []byte) Kind {
 	switch {
 	case looksLikeProgram(head):
-		return Program, nil
+		return Program
 	case looksLikeText(head):
-		return Text, nil
+		return Text
 	default:
-		return Other, nil
+		return Other
 	}
 }
 
