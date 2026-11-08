@@ -158,7 +158,7 @@ func TestUpAboveRootRecrawls(t *testing.T) {
 	m, root := browseModel(t, "src")
 	oldGen := m.crawlGen
 
-	key(m, tea.KeyLeft, 0)
+	key(m, tea.KeyBackspace, 0)
 	if m.root != root || m.cwd != root {
 		t.Fatalf("root=%q cwd=%q, want both %q", m.root, m.cwd, root)
 	}

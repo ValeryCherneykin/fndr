@@ -110,17 +110,9 @@ func TestSelectionMovesAndClamps(t *testing.T) {
 	if m.cursor != 2 {
 		t.Errorf("cursor = %d after moving past the end, want 2", m.cursor)
 	}
-	key(m, 'k', tea.ModCtrl)
+	key(m, tea.KeyUp, 0)
 	if m.cursor != 1 {
-		t.Errorf("cursor = %d after ctrl+k, want 1", m.cursor)
-	}
-	key(m, 'j', tea.ModCtrl)
-	if m.cursor != 2 {
-		t.Errorf("cursor = %d after ctrl+j, want 2", m.cursor)
-	}
-	key(m, 'k', tea.ModAlt)
-	if m.cursor != 1 {
-		t.Errorf("cursor = %d after alt+k, want 1", m.cursor)
+		t.Errorf("cursor = %d after up, want 1", m.cursor)
 	}
 	key(m, 'p', tea.ModCtrl)
 	if m.cursor != 0 {

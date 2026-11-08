@@ -6,8 +6,11 @@
 //	fndr init zsh
 //
 // Without flags it opens the interface on the current directory: type to
-// search, arrows to move, Esc to clear the query or quit, Ctrl+E to quit
-// and jump to the selected folder, Ctrl+V to show or hide the preview.
+// search, Ctrl+N and Ctrl+P (or up and down) to move through the list,
+// Ctrl+H and Ctrl+L (or left and right) to move through the query, Enter to
+// open a file or folder, "-" to go up, Esc to clear the query or quit,
+// Ctrl+E to quit and jump to the selected folder, Ctrl+V to show or hide the
+// preview.
 //
 // The flags are:
 //

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -56,6 +55,7 @@ type Model struct {
 	reveal  string // path to select when the listing arrives: the folder just left
 
 	query   string
+	qpos    int              // text cursor: byte offset into query, on a rune boundary
 	results []indexer.Result // what the list shows: the listing or search results
 	total   int              // matches in the index, of which results holds the best
 
@@ -166,7 +166,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A pasted path or name becomes the query; newlines would break the
 		// single-line prompt.
 		text := strings.Join(strings.Fields(msg.Content), " ")
-		cmd := m.setQuery(m.query + text)
+		cmd := m.insert(text)
 		return m, cmd
 
 	case crawlStartedMsg:
@@ -268,16 +268,21 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// on or off.
 		m.preview = !m.preview
 
-	case "enter", "right":
+	case "enter":
 		cmd := m.activate()
 		return m, cmd
-	case "left":
-		cmd := m.up()
-		return m, cmd
 
-	case "up", "ctrl+p", "ctrl+k", "alt+k":
+	// Arrows left and right belong to the text, as in any input field; the
+	// held-ctrl pair is the same with hands on the home row, h and l as in
+	// Vim. Folders are entered with Enter and left with "-" or backspace.
+	case "left", "ctrl+h":
+		m.cursorLeft()
+	case "right", "ctrl+l":
+		m.cursorRight()
+
+	case "up", "ctrl+p":
 		m.move(-1)
-	case "down", "ctrl+n", "ctrl+j", "alt+j":
+	case "down", "ctrl+n":
 		m.move(1)
 	case "pgup":
 		m.move(-m.listHeight())
@@ -294,14 +299,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			cmd := m.up()
 			return m, cmd
 		}
-		_, size := utf8.DecodeLastRuneInString(m.query)
-		cmd := m.setQuery(m.query[:len(m.query)-size])
+		cmd := m.backspace()
 		return m, cmd
 	case "ctrl+w":
-		cmd := m.setQuery(deleteLastWord(m.query))
+		cmd := m.edit(deleteLastWord(m.query[:m.qpos]), m.query[m.qpos:])
 		return m, cmd
 	case "ctrl+u":
-		cmd := m.setQuery("")
+		cmd := m.edit("", m.query[m.qpos:]) // as in a shell: up to the cursor
 		return m, cmd
 
 	case "-":
@@ -311,13 +315,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			cmd := m.up()
 			return m, cmd
 		}
-		cmd := m.setQuery(m.query + "-")
+		cmd := m.insert("-")
 		return m, cmd
 
 	default:
 		// Printable input. Ctrl and Alt chords are commands, never text.
 		if msg.Text != "" && msg.Mod&(tea.ModCtrl|tea.ModAlt) == 0 {
-			cmd := m.setQuery(m.query + msg.Text)
+			cmd := m.insert(msg.Text)
 			return m, cmd
 		}
 	}
@@ -358,6 +362,7 @@ func (m *Model) setQuery(q string) tea.Cmd {
 		return nil
 	}
 	m.query = q
+	m.qpos = min(m.qpos, len(q))
 	m.cursor, m.offset = 0, 0
 	return m.search()
 }
@@ -433,7 +438,7 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
-	v.Cursor = tea.NewCursor(min(promptWidth+ansi.StringWidth(m.query), m.width-1), 0)
+	v.Cursor = tea.NewCursor(min(promptWidth+ansi.StringWidth(m.query[:m.qpos]), m.width-1), 0)
 	v.Cursor.Shape = tea.CursorBar
 	v.Cursor.Color = colLocal
 	return v
