@@ -68,7 +68,7 @@ func TestBuildCard(t *testing.T) {
 	dir := t.TempDir()
 	cases := map[string]struct{ content, want string }{
 		"doc.pdf":  {"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n", "PDF document"},
-		"a.png":    {"\x89PNG\r\n\x1a\n\x00\x00", "PNG image"},
+		"a.zip":    {"PK\x03\x04\x14\x00", "ZIP archive"}, // images have their own Kind: TestBuildImage
 		"fndr":     {"\xcf\xfa\xed\xfe\x0c\x00", "program"},
 		"blob.bin": {"\x00\x01\x02\x03", "binary file"},
 	}

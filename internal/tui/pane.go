@@ -56,6 +56,7 @@ type (
 	paneEntry struct {
 		p    preview.Preview
 		code [][]highlight.Span // Text only: p.Lines, highlighted
+		img  *paneImage         // Image only, once sent to the terminal
 		err  error
 	}
 )
@@ -106,11 +107,33 @@ func (m *Model) paneTick(msg paneTickMsg) tea.Cmd {
 
 // paneLoaded caches a built preview. It is kept even if the selection has
 // moved on: it is still true for its path, and going back is likely.
-func (m *Model) paneLoaded(msg *paneMsg) {
+//
+// A picture, in a terminal that can show one, is then prepared for the
+// terminal in a second command; until it arrives the pane shows its card.
+func (m *Model) paneLoaded(msg *paneMsg) tea.Cmd {
 	if m.paneCache == nil || len(m.paneCache) >= paneCacheMax {
 		m.paneCache = make(map[string]paneEntry)
 	}
 	m.paneCache[msg.path] = msg.paneEntry
+	if msg.err != nil || msg.p.Kind != preview.Image || !m.graphics || !m.paneShown() {
+		return nil
+	}
+	cols := m.width - m.listWidth() - 3 // border and a cell of margin each side
+	id := m.nextImageID(msg.path)
+	return loadImage(msg.path, id, cols, m.listHeight(), m.tmux)
+}
+
+// imageLoaded stores a prepared picture and sends it to the terminal. A
+// picture whose id has since been handed to another path is dropped: the
+// terminal would show the newer picture under that id.
+func (m *Model) imageLoaded(msg *paneImageMsg) tea.Cmd {
+	e, ok := m.paneCache[msg.path]
+	if !ok || msg.img == nil || m.imageOwner[msg.img.id] != msg.path {
+		return nil
+	}
+	e.img = msg.img
+	m.paneCache[msg.path] = e
+	return tea.Raw(msg.img.seq)
 }
 
 // listWidth is how many cells of each row the result list takes: the whole
@@ -166,6 +189,8 @@ func (m *Model) paneLines(h int) []string {
 			body = paneDir(e.p.Entries, cw, h)
 		case e.p.Kind == preview.Text:
 			body = paneText(e.code, cw, h)
+		case e.p.Kind == preview.Image && e.img != nil:
+			body = e.img.lines()
 		default:
 			body = paneCard(&e.p)
 		}

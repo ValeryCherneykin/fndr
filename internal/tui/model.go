@@ -92,6 +92,13 @@ type Model struct {
 	paneWant  string
 	paneCache map[string]paneEntry
 
+	// Pictures in the pane (image.go). graphics: the terminal can show
+	// them; tmux: escape sequences must be wrapped to pass through it.
+	// imageOwner maps each image id handed out to the path it shows.
+	graphics, tmux bool
+	imageSeq       int
+	imageOwner     [256]string
+
 	// exitDir is the folder the shell should change to once fndr exits: set
 	// by ctrl+e, left empty by esc and ctrl+c, which leave the shell where
 	// it was.
@@ -109,6 +116,7 @@ func New(root string) *Model {
 	home, _ := os.UserHomeDir() // best effort: without it paths just are not shortened
 	m := newModel(root, home, &indexer.Index{})
 	m.crawling = true // Init starts it
+	m.graphics, m.tmux = detectGraphics(os.Getenv)
 
 	hist, err := openHistory()
 	if err != nil {
@@ -190,10 +198,14 @@ type (
 
 // Init reads the starting directory and starts the crawl.
 func (m *Model) Init() tea.Cmd {
-	if !m.crawling {
-		return m.load(m.cwd)
+	var passthrough tea.Cmd
+	if m.graphics && m.tmux {
+		passthrough = allowPassthrough
 	}
-	return tea.Batch(m.load(m.cwd), m.startCrawl())
+	if !m.crawling {
+		return tea.Batch(m.load(m.cwd), passthrough)
+	}
+	return tea.Batch(m.load(m.cwd), m.startCrawl(), passthrough)
 }
 
 // Update applies one event to the model. After every event the preview pane
@@ -295,8 +307,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case paneMsg:
-		m.paneLoaded(&msg)
-		return m, nil
+		cmd := m.paneLoaded(&msg)
+		return m, cmd
+
+	case paneImageMsg:
+		cmd := m.imageLoaded(&msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -407,6 +423,9 @@ func (m *Model) jumpTarget() string {
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
 	m.stop()
+	if m.imageSeq > 0 { // pictures were sent: free them before leaving
+		return m, tea.Sequence(tea.Raw(deleteImages(m.tmux)), tea.Quit)
+	}
 	return m, tea.Quit
 }
 

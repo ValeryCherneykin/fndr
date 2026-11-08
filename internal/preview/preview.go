@@ -35,6 +35,9 @@ const (
 	Text
 	// Dir is a folder: Entries holds its contents in display order.
 	Dir
+	// Image is a picture LoadImage can decode. Type, Size and ModTime are
+	// filled in as for a Card, for terminals that cannot show pictures.
+	Image
 )
 
 // Preview is what the preview pane shows for one path.
@@ -74,6 +77,9 @@ func Build(path string, maxLines int) (Preview, error) {
 		p.Type = "program"
 	default:
 		p.Type = typeName(head)
+		if decodable[p.Type] {
+			p.Kind = Image
+		}
 	}
 	return p, nil
 }
