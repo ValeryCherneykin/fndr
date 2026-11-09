@@ -142,3 +142,47 @@ func BenchmarkLines(b *testing.B) {
 		Lines("main.go", src)
 	}
 }
+
+// BenchmarkLongLine is the worst head a preview can read: 32 KB on one
+// line, all punctuation, so every character extends the same span.
+func BenchmarkLongLine(b *testing.B) {
+	src := []string{strings.Repeat("=", 32<<10)}
+	for b.Loop() {
+		Lines("main.go", src)
+	}
+}
+
+// FuzzLines feeds the lexer any text, as the preview does with any file:
+// it must never panic, and each line's spans, put back together, must be
+// exactly that line, with no empty span and no newline inside one.
+func FuzzLines(f *testing.F) {
+	for _, s := range []string{
+		"func main() {\n\tfmt.Println(\"hi\") // x\n}",
+		"/* open\nstill open",
+		"--[[ lua\nblock ]] x",
+		"s = 'unterminated\nnext",
+		"0x1F 1_000 3.14e9 utf8",
+		"\"\\",
+		"\xff\xfe日本語",
+	} {
+		f.Add(s)
+	}
+	names := []string{"main.go", "x.lua", "a.py", "a.sh", "a.json", "Dockerfile", "a.sql", "plain.txt"}
+	f.Fuzz(func(t *testing.T, text string) {
+		lines := strings.Split(text, "\n")
+		for _, name := range names {
+			for i, spans := range Lines(name, lines) {
+				var b strings.Builder
+				for _, sp := range spans {
+					if sp.Text == "" || strings.Contains(sp.Text, "\n") {
+						t.Fatalf("%s line %d: bad span %q", name, i, sp.Text)
+					}
+					b.WriteString(sp.Text)
+				}
+				if b.String() != lines[i] {
+					t.Fatalf("%s line %d rebuilt as %q, want %q", name, i, b.String(), lines[i])
+				}
+			}
+		}
+	})
+}

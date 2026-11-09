@@ -49,44 +49,50 @@ func Lines(name string, lines []string) [][]Span {
 		}
 		return out
 	}
-	lx := lexer{lang: l, out: out}
-	lx.run(strings.Join(lines, "\n"))
+	lx := lexer{lang: l, src: strings.Join(lines, "\n"), out: out}
+	lx.run()
 	return out
 }
 
 // lexer walks the text once, left to right. At every position it tries the
 // rules in order (comments, strings, numbers, words) and emits a span for
 // the first that matches; anything else is plain punctuation.
+//
+// Every span's text is a slice of src, never a copy: spans are neighbouring
+// pieces of one text, so extending a span is slicing src further (see add).
+// Concatenating instead copied the span on every merge, quadratic on a long
+// line: 60 ms and 565 MB for a 32 KB line of "=" (BenchmarkLongLine).
 type lexer struct {
 	lang *lang
+	src  string
 	out  [][]Span
 	line int // index into out of the line being written
 }
 
-func (lx *lexer) run(s string) {
-	for i := 0; i < len(s); {
-		i += lx.next(s, i)
+func (lx *lexer) run() {
+	for i := 0; i < len(lx.src); {
+		i += lx.next(i)
 	}
 }
 
-// next emits the span starting at s[i] and returns its length in bytes.
-func (lx *lexer) next(s string, i int) int {
-	l, rest := lx.lang, s[i:]
+// next emits the span starting at src[i] and returns its length in bytes.
+func (lx *lexer) next(i int) int {
+	l, rest := lx.lang, lx.src[i:]
 
 	// Blocks first: Lua's "--[[" block comment starts with its "--" line
 	// comment.
 	for _, d := range l.blocks {
 		if strings.HasPrefix(rest, d.open) {
-			return lx.emit(d.kind, rest[:until(rest, len(d.open), d.close)])
+			return lx.emit(d.kind, i, until(rest, len(d.open), d.close))
 		}
 	}
 	for _, p := range l.lineComments {
 		if strings.HasPrefix(rest, p) {
-			return lx.emit(Comment, rest[:untilNewline(rest)])
+			return lx.emit(Comment, i, untilNewline(rest))
 		}
 	}
 	if c := rest[0]; strings.IndexByte(l.quotes, c) >= 0 {
-		return lx.emit(String, rest[:quoted(rest)])
+		return lx.emit(String, i, quoted(rest))
 	}
 
 	r, size := utf8.DecodeRuneInString(rest)
@@ -94,43 +100,46 @@ func (lx *lexer) next(s string, i int) int {
 	case r == '\n':
 		lx.line++
 		return 1
-	case isDigit(r) && !afterWord(s, i):
-		n := scanNumber(rest)
-		return lx.emit(Number, rest[:n])
+	case isDigit(r) && !afterWord(lx.src, i):
+		return lx.emit(Number, i, scanNumber(rest))
 	case isWordStart(r):
 		n := scanIdent(rest)
-		return lx.emit(l.classify(rest[:n], rest[n:]), rest[:n])
+		return lx.emit(l.classify(rest[:n], rest[n:]), i, n)
 	}
-	return lx.emit(Plain, rest[:size])
+	return lx.emit(Plain, i, size)
 }
 
-// emit appends text as a span of kind to the current line, splitting it at
-// newlines (a block comment or raw string may cover several lines) and
-// merging it into the previous span when that one is of the same kind.
-// It returns len(text), so callers can emit and advance in one step.
-func (lx *lexer) emit(kind Kind, text string) int {
-	n := len(text)
+// emit adds src[i:i+n] as a span of kind, splitting it at newlines (a block
+// comment or raw string may cover several lines). It returns n, so callers
+// can emit and advance in one step.
+func (lx *lexer) emit(kind Kind, i, n int) int {
+	end := i + n
 	for {
-		part, after, more := strings.Cut(text, "\n")
-		lx.add(kind, part)
-		if !more {
+		nl := strings.IndexByte(lx.src[i:end], '\n')
+		if nl < 0 {
+			lx.add(kind, i, end)
 			return n
 		}
+		lx.add(kind, i, i+nl)
 		lx.line++
-		text = after
+		i += nl + 1
 	}
 }
 
-func (lx *lexer) add(kind Kind, text string) {
-	if text == "" || lx.line >= len(lx.out) {
+// add puts src[lo:hi] on the current line, merged into the previous span
+// when that one is of the same kind. The previous span ends at lo, since
+// spans follow each other in src, so the merged text is src from its start
+// to hi.
+func (lx *lexer) add(kind Kind, lo, hi int) {
+	if lo == hi || lx.line >= len(lx.out) {
 		return
 	}
 	spans := lx.out[lx.line]
 	if k := len(spans) - 1; k >= 0 && spans[k].Kind == kind {
-		spans[k].Text += text
+		spans[k].Text = lx.src[lo-len(spans[k].Text) : hi]
 		return
 	}
-	lx.out[lx.line] = append(spans, Span{kind, text})
+	lx.out[lx.line] = append(spans, Span{kind, lx.src[lo:hi]})
 }
 
 // untilNewline returns the length of s up to its first newline, or all of s.
