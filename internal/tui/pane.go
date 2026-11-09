@@ -184,7 +184,7 @@ func (m *Model) paneLines(h int) []string {
 	if e, ok := m.paneCache[m.paneWant]; ok && m.paneWant != "" {
 		switch {
 		case e.err != nil:
-			body = []string{stPaneDim.Render(ansi.Truncate("cannot preview: "+e.err.Error(), cw, "…"))}
+			body = []string{stPaneDim.Render(ansi.Truncate("cannot preview: "+safeText(e.err.Error()), cw, "…"))}
 		case e.p.Kind == preview.Dir:
 			body = paneDir(e.p.Entries, cw, h)
 		case e.p.Kind == preview.Text:
@@ -216,7 +216,7 @@ func paneDir(es []indexer.Entry, cw, h int) []string {
 	es = es[:min(len(es), h)]
 	out := make([]string, len(es))
 	for i := range es {
-		name := es[i].Name()
+		name := safeText(es[i].Name())
 		st := pick(strings.HasPrefix(name, "."), &stNameHidden, &stName)
 		out[i] = iconFor(name, es[i].IsDir) + " " + st.Render(ansi.Truncate(name, max(cw-2, 0), "…"))
 	}

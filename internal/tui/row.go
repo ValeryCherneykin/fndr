@@ -38,7 +38,7 @@ const (
 // A habit row (a place the user often goes, shown above a folder's contents)
 // carries a clock instead of its type icon: it says why the row is there.
 func renderRow(r *indexer.Result, root string, width int, selected, habit bool) string {
-	path := r.Entry.Path
+	path := safeText(r.Entry.Path) // same length: offsets and positions still fit
 	nameLo := len(path) - len(r.Entry.Name())
 	dirLo, dirHi := relDir(path, nameLo, root)
 

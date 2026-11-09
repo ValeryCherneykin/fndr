@@ -236,9 +236,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.PasteMsg:
-		// A pasted path or name becomes the query; newlines would break the
-		// single-line prompt.
-		text := strings.Join(strings.Fields(msg.Content), " ")
+		// A pasted path or name becomes the query. Whitespace runs, newlines
+		// included, become one space; other control characters, such as
+		// the ESC of an escape sequence, are dropped: the line is printed.
+		text := strings.Join(strings.Fields(dropControls(msg.Content)), " ")
 		cmd := m.insert(text)
 		return m, cmd
 
@@ -558,7 +559,7 @@ func (m *Model) viewList(b *strings.Builder) {
 	var hint string
 	switch {
 	case m.query == "" && m.listErr != nil:
-		hint = "cannot read this folder: " + m.listErr.Error()
+		hint = "cannot read this folder: " + safeText(m.listErr.Error())
 	case m.query == "" && m.listing != nil && len(m.listing) == 0:
 		hint = "empty folder"
 	case m.query != "" && len(m.results) == 0 && !m.searching:
@@ -608,7 +609,7 @@ func (m *Model) viewStatus() string {
 
 	var right []string
 	if m.crawlErr != nil {
-		right = append(right, stBarErr.Render(m.crawlErr.Error()))
+		right = append(right, stBarErr.Render(safeText(m.crawlErr.Error())))
 	}
 	if m.skipped > 0 {
 		right = append(right, stBarWarn.Render(fmt.Sprintf("%d unreadable", m.skipped)))
@@ -638,7 +639,7 @@ func (m *Model) viewStatus() string {
 	}
 
 	left := mode
-	dir := m.tildify(m.cwd)
+	dir := safeText(m.tildify(m.cwd))
 	if room := avail - ansi.StringWidth(rest) - 2; room >= 4 { // 2: spaces around dir
 		if w := ansi.StringWidth(dir); w > room {
 			dir = "…" + ansi.TruncateLeft(dir, w-room+1, "")

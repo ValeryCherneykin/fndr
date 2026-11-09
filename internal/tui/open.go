@@ -109,6 +109,9 @@ func (m *Model) opened(msg openedMsg) {
 }
 
 // setNotice shows a one-line report in the status bar until the next key.
+//
+// Notices quote names and errors, which quote paths, so the text is made
+// safe here, once, for every caller.
 func (m *Model) setNotice(text string, isErr bool) {
-	m.notice, m.noticeErr = text, isErr
+	m.notice, m.noticeErr = safeText(text), isErr
 }
