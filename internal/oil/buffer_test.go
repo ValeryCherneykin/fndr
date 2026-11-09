@@ -206,22 +206,130 @@ func TestHugePutIsCapped(t *testing.T) {
 // empty, the cursor on a line, and no line lost or made up but by the keys
 // that delete and put.
 func FuzzKeys(f *testing.F) {
-	for _, s := range []string{"dd", "2d3jp", "yGP", "gg9G", "dGp", "jjdk3P"} {
+	for _, s := range []string{"dd", "2d3jp", "yGP", "gg9G", "dGp", "jjdk3P", "jx", "jjj$xp", "3lD", "y$P"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
 		if len(s) > 64 {
 			return // long inputs only repeat what short ones do, slower
 		}
-		b := folder(5)
+		b := lines("hello", "и\u0306ога", "", "日本.txt", "a")
+		before := texts(b)
 		for _, r := range s {
 			b.Key(string(r))
 			if len(b.lines) == 0 || b.row < 0 || b.row >= len(b.lines) {
 				t.Fatalf("after %q: %d lines, row %d", s, len(b.lines), b.row)
 			}
+			if line := b.text(); b.col < 0 || b.col > lastChar(line) || prevChar(line, nextChar(line, b.col)) != b.col {
+				t.Fatalf("after %q: col %d in %q is not on a character", s, b.col, line)
+			}
 		}
-		if !strings.ContainsAny(s, "dpP") && texts(b) != "abcde" {
-			t.Fatalf("%q changed the lines to %q without d, p or P", s, texts(b))
+		if !strings.ContainsAny(s, "dpPxD") && texts(b) != before {
+			t.Fatalf("%q changed the lines to %q without d, p, P, x or D", s, texts(b))
 		}
 	})
+}
+
+// lines returns a buffer of the given lines, with ids 1, 2, 3...
+func lines(texts ...string) *Buffer {
+	ls := make([]mutation.Line, len(texts))
+	for i, t := range texts {
+		ls[i] = mutation.Line{ID: i + 1, Text: t}
+	}
+	return New(ls)
+}
+
+// TestInsideALine: motions and edits within the cursor's line. The cursor
+// stops on the last character, never past it, as in Vim's normal mode.
+func TestInsideALine(t *testing.T) {
+	tests := []struct {
+		keys, want string // keys typed on the line "hello"; the line after
+		col        int
+	}{
+		{"l", "hello", 1},
+		{"3l", "hello", 3},
+		{"9l", "hello", 4},
+		{"$", "hello", 4},
+		{"$0", "hello", 0},
+		{"$h", "hello", 3},
+		{"h", "hello", 0},
+		{"^", "hello", 0},
+
+		{"x", "ello", 0},
+		{"3x", "lo", 0},
+		{"$x", "hell", 3}, // the cursor steps back onto the new last character
+		{"9x", "", 0},
+		{"xp", "ehllo", 1}, // swap two letters
+		{"$xp", "hello", 4},
+		{"lllD", "hel", 2},
+		{"lld$", "he", 1},
+		{"lld0", "llo", 0},
+		{"lldh", "hllo", 1},
+		{"dh", "hello", 0}, // nothing before the cursor
+		{"ylP", "hhello", 0},
+		{"y$$p", "hellohello", 9},
+		{"x3p", "ehhhllo", 3},
+		{"dx", "hello", 0}, // x is no motion
+	}
+	for _, tt := range tests {
+		b := lines("hello")
+		typeKeys(b, tt.keys)
+		if got := b.text(); got != tt.want || b.Col() != tt.col {
+			t.Errorf("%q: line %q col %d, want %q col %d", tt.keys, got, b.Col(), tt.want, tt.col)
+		}
+	}
+}
+
+// TestEditKeepsID: changing a name keeps the line's id, which
+// mutation.Diff reads as a rename.
+func TestEditKeepsID(t *testing.T) {
+	b := lines("notes.md", "main.go")
+	typeKeys(b, "jx")
+	if got := b.Lines()[1]; got != (mutation.Line{ID: 2, Text: "ain.go"}) {
+		t.Errorf("line %+v, want id 2 kept", got)
+	}
+}
+
+// TestColumnSurvivesShortLines: j and k aim for the column the cursor was
+// put in, through a line too short to hold it.
+func TestColumnSurvivesShortLines(t *testing.T) {
+	tests := []struct {
+		keys string
+		col  int
+	}{
+		{"4lj", 1},  // "ab" is short: its last character
+		{"4ljj", 4}, // and back to column 4 on "world"
+		{"$jj", 4},  // $ keeps to the end of every line
+		{"$j", 1},
+		{"4ljhj", 0}, // a horizontal move sets a new column
+		{"4ldd", 0},  // deleting a line puts the cursor at its start
+	}
+	for _, tt := range tests {
+		b := lines("hello", "ab", "world")
+		typeKeys(b, tt.keys)
+		if b.Col() != tt.col {
+			t.Errorf("%q: col %d, want %d", tt.keys, b.Col(), tt.col)
+		}
+	}
+}
+
+// TestDecomposedLetters: macOS may store "й" as "и" and a combining
+// breve. To the cursor that is one letter, as it is to the eye.
+func TestDecomposedLetters(t *testing.T) {
+	const yoga = "и\u0306ога" // йога, decomposed
+	b := lines(yoga)
+	typeKeys(b, "l")
+	if want := len("и\u0306"); b.Col() != want {
+		t.Errorf("l: col %d, want %d, after the whole й", b.Col(), want)
+	}
+	b = lines(yoga)
+	typeKeys(b, "x")
+	if b.text() != "ога" {
+		t.Errorf("x: %q, want the whole й erased", b.text())
+	}
+	b = lines(yoga)
+	typeKeys(b, "$hhh")
+	if b.Col() != 0 {
+		t.Errorf("$hhh: col %d, want 0", b.Col())
+	}
 }
