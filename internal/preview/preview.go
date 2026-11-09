@@ -116,6 +116,8 @@ func lines(head []byte, limit int) []string {
 // sanitize replaces control characters with "·", keeping tabs. A file is
 // data, and data must never drive the terminal: an escape sequence printed
 // as-is could clear the screen, move the cursor or retitle the window.
+// Bidi overrides go too: they reorder the line on screen, the "Trojan
+// Source" trick that shows code other than what the file says.
 func sanitize(s string) string {
 	if !strings.ContainsFunc(s, isUnsafe) {
 		return s // the common case: no copy
@@ -128,4 +130,6 @@ func sanitize(s string) string {
 	}, s)
 }
 
-func isUnsafe(r rune) bool { return r != '\t' && unicode.IsControl(r) }
+func isUnsafe(r rune) bool {
+	return r != '\t' && unicode.IsControl(r) || 0x202a <= r && r <= 0x202e || 0x2066 <= r && r <= 0x2069
+}

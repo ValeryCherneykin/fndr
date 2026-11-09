@@ -1,6 +1,10 @@
 package preview
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -83,5 +87,56 @@ func TestLoadImageRejectsGarbage(t *testing.T) {
 	}
 	if _, err := LoadImage(path, 100); err == nil {
 		t.Error("garbage decoded as an image")
+	}
+}
+
+// TestLoadImageRefusesBombs: a PNG whose header claims 30000×30000 is
+// refused from the header alone, before a byte of pixels is decoded. The
+// file is a real 1×1 PNG with its size rewritten, as an attacker would.
+func TestLoadImageRefusesBombs(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	b := buf.Bytes()
+	// After the 8-byte signature: chunk length (4), "IHDR" (4), then
+	// width and height; the chunk's CRC follows its 13 bytes of data.
+	binary.BigEndian.PutUint32(b[16:], 30000)
+	binary.BigEndian.PutUint32(b[20:], 30000)
+	binary.BigEndian.PutUint32(b[29:], crc32.ChecksumIEEE(b[12:29]))
+	path := filepath.Join(t.TempDir(), "bomb.png")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadImage(path, 800); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("err %v, want ErrTooLarge", err)
+	}
+}
+
+// BenchmarkLoadImage previews a 12-megapixel photo, the size of an iPhone
+// shot, and reports its memory: decoding dominates, the shrink should add
+// little on top.
+func BenchmarkLoadImage(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "photo.png")
+	img := image.NewRGBA(image.Rect(0, 0, 4032, 3024))
+	for i := range img.Pix {
+		img.Pix[i] = byte(i)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		b.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := LoadImage(path, 800); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

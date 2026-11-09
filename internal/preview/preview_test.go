@@ -35,13 +35,13 @@ func TestBuildText(t *testing.T) {
 // TestBuildTextIsSafe: a file must never be able to drive the terminal.
 func TestBuildTextIsSafe(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evil.txt")
-	write(t, path, "hi\x1b[2Jthere\x07\tok\n")
+	write(t, path, "hi\x1b[2Jthere\x07\tok\u202e!\n")
 
 	p, err := Build(path, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.Lines[0]; strings.ContainsAny(got, "\x1b\x07") || got != "hi·[2Jthere·\tok" {
+	if got := p.Lines[0]; strings.ContainsAny(got, "\x1b\x07") || got != "hi·[2Jthere·\tok·!" {
 		t.Errorf("line = %q, want control characters replaced and the tab kept", got)
 	}
 }
