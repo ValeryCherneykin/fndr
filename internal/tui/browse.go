@@ -99,10 +99,32 @@ func (m *Model) activate() tea.Cmd {
 	}
 	e := &m.results[m.cursor].Entry
 	m.learn(e.Path)
-	if e.IsDir {
-		return m.chdir(e.Path, "")
+	if !e.IsDir {
+		return m.openSelected()
 	}
-	return m.openSelected()
+	dir, err := realDir(e.Path)
+	if err != nil {
+		m.setNotice(err.Error(), true)
+		return nil
+	}
+	return m.chdir(dir, "")
+}
+
+// realDir returns where entering the folder at path should lead: path
+// itself, or, if path is a link, the folder it points to, as "cd -P" does.
+// The crawl never follows links, so files behind one are indexed under the
+// real path, if at all; under the link's path, search would find nothing.
+//
+// Only a link is resolved. Resolving every folder would also rewrite links
+// above it ("/tmp" is "/private/tmp" on macOS) and move the user out of
+// the indexed tree for nothing. An lstat or two: microseconds on a local
+// disk, cheap enough not to need a command.
+func realDir(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return path, nil // not a link; a vanished folder is reported by its listing
+	}
+	return filepath.EvalSymlinks(path)
 }
 
 // up goes to the parent of cwd and selects the folder it came from.

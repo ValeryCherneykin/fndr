@@ -182,3 +182,33 @@ func TestActivateFileOpens(t *testing.T) {
 		t.Error("enter on a file changed the folder")
 	}
 }
+
+// TestEnterLinkedFolder: Enter on a link to a folder goes to the folder it
+// points to, where search works, instead of failing to open it as a file.
+func TestEnterLinkedFolder(t *testing.T) {
+	m, root := browseModel(t, "")
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "inside.txt"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	send(m, m.load(m.cwd)())
+	m.selectName(t, "link")
+	send(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	want, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.cwd != want {
+		t.Errorf("cwd %s, want the real folder %s", m.cwd, want)
+	}
+	if got := m.names(); !slices.Equal(got, []string{"inside.txt"}) {
+		t.Errorf("listing %q", got)
+	}
+	if m.noticeErr {
+		t.Errorf("error: %s", m.notice)
+	}
+}

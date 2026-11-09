@@ -3,6 +3,7 @@ package indexer
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -49,5 +50,29 @@ func TestListEmptyDir(t *testing.T) {
 	es, err := List(t.TempDir())
 	if err != nil || len(es) != 0 {
 		t.Errorf("List(empty) = %v, %v; want nothing", es, err)
+	}
+}
+
+// TestListLinks: a link to a folder is listed as a folder, to be entered;
+// a link to a file, or a broken one, as a file.
+func TestListLinks(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "real", "x"), "")
+	writeFile(t, filepath.Join(dir, "file"), "")
+	for link, target := range map[string]string{"todir": "real", "tofile": "file", "broken": "nowhere"} {
+		if err := os.Symlink(target, filepath.Join(dir, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	es, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isDir := map[string]bool{}
+	for _, e := range es {
+		isDir[e.Name()] = e.IsDir
+	}
+	if !isDir["todir"] || isDir["tofile"] || isDir["broken"] {
+		t.Errorf("IsDir by name: %v", isDir)
 	}
 }

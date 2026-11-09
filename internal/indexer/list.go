@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +17,12 @@ import (
 //
 // Entries that vanish between reading the directory and reading their
 // details are left out, as Crawl does.
+//
+// Unlike Crawl, List follows a symbolic link far enough to see whether it
+// points to a folder, and if so lists it as one: a link like ~/dev → /work
+// is a folder to the user, to be entered, not a file to be opened. Crawl
+// must not follow links (a link to a parent would loop forever); List
+// looks at one level only, so it cannot loop.
 func List(dir string) ([]Entry, error) {
 	des, err := os.ReadDir(dir)
 	if err != nil {
@@ -27,7 +34,15 @@ func List(dir string) ([]Entry, error) {
 		if err != nil {
 			continue
 		}
-		es = append(es, NewEntry(filepath.Join(dir, d.Name()), info.Size(), info.ModTime().UnixNano(), d.IsDir()))
+		path := filepath.Join(dir, d.Name())
+		isDir := d.IsDir()
+		if d.Type()&fs.ModeSymlink != 0 {
+			// A broken link stays a file: opening it reports why it is broken.
+			if target, err := os.Stat(path); err == nil {
+				isDir = target.IsDir()
+			}
+		}
+		es = append(es, NewEntry(path, info.Size(), info.ModTime().UnixNano(), isDir))
 	}
 	// Stable, on top of ReadDir's byte order: names that compare equal
 	// ignoring case ("README", "readme") keep a fixed order between calls,
