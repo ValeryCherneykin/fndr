@@ -19,6 +19,14 @@ import (
 // The listing is read from disk, not from the index (see indexer.List), in
 // a command like everything else that touches the disk.
 
+// listMsg carries a folder read from disk.
+type listMsg struct {
+	dir     string
+	entries []indexer.Entry
+	habits  []indexer.Entry // places below dir the user goes to, that still exist
+	err     error
+}
+
 // habitsShown is how many habits are offered above a folder's contents:
 // enough for the few places that matter, few enough not to push the folder
 // itself off the screen.

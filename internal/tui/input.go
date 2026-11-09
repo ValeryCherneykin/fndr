@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -72,4 +73,14 @@ func (m *Model) cursorRight() {
 	t, p := m.line()
 	_, size := utf8.DecodeRuneInString((*t)[*p:])
 	*p += size // size is 0 at the end of the line
+}
+
+// deleteLastWord implements ctrl+w as in a shell: drop trailing spaces, then
+// the word before them.
+func deleteLastWord(s string) string {
+	s = strings.TrimRight(s, " ")
+	if i := strings.LastIndexByte(s, ' '); i >= 0 {
+		return s[:i+1]
+	}
+	return ""
 }
