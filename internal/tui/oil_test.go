@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 	"github.com/ValeryCherneykin/fndr/internal/oil"
 )
 
@@ -499,5 +501,28 @@ func TestOilFailedWriteKeepsTheEdit(t *testing.T) {
 	}
 	if fi, err := os.Stat(filepath.Join(root, ".env")); err != nil || fi.Size() != 0 {
 		t.Error("the existing .env was touched")
+	}
+}
+
+// BenchmarkOilKey is one key in OIL on a big folder, all of it: the
+// buffer, the plan recount that runs after every key, and drawing the
+// screen. Holding j must never lag.
+func BenchmarkOilKey(b *testing.B) {
+	for _, n := range []int{1000, 10000} {
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			es := make([]indexer.Entry, n)
+			for i := range es {
+				es[i] = indexer.NewEntry(fmt.Sprintf("/big/file-%05d.go", i), 1234, 0, false)
+			}
+			m := newModel("/big", "", &indexer.Index{})
+			b.Cleanup(m.stop)
+			m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+			m.Update(oilMsg{dir: "/big", entries: es})
+			j := tea.KeyPressMsg{Code: 'j', Text: "j"}
+			for b.Loop() {
+				m.Update(j)
+				_ = m.View()
+			}
+		})
 	}
 }
