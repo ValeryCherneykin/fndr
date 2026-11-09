@@ -13,7 +13,10 @@ import (
 // handleKey is Update for a key press.
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.setNotice("", false) // a notice describes the last action; any key moves on
-	if m.naming {
+	switch {
+	case m.oil != nil:
+		return m.oilKey(msg)
+	case m.naming:
 		return m.handleNameKey(msg)
 	}
 
@@ -40,7 +43,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.activate()
 		return m, cmd
 	case "ctrl+o":
-		m.startNaming()
+		return m, loadOil(m.cwd, false)
 
 	// Arrows left and right belong to the text, as in any input field; the
 	// held-ctrl pair is the same with hands on the home row, h and l as in

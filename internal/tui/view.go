@@ -17,6 +17,9 @@ func (m *Model) View() tea.View {
 	if m.width <= 0 || m.height <= 0 {
 		return tea.NewView("") // before the first WindowSizeMsg
 	}
+	if m.oil != nil {
+		return m.viewOil()
+	}
 
 	var b strings.Builder
 	b.WriteString(finish(m.viewPrompt(), m.width))
@@ -144,10 +147,7 @@ func (m *Model) viewStatus() string {
 	left := mode
 	dir := safeText(m.tildify(m.cwd))
 	if room := avail - ansi.StringWidth(rest) - 2; room >= 4 { // 2: spaces around dir
-		if w := ansi.StringWidth(dir); w > room {
-			dir = "…" + ansi.TruncateLeft(dir, w-room+1, "")
-		}
-		left += stBarText.Render(" " + dir + " ")
+		left += stBarText.Render(" " + shortenLeft(dir, room) + " ")
 	}
 
 	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(rest) - 1
@@ -155,6 +155,15 @@ func (m *Model) viewStatus() string {
 		return finish(left, m.width) // too narrow even for the counts
 	}
 	return left + stBar.Render(strings.Repeat(" ", gap)) + rest + stBar.Render(" ")
+}
+
+// shortenLeft cuts a path to room cells from the left, keeping the end,
+// which says the most: "…/fndr/cmd".
+func shortenLeft(path string, room int) string {
+	if w := ansi.StringWidth(path); w > room {
+		return "…" + ansi.TruncateLeft(path, w-room+1, "")
+	}
+	return path
 }
 
 // tildify shortens paths under $HOME to "~/...".

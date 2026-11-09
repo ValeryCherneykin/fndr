@@ -72,6 +72,9 @@ type Model struct {
 	name   string
 	npos   int
 
+	// oil is the folder being edited in OIL mode (oil.go), nil outside it.
+	oil *oilState
+
 	// Searches run off the UI goroutine. Every new search gets a fresh seq and
 	// cancels the previous one; a reply whose seq is not the latest is stale
 	// (the user has typed since) and is dropped.
@@ -169,6 +172,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.scrollToCursor()
+		if m.oil != nil {
+			m.oilScroll()
+		}
+		return m, nil
+
+	case oilMsg:
+		m.oilLoaded(&msg)
 		return m, nil
 
 	case tea.KeyPressMsg:

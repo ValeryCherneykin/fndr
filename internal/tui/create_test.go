@@ -10,9 +10,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// newItem types name after ctrl+o and presses enter.
+// newItem types name in the NEW field and presses enter. NEW is entered
+// directly: ctrl+o opens OIL now, and NEW goes once OIL can create.
 func newItem(m *Model, name string) {
-	key(m, 'o', tea.ModCtrl)
+	m.startNaming()
 	typeText(m, name)
 	send(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 }
@@ -102,7 +103,7 @@ func TestNamingLeavesQueryAlone(t *testing.T) {
 	typeText(m, "main")
 	before := m.names()
 
-	key(m, 'o', tea.ModCtrl)
+	m.startNaming()
 	typeText(m, "x-y")         // "-" is text here, not "go up"
 	for range len("x-y") + 1 { // one more than typed: never leaves the folder
 		send(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
@@ -119,7 +120,7 @@ func TestNamingLeavesQueryAlone(t *testing.T) {
 // TestNamingView: the line and the status bar both say NEW.
 func TestNamingView(t *testing.T) {
 	m, _ := browseModel(t, "")
-	key(m, 'o', tea.ModCtrl)
+	m.startNaming()
 	view := m.View().Content
 	for _, want := range []string{" NEW ", "name/ for a folder"} {
 		if !strings.Contains(view, want) {
