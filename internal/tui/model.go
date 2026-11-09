@@ -224,8 +224,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case paneMsg:
-		cmd := m.paneLoaded(&msg)
-		return m, cmd
+		m.paneLoaded(&msg)
+		return m, nil
 
 	case paneImageMsg:
 		cmd := m.imageLoaded(&msg)

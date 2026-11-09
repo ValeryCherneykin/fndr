@@ -173,3 +173,59 @@ func TestImageIDReuse(t *testing.T) {
 		t.Errorf("first id %d, want %d: never a basic colour", id, firstImageID)
 	}
 }
+
+// picModel is a model showing pic.png in the pane, in a terminal that can
+// show pictures.
+func picModel(t *testing.T) (m *Model, path string) {
+	t.Helper()
+	m, root := browseModel(t, "")
+	path = pngFile(t, root, 64, 64)
+	m.graphics = true
+	send(m, m.load(m.cwd)())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	m.selectName(t, "pic.png")
+	key(m, 'v', tea.ModCtrl)
+	if m.paneCache[path].img == nil {
+		t.Fatal("no picture at first")
+	}
+	return m, path
+}
+
+// TestPictureComesBack: after more pictures than there are ids, the first
+// one's id belongs to another. Coming back to it, the picture is sent
+// again, not left as a card for the rest of the session.
+func TestPictureComesBack(t *testing.T) {
+	m, path := picModel(t)
+	m.imageSeq = m.paneCache[path].img.id - 1
+	m.nextImageID("/elsewhere.png") // the cycle comes round
+	if m.paneCache[path].img != nil {
+		t.Fatal("the picture still claims an id it lost")
+	}
+	away, back := tea.KeyDown, tea.KeyUp // away to another row and back, by keys
+	if m.cursor > 0 {
+		away, back = back, away
+	}
+	key(m, away, 0)
+	key(m, back, 0)
+	if m.selectedPath() != path {
+		t.Fatalf("selection on %s, want %s", m.selectedPath(), path)
+	}
+	if m.paneCache[path].img == nil {
+		t.Error("coming back shows the card for good: the picture was never sent again")
+	}
+}
+
+// TestPictureFollowsPaneSize: zooming a tmux pane makes the preview pane
+// bigger; the picture is sent again to fill it, not left at its old size.
+func TestPictureFollowsPaneSize(t *testing.T) {
+	m, path := picModel(t)
+	small := *m.paneCache[path].img
+	send(m, tea.WindowSizeMsg{Width: 200, Height: 50})
+	big := m.paneCache[path].img
+	if big == nil || big.rows <= small.rows {
+		t.Errorf("after the pane grew the picture is %+v, was %dx%d", big, small.cols, small.rows)
+	}
+	if b := m.imageBox(); big != nil && (big.cols > b.cols || big.rows > b.rows) {
+		t.Errorf("picture %dx%d overflows its room %+v", big.cols, big.rows, b)
+	}
+}

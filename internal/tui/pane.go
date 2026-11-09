@@ -58,6 +58,11 @@ type (
 		code [][]highlight.Span // Text only: p.Lines, highlighted
 		img  *paneImage         // Image only, once sent to the terminal
 		err  error
+
+		// imgFor is the room img was asked for, zero until it is. A
+		// picture is asked for once per size: the pane growing (a tmux
+		// zoom) asks again, the same size does not.
+		imgFor box
 	}
 )
 
@@ -78,14 +83,39 @@ func (m *Model) wantPreview() tea.Cmd {
 		return nil
 	}
 	path := m.selectedPath()
-	if path == m.paneWant {
-		return nil // already on its way or shown
+	if path != m.paneWant {
+		m.paneWant = path
+		if _, ok := m.paneCache[path]; !ok && path != "" {
+			return tea.Tick(previewDelay, func(time.Time) tea.Msg { return paneTickMsg{path: path} })
+		}
 	}
-	m.paneWant = path
-	if _, ok := m.paneCache[path]; ok || path == "" {
+	return m.wantImage(path)
+}
+
+// wantImage asks for the picture of a cached image preview at path, fit to
+// the pane as it is now, unless it is shown or on its way. It runs after
+// every event, so a picture comes back by itself when it was forgotten
+// (its id went to another) or no longer fits (the pane changed size).
+// Until it arrives the pane shows the card.
+func (m *Model) wantImage(path string) tea.Cmd {
+	e, ok := m.paneCache[path]
+	if !ok || e.err != nil || e.p.Kind != preview.Image || !m.graphics {
 		return nil
 	}
-	return tea.Tick(previewDelay, func(time.Time) tea.Msg { return paneTickMsg{path: path} })
+	b := m.imageBox()
+	if e.imgFor == b {
+		return nil
+	}
+	id := m.nextImageID(path)
+	e.img, e.imgFor = nil, b
+	m.paneCache[path] = e
+	return loadImage(path, id, b, m.tmux)
+}
+
+// imageBox is the room for a picture: the pane less its border and a cell
+// of margin each side.
+func (m *Model) imageBox() box {
+	return box{cols: m.width - m.listWidth() - 3, rows: m.listHeight()}
 }
 
 // paneTick builds the preview the timer was started for, unless the
@@ -106,29 +136,23 @@ func (m *Model) paneTick(msg paneTickMsg) tea.Cmd {
 }
 
 // paneLoaded caches a built preview. It is kept even if the selection has
-// moved on: it is still true for its path, and going back is likely.
-//
-// A picture, in a terminal that can show one, is then prepared for the
-// terminal in a second command; until it arrives the pane shows its card.
-func (m *Model) paneLoaded(msg *paneMsg) tea.Cmd {
+// moved on: it is still true for its path, and going back is likely. A
+// picture, in a terminal that can show one, is then asked for by
+// wantImage, which Update runs right after.
+func (m *Model) paneLoaded(msg *paneMsg) {
 	if m.paneCache == nil || len(m.paneCache) >= paneCacheMax {
 		m.paneCache = make(map[string]paneEntry)
 	}
 	m.paneCache[msg.path] = msg.paneEntry
-	if msg.err != nil || msg.p.Kind != preview.Image || !m.graphics || !m.paneShown() {
-		return nil
-	}
-	cols := m.width - m.listWidth() - 3 // border and a cell of margin each side
-	id := m.nextImageID(msg.path)
-	return loadImage(msg.path, id, cols, m.listHeight(), m.tmux)
 }
 
 // imageLoaded stores a prepared picture and sends it to the terminal. A
-// picture whose id has since been handed to another path is dropped: the
-// terminal would show the newer picture under that id.
+// picture is dropped if it is no longer the one wanted: its id has since
+// been handed to another path (the terminal would show the newer picture
+// under it), or the pane has changed size and a new one is on its way.
 func (m *Model) imageLoaded(msg *paneImageMsg) tea.Cmd {
 	e, ok := m.paneCache[msg.path]
-	if !ok || msg.img == nil || m.imageOwner[msg.img.id] != msg.path {
+	if !ok || msg.img == nil || e.imgFor != msg.box || m.imageOwner[msg.img.id] != msg.path {
 		return nil
 	}
 	e.img = msg.img

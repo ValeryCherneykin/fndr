@@ -39,10 +39,16 @@ type paneImage struct {
 	seq        string // transmission and placement, written to the terminal once
 }
 
+// box is the room a picture is fit into, in cells: the pane, less its
+// border and margins.
+type box struct{ cols, rows int }
+
 // paneImageMsg carries a picture prepared for the terminal, or nil when it
-// could not be decoded (the card is shown instead).
+// could not be decoded (the card is shown instead). box is the room it was
+// prepared for: if the pane has changed size since, it is dropped.
 type paneImageMsg struct {
 	path string
+	box  box
 	img  *paneImage
 }
 
@@ -79,8 +85,10 @@ func allowPassthrough() tea.Msg {
 // of 38;5;3), and the terminal reads the id only from the long one.
 const firstImageID = 16
 
-// nextImageID hands out image ids in a cycle and makes path their owner. An id handed out again belongs to a new picture: the old owner's
-// cached picture is dropped, so it is sent again if it is shown again.
+// nextImageID hands out image ids in a cycle and makes path their owner.
+// An id handed out again belongs to a new picture: the old owner's picture,
+// shown or on its way, is forgotten, and wantImage asks for it again when
+// it is next shown.
 func (m *Model) nextImageID(path string) int {
 	if m.imageSeq < firstImageID || m.imageSeq >= 255 {
 		m.imageSeq = firstImageID - 1
@@ -88,8 +96,8 @@ func (m *Model) nextImageID(path string) int {
 	m.imageSeq++
 	id := m.imageSeq
 	if old := m.imageOwner[id]; old != "" {
-		if e, ok := m.paneCache[old]; ok && e.img != nil && e.img.id == id {
-			e.img = nil
+		if e, ok := m.paneCache[old]; ok && (e.img == nil || e.img.id == id) {
+			e.img, e.imgFor = nil, box{}
 			m.paneCache[old] = e
 		}
 	}
@@ -98,15 +106,14 @@ func (m *Model) nextImageID(path string) int {
 }
 
 // loadImage prepares the picture at path for the pane, off the UI
-// goroutine. The box is the pane's size now; the picture keeps its shape
-// inside it.
-func loadImage(path string, id, maxCols, maxRows int, tmux bool) tea.Cmd {
+// goroutine. It is fit into b keeping its shape.
+func loadImage(path string, id int, b box, tmux bool) tea.Cmd {
 	return func() tea.Msg {
-		img, err := buildImage(path, id, maxCols, maxRows, tmux)
+		img, err := buildImage(path, id, b.cols, b.rows, tmux)
 		if err != nil {
-			return paneImageMsg{path: path}
+			return paneImageMsg{path: path, box: b}
 		}
-		return paneImageMsg{path: path, img: img}
+		return paneImageMsg{path: path, box: b, img: img}
 	}
 }
 
