@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -99,5 +100,21 @@ func TestStyleRangeKeepsText(t *testing.T) {
 	got := ansi.Strip(styleRange(path, 3, len(path), []int{3, 5, 14}, &stName, &stNameHit))
 	if got != "Отчёт-main.go" {
 		t.Errorf("styleRange text = %q, want %q", got, "Отчёт-main.go")
+	}
+}
+
+// BenchmarkRenderRow draws one screen of rows: 40 results with matches,
+// the work of every keystroke. Names are plain ASCII, the common case
+// safeText lets through without a copy.
+func BenchmarkRenderRow(b *testing.B) {
+	rs := make([]indexer.Result, 40)
+	for i := range rs {
+		p := fmt.Sprintf("/home/v/dev/project/internal/pkg%d/handler_%d.go", i, i)
+		rs[i] = indexer.Result{Entry: indexer.NewEntry(p, 0, 0, false), Positions: []int{len(p) - 10, len(p) - 9, len(p) - 3}}
+	}
+	for b.Loop() {
+		for i := range rs {
+			renderRow(&rs[i], "/home/v/dev", 100, i == 0, false)
+		}
 	}
 }

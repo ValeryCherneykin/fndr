@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -74,5 +75,26 @@ func TestListLinks(t *testing.T) {
 	}
 	if !isDir["todir"] || isDir["tofile"] || isDir["broken"] {
 		t.Errorf("IsDir by name: %v", isDir)
+	}
+}
+
+// BenchmarkList lists a folder of 1000 files and 20 links, about what a
+// busy folder holds. Links cost an extra stat each (see List).
+func BenchmarkList(b *testing.B) {
+	dir := b.TempDir()
+	for i := range 1000 {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("file%04d.go", i)), nil, 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	for i := range 20 {
+		if err := os.Symlink(fmt.Sprintf("file%04d.go", i), filepath.Join(dir, fmt.Sprintf("link%02d", i))); err != nil {
+			b.Fatal(err)
+		}
+	}
+	for b.Loop() {
+		if _, err := List(dir); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
