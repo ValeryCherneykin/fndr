@@ -76,7 +76,7 @@ func (m *Model) listed(msg *listMsg) {
 // up from, if any: going back out lands where you went in, as in Finder.
 func (m *Model) showListing() {
 	m.results, m.total = m.listing, len(m.listing)
-	m.cursor, m.offset = 0, 0
+	m.cursor, m.offset, m.picked = 0, 0, ""
 	if m.listing == nil {
 		return // not read yet; keep reveal for when it is
 	}

@@ -129,6 +129,28 @@ func TestSelectionMovesAndClamps(t *testing.T) {
 	}
 }
 
+// TestRefreshKeepsPickedRow: while the crawl runs, the same query is
+// searched again and better matches push rows down. A row the user picked
+// stays selected; untouched, the selection stays on the best match.
+func TestRefreshKeepsPickedRow(t *testing.T) {
+	m := testModel(t, "/r/a/notes.md", "/r/b/notes-old.md")
+	typeText(m, "notes")
+	best := m.selectedPath()
+	m.ix.Add([]indexer.Entry{indexer.NewEntry("/r/notes", 0, 0, false)})
+	send(m, m.search()()) // what the crawl's next batch does
+	if got := m.selectedPath(); got == best {
+		t.Errorf("untouched selection stayed on %s; want the new best match", got)
+	}
+
+	key(m, tea.KeyDown, 0)
+	picked := m.selectedPath()
+	m.ix.Add([]indexer.Entry{indexer.NewEntry("/r/c/notes", 0, 0, false)})
+	send(m, m.search()())
+	if got := m.selectedPath(); got != picked {
+		t.Errorf("selection slid from %s to %s under the user", picked, got)
+	}
+}
+
 func TestScrollKeepsSelectionVisible(t *testing.T) {
 	paths := make([]string, 0, 30)
 	for i := range 30 {

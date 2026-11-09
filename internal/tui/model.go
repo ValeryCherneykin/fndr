@@ -86,6 +86,13 @@ type Model struct {
 
 	cursor int // selected row in results
 	offset int // first visible row
+
+	// picked is the path the user moved the selection to, "" until they
+	// do. While the crawl runs, the same query is searched again and again
+	// and better matches push rows down; the selection follows picked, not
+	// the row number, or enter would open whatever slid under the cursor.
+	// A new query or folder starts over at the top.
+	picked string
 	width  int
 	height int
 
@@ -320,7 +327,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // canceled; a newer search is already on its way
 		}
 		m.results, m.total = msg.results, msg.total
-		m.cursor = min(m.cursor, max(len(m.results)-1, 0))
+		m.cursor = m.pickedRow()
 		m.scrollToCursor()
 		// The crawl added entries while this search ran: search again, so the
 		// list keeps up with indexing without a search per batch.
@@ -488,7 +495,7 @@ func (m *Model) setQuery(q string) tea.Cmd {
 	}
 	m.query = q
 	m.qpos = min(m.qpos, len(q))
-	m.cursor, m.offset = 0, 0
+	m.cursor, m.offset, m.picked = 0, 0, ""
 	return m.search()
 }
 
@@ -526,7 +533,22 @@ func (m *Model) move(delta int) {
 		return
 	}
 	m.cursor = min(max(m.cursor+delta, 0), len(m.results)-1)
+	m.picked = m.results[m.cursor].Entry.Path
 	m.scrollToCursor()
+}
+
+// pickedRow is where the selection belongs in fresh results: on the row
+// the user picked, if it is still among them, else on the same row number,
+// clamped to the list.
+func (m *Model) pickedRow() int {
+	if m.picked != "" {
+		for i := range m.results {
+			if m.results[i].Entry.Path == m.picked {
+				return i
+			}
+		}
+	}
+	return min(m.cursor, max(len(m.results)-1, 0))
 }
 
 // scrollToCursor adjusts the viewport so the selected row is visible, moving
