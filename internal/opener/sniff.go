@@ -70,16 +70,21 @@ var programMagic = [][]byte{
 	// macOS universal binary (Intel + Apple Silicon). Java class files
 	// share this signature; they do not run on a double-click either.
 	[]byte("\xca\xfe\xba\xbe"),
+	[]byte("\xca\xfe\xba\xbf"), // macOS universal binary, 64-bit offsets
 }
 
-// looksLikeProgram reports whether head starts with one of programMagic.
+// looksLikeProgram reports whether head starts with one of programMagic,
+// or is a Windows program: under WSL the system opener is wslview, which
+// runs a .exe rather than opening it.
 func looksLikeProgram(head []byte) bool {
 	for _, magic := range programMagic {
 		if bytes.HasPrefix(head, magic) {
 			return true
 		}
 	}
-	return false
+	// "MZ" alone is too short to trust: a note may start with it. A real
+	// .exe holds NUL bytes within its first few hundred, text never does.
+	return bytes.HasPrefix(head, []byte("MZ")) && !looksLikeText(head)
 }
 
 // looksLikeText reports whether head, the first bytes of a file, looks like

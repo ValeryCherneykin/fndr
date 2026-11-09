@@ -72,6 +72,9 @@ func TestLooksLikeProgram(t *testing.T) {
 		{"\x7fELF\x02\x01", true},
 		{"\xcf\xfa\xed\xfe\x0c", true},
 		{"\xca\xfe\xba\xbe\x00", true},
+		{"\xca\xfe\xba\xbf\x00", true},               // universal, 64-bit offsets
+		{"MZ\x90\x00\x03\x00\x00\x00\x04\x00", true}, // a Windows .exe: wslview would run it
+		{"MZ notes: buy milk", false},                // text that happens to start with MZ
 		{"%PDF-1.7", false},
 		{"ELF", false},    // not the signature: it starts with \x7f
 		{"\x7fEL", false}, // too short to be a whole signature
