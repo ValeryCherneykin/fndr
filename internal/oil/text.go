@@ -70,10 +70,12 @@ func colOf(s string, idx int) int {
 
 // firstNonBlank returns the start of the first character that is not a
 // space or a tab, where ^ goes and where line commands leave the cursor.
+// It steps by characters: a blank with a combining mark on it is one
+// character, and stepping by bytes would stop inside it.
 func firstNonBlank(s string) int {
 	i := 0
 	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
-		i++
+		i = nextChar(s, i)
 	}
 	return min(i, lastChar(s))
 }

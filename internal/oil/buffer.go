@@ -57,6 +57,7 @@ type Buffer struct {
 	// back to column 10, as in Vim. Horizontal moves set it.
 	want int
 
+	mode Mode
 	pend pending
 	reg  register
 }
@@ -65,7 +66,7 @@ type Buffer struct {
 type pending struct {
 	count   int    // digits typed since the last operator or command; 0 if none
 	opCount int    // the count typed before the operator
-	op      string // "d" or "y", waiting for its motion
+	op      string // "d", "y" or "c", waiting for its motion
 	prefix  string // "g", waiting for the key that completes "gg"
 }
 
@@ -90,6 +91,9 @@ type target struct {
 var aliases = map[string]struct{ op, motion string }{
 	"x": {"d", "l"},
 	"D": {"d", "$"},
+	"s": {"c", "l"},
+	"C": {"c", "$"},
+	"S": {"c", "c"},
 }
 
 // New returns a buffer holding lines, with the cursor on the first. The
@@ -116,6 +120,10 @@ func (b *Buffer) text() string { return b.lines[b.row].Text }
 
 // Key applies one key press.
 func (b *Buffer) Key(k string) {
+	if b.mode == Insert {
+		b.insertKey(k)
+		return
+	}
 	p := &b.pend
 
 	// A count is digits; a leading "0" is not one, because "0" is also
@@ -161,6 +169,8 @@ func (b *Buffer) Key(k string) {
 		}
 	case cmd.op == "" && (k == "p" || k == "P"):
 		b.put(k == "p", n)
+	case cmd.op == "" && isInsert(k):
+		b.startInsert(k)
 	}
 	// Anything else, "dx" or esc among them, has dropped what was pending.
 }
@@ -173,7 +183,7 @@ func (p *pending) total() (n int, counted bool) {
 	return n, p.opCount > 0 || p.count > 0
 }
 
-func isOperator(k string) bool { return k == "d" || k == "y" }
+func isOperator(k string) bool { return k == "d" || k == "y" || k == "c" }
 
 func isMotion(k string) bool {
 	switch k {
@@ -186,7 +196,8 @@ func isMotion(k string) bool {
 // motion returns where motion k leads, n times. ok is false when it
 // cannot move at all, as j on the last line: Vim then does nothing, and an
 // operator waiting for it does nothing either, rather than act on the
-// line the cursor is on.
+// line the cursor is on. A charwise motion always succeeds, if only to
+// stay put: "cl" on an empty line still starts typing.
 //
 // A charwise target may be len(line), one past the last character: that
 // is where "l" on the last character leads, so "dl" (x) deletes it. The
@@ -216,12 +227,10 @@ func (b *Buffer) motion(k string, n int, counted bool) (t target, ok bool) {
 		for range n {
 			t.col = prevChar(s, t.col)
 		}
-		return t, t.col != b.col
 	case "l", "right":
 		for range n {
 			t.col = nextChar(s, t.col)
 		}
-		return t, t.col != b.col
 	case "0":
 		t.col = 0
 	case "^":
@@ -253,13 +262,22 @@ func (b *Buffer) setCol(col int) {
 	b.want = charIndex(s, b.col)
 }
 
-// operateLines applies op to lines lo through hi. Both operators keep the
-// lines in the register; d also removes them.
+// operateLines applies op to lines lo through hi. Every operator keeps the
+// lines in the register; d removes them; c empties them into one line to
+// type on, which keeps the first line's id, so typing a new name there
+// renames that entry.
 func (b *Buffer) operateLines(op string, lo, hi int) {
 	b.reg = register{linewise: true, lines: slices.Clone(b.lines[lo : hi+1])}
-	if op == "y" {
+	switch op {
+	case "y":
 		b.row = lo // as in Vim: yanking upwards takes the cursor along
 		b.col = colOf(b.text(), b.want)
+		return
+	case "c":
+		kept := mutation.Line{ID: b.lines[lo].ID}
+		b.lines = slices.Replace(b.lines, lo, hi+1, kept)
+		b.row, b.mode = lo, Insert
+		b.place(0)
 		return
 	}
 	b.lines = slices.Delete(b.lines, lo, hi+1)
@@ -270,16 +288,22 @@ func (b *Buffer) operateLines(op string, lo, hi int) {
 	b.setCol(firstNonBlank(b.text()))
 }
 
-// operateChars applies op to the bytes lo up to hi of the cursor's line.
+// operateChars applies op to the bytes lo up to hi of the cursor's line:
+// d deletes them, c deletes them and starts typing in their place.
 // Editing the text keeps the line's id: that is a rename.
 func (b *Buffer) operateChars(op string, lo, hi int) {
-	if lo == hi {
-		return // "d0" at the start of a line: nothing to take, the register is kept
-	}
 	s := b.text()
-	b.reg = register{text: s[lo:hi]}
-	if op == "d" {
-		b.lines[b.row].Text = s[:lo] + s[hi:]
+	if lo < hi { // "d0" at the start of a line takes nothing and keeps the register
+		b.reg = register{text: s[lo:hi]}
+		if op != "y" {
+			s = s[:lo] + s[hi:]
+			b.lines[b.row].Text = s
+		}
+	}
+	if op == "c" {
+		b.mode = Insert
+		b.place(lo)
+		return
 	}
 	b.setCol(lo)
 }

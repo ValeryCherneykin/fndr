@@ -1,6 +1,7 @@
 package oil
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,11 +17,27 @@ func folder(n int) *Buffer {
 	return New(lines)
 }
 
-// typeKeys presses each character of s as a key: typeKeys(b, "3j").
+// typeKeys presses each character of s as a key: typeKeys(b, "3j"). A
+// few control characters stand for the keys that have names, so a whole
+// edit reads as typed: "Anew\x1b".
 func typeKeys(b *Buffer, s string) {
 	for _, r := range s {
-		b.Key(string(r))
+		b.Key(keyName(r))
 	}
+}
+
+func keyName(r rune) string {
+	switch r {
+	case '\x1b':
+		return "esc"
+	case '\b':
+		return "backspace"
+	case '\n':
+		return "enter"
+	case ' ':
+		return "space"
+	}
+	return string(r)
 }
 
 func TestEmptyFolderIsOneBlankLine(t *testing.T) {
@@ -206,7 +223,7 @@ func TestHugePutIsCapped(t *testing.T) {
 // empty, the cursor on a line, and no line lost or made up but by the keys
 // that delete and put.
 func FuzzKeys(f *testing.F) {
-	for _, s := range []string{"dd", "2d3jp", "yGP", "gg9G", "dGp", "jjdk3P", "jx", "jjj$xp", "3lD", "y$P"} {
+	for _, s := range []string{"dd", "2d3jp", "yGP", "gg9G", "dGp", "jjdk3P", "jx", "jjj$xp", "3lD", "y$P", "Anew\x1b", "ccx\x1bj", "o\b\b\x1b", "li\n\x1b"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
@@ -216,16 +233,20 @@ func FuzzKeys(f *testing.F) {
 		b := lines("hello", "и\u0306ога", "", "日本.txt", "a")
 		before := texts(b)
 		for _, r := range s {
-			b.Key(string(r))
+			b.Key(keyName(r))
 			if len(b.lines) == 0 || b.row < 0 || b.row >= len(b.lines) {
 				t.Fatalf("after %q: %d lines, row %d", s, len(b.lines), b.row)
 			}
-			if line := b.text(); b.col < 0 || b.col > lastChar(line) || prevChar(line, nextChar(line, b.col)) != b.col {
+			limit := lastChar(b.text())
+			if b.mode == Insert {
+				limit = len(b.text())
+			}
+			if line := b.text(); b.col < 0 || b.col > limit || b.col < len(line) && prevChar(line, nextChar(line, b.col)) != b.col {
 				t.Fatalf("after %q: col %d in %q is not on a character", s, b.col, line)
 			}
 		}
-		if !strings.ContainsAny(s, "dpPxD") && texts(b) != before {
-			t.Fatalf("%q changed the lines to %q without d, p, P, x or D", s, texts(b))
+		if !strings.ContainsAny(s, "dpPxDcCsSiaIAoO") && texts(b) != before {
+			t.Fatalf("%q changed the lines to %q without a command that edits", s, texts(b))
 		}
 	})
 }
@@ -331,5 +352,109 @@ func TestDecomposedLetters(t *testing.T) {
 	typeKeys(b, "$hhh")
 	if b.Col() != 0 {
 		t.Errorf("$hhh: col %d, want 0", b.Col())
+	}
+}
+
+// joined returns the buffer's lines joined with "|": "hello|world".
+func joined(b *Buffer) string {
+	ls := b.Lines()
+	texts := make([]string, len(ls))
+	for i, l := range ls {
+		texts[i] = l.Text
+	}
+	return strings.Join(texts, "|")
+}
+
+// TestInsert: typing text. Each case types keys on the lines "hello" and
+// "world", with the cursor starting on the "e" of hello (col 1), and
+// expects the lines after, joined with "|", and the cursor.
+func TestInsert(t *testing.T) {
+	tests := []struct {
+		keys, want string
+		row, col   int
+		mode       Mode
+	}{
+		{"iX\x1b", "hXello|world", 0, 1, Normal}, // esc steps back onto what was typed
+		{"aX\x1b", "heXllo|world", 0, 2, Normal},
+		{"IX\x1b", "Xhello|world", 0, 0, Normal},
+		{"AX\x1b", "helloX|world", 0, 5, Normal},
+		{"A.md\x1b", "hello.md|world", 0, 7, Normal},
+		{"i\x1b", "hello|world", 0, 0, Normal},
+		{"iab", "habello|world", 0, 3, Insert},
+		{"A", "hello|world", 0, 5, Insert}, // past the last character, where typing appends
+		{"i a\x1b", "h aello|world", 0, 2, Normal},
+		{"iю\x1b", "hюello|world", 0, 1, Normal},
+
+		{"onew\x1b", "hello|new|world", 1, 2, Normal},
+		{"Onew\x1b", "new|hello|world", 0, 2, Normal},
+		{"jo\x1b", "hello|world|", 2, 0, Normal},
+
+		{"i\b\x1b", "ello|world", 0, 0, Normal},
+		{"A\b\b\x1b", "hel|world", 0, 2, Normal},
+		{"ji\b\x1b", "hello|orld", 1, 0, Normal}, // the cursor was on the o: w is erased
+		{"jI\b\x1b", "helloworld", 0, 4, Normal}, // backspace at the start joins the lines
+		{"I\b\x1b", "hello|world", 0, 0, Normal}, // nothing above to join
+
+		{"i\n\x1b", "h|ello|world", 1, 0, Normal}, // enter splits the line
+		{"A\nnew\x1b", "hello|new|world", 1, 2, Normal},
+
+		{"ihi\x1bj", "hhiello|world", 1, 2, Normal}, // j keeps the column esc left
+	}
+	for _, tt := range tests {
+		b := lines("hello", "world")
+		b.Key("l")
+		typeKeys(b, tt.keys)
+		if g := joined(b); g != tt.want || b.Row() != tt.row || b.Col() != tt.col || b.Mode() != tt.mode {
+			t.Errorf("%q: %q row %d col %d %v, want %q row %d col %d %v",
+				tt.keys, g, b.Row(), b.Col(), b.Mode(), tt.want, tt.row, tt.col, tt.mode)
+		}
+	}
+}
+
+// TestChange: c deletes what its motion covers and starts typing there.
+func TestChange(t *testing.T) {
+	tests := []struct{ keys, want string }{
+		{"ccnotes.md\x1b", "notes.md|world"},
+		{"Snotes.md\x1b", "notes.md|world"},
+		{"Cy\x1b", "hy|world"}, // from the e to the end
+		{"c$y\x1b", "hy|world"},
+		{"sa\x1b", "hallo|world"},
+		{"3sa\x1b", "hao|world"}, // three characters: e, l, l
+		{"c0j\x1b", "jello|world"},
+		{"cjx\x1b", "x"}, // two lines become one
+		{"Gccx\x1b", "hello|x"},
+		{"$sX\x1b", "hellX|world"}, // the last character
+	}
+	for _, tt := range tests {
+		b := lines("hello", "world")
+		b.Key("l")
+		typeKeys(b, tt.keys)
+		if g := joined(b); g != tt.want || b.Mode() != Normal {
+			t.Errorf("%q: %q %v, want %q NORMAL", tt.keys, g, b.Mode(), tt.want)
+		}
+	}
+}
+
+// TestRenameAndCreateLines: what the plan will read. A changed name keeps
+// its id (rename); a typed line has none (create); a split leaves the
+// tail without one.
+func TestRenameAndCreateLines(t *testing.T) {
+	b := lines("notes.md", "main.go")
+	typeKeys(b, "ccideas.md\x1bobin/run.sh\x1b")
+	want := []mutation.Line{{ID: 1, Text: "ideas.md"}, {ID: 0, Text: "bin/run.sh"}, {ID: 2, Text: "main.go"}}
+	if got := b.Lines(); !slices.Equal(got, want) {
+		t.Errorf("lines %+v, want %+v", got, want)
+	}
+}
+
+// TestEmptyLineStillTypes: an empty folder is one blank line, and cl, a, A
+// and i on it all start typing.
+func TestEmptyLineStillTypes(t *testing.T) {
+	for _, keys := range []string{"sx\x1b", "ax\x1b", "Ax\x1b", "ix\x1b", "ccx\x1b"} {
+		b := New(nil)
+		typeKeys(b, keys)
+		if got := b.Lines(); len(got) != 1 || got[0].Text != "x" {
+			t.Errorf("%q on an empty buffer: %+v, want one line x", keys, got)
+		}
 	}
 }
