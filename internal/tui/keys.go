@@ -43,7 +43,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.activate()
 		return m, cmd
 	case "ctrl+o":
-		return m, loadOil(m.cwd, false)
+		return m, loadOil(m.cwd, false, "")
 
 	// Arrows left and right belong to the text, as in any input field; the
 	// held-ctrl pair is the same with hands on the home row, h and l as in

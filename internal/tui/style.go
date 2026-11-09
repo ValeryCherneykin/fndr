@@ -52,6 +52,12 @@ var (
 	stBarErr  = lipgloss.NewStyle().Background(colBar).Foreground(colAlert)
 	stMode    = lipgloss.NewStyle().Background(colLocal).Foreground(colBar).Bold(true)
 	stModeNew = stMode.Background(colWarn) // creating: the line means something else now
+
+	stModeConfirm = stMode.Background(colAlert) // a plan waits for y: the disk is next
+	stPlanTitle   = lipgloss.NewStyle().Foreground(colBright).Bold(true)
+	stPlanBorder  = lipgloss.NewStyle().Foreground(colDim)
+	stPlanVerb    = lipgloss.NewStyle().Foreground(colDim)
+	stPlanTrash   = lipgloss.NewStyle().Foreground(colAlert)
 )
 
 // stCode colours highlighted code, in the spirit of Tokyo Night: muted

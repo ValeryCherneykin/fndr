@@ -174,9 +174,15 @@ func TestOilScrolls(t *testing.T) {
 // TestOilEveryScreenSize: in every mode and at every size, the screen is
 // exactly height lines of exactly width cells, and nothing panics.
 func TestOilEveryScreenSize(t *testing.T) {
-	for _, keys := range []string{"", "GA.bak", ":wq", "dd"} {
+	for _, keys := range []string{"", "GA.bak", ":wq", "dd", "plan"} {
 		m, _ := oilModel(t)
-		typeText(m, keys)
+		if keys == "plan" { // the plan's box over the buffer
+			typeText(m, "ddGonew-file-with-a-long-name.txt")
+			key(m, tea.KeyEscape, 0)
+			command(m, "w")
+		} else {
+			typeText(m, keys)
+		}
 		for w := 1; w <= 100; w++ {
 			for h := 4; h <= 12; h++ {
 				m.Update(tea.WindowSizeMsg{Width: w, Height: h})
@@ -191,5 +197,202 @@ func TestOilEveryScreenSize(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// writeModel is oilModel with the trash in a temporary home, so trashing
+// in a test never touches the real one.
+func writeModel(t *testing.T) (m *Model, root, home string) {
+	t.Helper()
+	home = t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", "")
+	m, root = oilModel(t)
+	return m, root, home
+}
+
+func exists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+// indexed reports whether the index holds path.
+func (m *Model) indexed(path string) bool {
+	for _, e := range m.ix.Snapshot() {
+		if e.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+// TestOilRename: change a name, :w shows the plan and changes nothing, y
+// renames on the disk; the buffer is read again with the cursor on the
+// new name, and search knows it.
+func TestOilRename(t *testing.T) {
+	m, root, _ := writeModel(t)
+	typeText(m, "G")
+	typeText(m, "ccNOTES.md")
+	key(m, tea.KeyEscape, 0)
+	command(m, "w")
+
+	view := m.View().Content
+	for _, s := range []string{"Apply 1 change?", "rename", "README.md → NOTES.md", " CONFIRM "} {
+		if !strings.Contains(view, s) {
+			t.Errorf("plan screen lacks %q", s)
+		}
+	}
+	if !exists(filepath.Join(root, "README.md")) {
+		t.Fatal("the disk changed before y")
+	}
+
+	typeText(m, "y")
+	if exists(filepath.Join(root, "README.md")) || !exists(filepath.Join(root, "NOTES.md")) {
+		t.Fatal("y did not rename README.md to NOTES.md")
+	}
+	if m.oil == nil || m.oil.plan != nil {
+		t.Fatal("after y: want the buffer again, in OIL")
+	}
+	if got := m.oilTexts()[m.oil.buf.Row()]; got != "NOTES.md" {
+		t.Errorf("cursor on %q, want the renamed NOTES.md", got)
+	}
+	if m.notice != "renamed 1" || m.oil.changes != 0 {
+		t.Errorf("notice %q, changes %d", m.notice, m.oil.changes)
+	}
+	if m.indexed(filepath.Join(root, "README.md")) || !m.indexed(filepath.Join(root, "NOTES.md")) {
+		t.Error("the index still has the old name, or not the new one")
+	}
+}
+
+// TestOilCreate: a new line with a path creates the folders on the way.
+func TestOilCreate(t *testing.T) {
+	m, root, _ := writeModel(t)
+	typeText(m, "Gobin/run.sh")
+	key(m, tea.KeyEscape, 0)
+	command(m, "w")
+	typeText(m, "y")
+
+	if !exists(filepath.Join(root, "bin", "run.sh")) {
+		t.Fatal("bin/run.sh was not created")
+	}
+	if got := m.oilTexts()[m.oil.buf.Row()]; got != "bin/" {
+		t.Errorf("cursor on %q, want bin/", got)
+	}
+	if !m.indexed(filepath.Join(root, "bin")) || !m.indexed(filepath.Join(root, "bin", "run.sh")) {
+		t.Error("search does not know bin/run.sh")
+	}
+}
+
+// TestOilTrash: dd and :w move the entry to the trash, never delete it.
+func TestOilTrash(t *testing.T) {
+	m, root, home := writeModel(t)
+	typeText(m, "dd") // docs/
+	command(m, "w")
+	if !strings.Contains(m.View().Content, "trash   docs/") {
+		t.Error("the plan does not show the trash")
+	}
+	typeText(m, "y")
+	if exists(filepath.Join(root, "docs")) {
+		t.Fatal("docs is still there")
+	}
+	mac, linux := filepath.Join(home, ".Trash", "docs"), filepath.Join(home, ".local", "share", "Trash", "files", "docs")
+	if !exists(mac) && !exists(linux) {
+		t.Error("docs is gone but not in the trash")
+	}
+	if m.notice != "trashed 1" {
+		t.Errorf("notice %q", m.notice)
+	}
+}
+
+// TestOilPlanDeclined: n goes back to the buffer with the edit intact,
+// and nothing on the disk has changed.
+func TestOilPlanDeclined(t *testing.T) {
+	m, root, _ := writeModel(t)
+	typeText(m, "dd")
+	command(m, "w")
+	typeText(m, "n")
+	if m.oil.plan != nil || !exists(filepath.Join(root, "docs")) {
+		t.Fatal("n did not go back, or the disk changed")
+	}
+	if m.oil.changes != 1 {
+		t.Errorf("changes %d, want the edit kept", m.oil.changes)
+	}
+}
+
+// TestOilBadLine: a buffer that cannot become a plan says why, with the
+// cursor on the line to blame, and shows no plan.
+func TestOilBadLine(t *testing.T) {
+	m, _, _ := writeModel(t)
+	typeText(m, "Gonew")
+	key(m, tea.KeyEscape, 0)
+	typeText(m, "yyp") // "new" twice
+	command(m, "w")
+	if m.oil.plan != nil {
+		t.Fatal("a plan for two lines with one name")
+	}
+	if !m.noticeErr || !strings.Contains(m.notice, "line 5") || m.oil.buf.Row() != 4 {
+		t.Errorf("notice %q, cursor on row %d; want line 5 named and the cursor on it", m.notice, m.oil.buf.Row())
+	}
+}
+
+func TestOilNothingToWrite(t *testing.T) {
+	m, _, _ := writeModel(t)
+	command(m, "w")
+	if m.oil.plan != nil || m.notice != "nothing to write" {
+		t.Errorf("plan %v notice %q", m.oil.plan, m.notice)
+	}
+	command(m, "wq")
+	if m.oil != nil {
+		t.Error(":wq with nothing to write did not leave")
+	}
+}
+
+// TestOilWriteQuit: :wq writes, leaves OIL, and the list shows the
+// result selected.
+func TestOilWriteQuit(t *testing.T) {
+	m, root, _ := writeModel(t)
+	typeText(m, "G")
+	typeText(m, "ccNOTES.md")
+	key(m, tea.KeyEscape, 0)
+	command(m, "wq")
+	typeText(m, "y")
+	if m.oil != nil {
+		t.Fatal(":wq and y did not leave OIL")
+	}
+	if got := m.selectedPath(); got != filepath.Join(root, "NOTES.md") {
+		t.Errorf("selected %q, want NOTES.md", got)
+	}
+}
+
+// TestOilRenameFolder: the files in a renamed folder are found under its
+// new name, and no longer under the old one.
+func TestOilRenameFolder(t *testing.T) {
+	m, root, _ := writeModel(t)
+	typeText(m, "j") // src/
+	typeText(m, "cclib/")
+	key(m, tea.KeyEscape, 0)
+	command(m, "w")
+	typeText(m, "y")
+	if !exists(filepath.Join(root, "lib", "main.go")) {
+		t.Fatal("src was not renamed to lib")
+	}
+	if m.indexed(filepath.Join(root, "src", "main.go")) || !m.indexed(filepath.Join(root, "lib", "main.go")) {
+		t.Error("search still finds src/main.go, or not lib/main.go")
+	}
+}
+
+// TestOilCreateHidden: a new hidden file is shown, and selected, though
+// hidden names were off: what was just made never vanishes.
+func TestOilCreateHidden(t *testing.T) {
+	m, root, _ := writeModel(t)
+	typeText(m, "Go.secret")
+	key(m, tea.KeyEscape, 0)
+	command(m, "w")
+	typeText(m, "y")
+	if !exists(filepath.Join(root, ".secret")) {
+		t.Fatal(".secret was not created")
+	}
+	if got := m.oilTexts()[m.oil.buf.Row()]; got != ".secret" {
+		t.Errorf("cursor on %q, want the new .secret, shown", got)
 	}
 }

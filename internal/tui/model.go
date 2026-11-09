@@ -181,6 +181,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.oilLoaded(&msg)
 		return m, nil
 
+	case oilWrittenMsg:
+		cmd := m.oilWritten(&msg)
+		return m, cmd
+
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 

@@ -45,31 +45,47 @@ type oilState struct {
 	// changes is how many steps the edit comes to, kept up to date after
 	// every key: the status bar shows it, and :q refuses to drop them.
 	changes int
+
+	// plan, once :w made one, is shown for y (oilwrite.go); nil while
+	// editing. quitAfter: it came from :wq. applying: y was pressed and
+	// the disk is being changed. wrote: something was written, so the
+	// list must be read again on leaving.
+	plan      mutation.Plan
+	quitAfter bool
+	applying  bool
+	wrote     bool
 }
 
-// oilMsg carries a folder read for OIL.
+// oilMsg carries a folder read for OIL, and the name to put the cursor
+// on: what was just created or renamed.
 type oilMsg struct {
 	dir     string
 	entries []indexer.Entry
 	err     error
 	hidden  bool
+	reveal  string
 }
 
 // loadOil reads dir for OIL, off the UI goroutine.
-func loadOil(dir string, hidden bool) tea.Cmd {
+func loadOil(dir string, hidden bool, reveal string) tea.Cmd {
 	return func() tea.Msg {
 		es, err := indexer.List(dir)
-		return oilMsg{dir: dir, entries: es, err: err, hidden: hidden}
+		return oilMsg{dir: dir, entries: es, err: err, hidden: hidden, reveal: reveal}
 	}
 }
 
-// oilLoaded fills a buffer with the folder just read and enters OIL.
+// oilLoaded fills a buffer with the folder just read and enters OIL, or
+// refills it after a write. A refill keeps what the old state knew
+// beyond the folder: whether anything was written.
 func (m *Model) oilLoaded(msg *oilMsg) {
 	if msg.err != nil {
 		m.setNotice("cannot edit this folder: "+msg.err.Error(), true)
 		return
 	}
 	st := &oilState{dir: msg.dir, hidden: msg.hidden}
+	if m.oil != nil {
+		st.wrote = m.oil.wrote
+	}
 	var lines []mutation.Line
 	for _, e := range msg.entries {
 		name := e.Name()
@@ -85,35 +101,47 @@ func (m *Model) oilLoaded(msg *oilMsg) {
 		lines = append(lines, mutation.Line{ID: id, Text: name})
 	}
 	st.buf = oil.New(lines)
+	for i, l := range lines {
+		if msg.reveal != "" && strings.TrimSuffix(l.Text, "/") == msg.reveal {
+			st.buf.GoTo(i)
+			break
+		}
+	}
 	m.oil = st
+	m.oilScroll()
 }
 
 // oilKey is handleKey in OIL: every key goes to the buffer, and what it
 // asks for is done here.
 func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	st := m.oil
+	if st.plan != nil {
+		cmd := m.confirmKey(msg)
+		return m, cmd
+	}
 	act, err := st.buf.Key(msg.String())
 	if err != nil {
 		m.setNotice(err.Error(), true)
 	}
 	st.recount()
 
+	var cmd tea.Cmd
 	switch act {
 	case oil.Quit:
 		if st.changes > 0 {
 			m.setNotice("unsaved changes: :w writes them, :q! drops them", true)
 			break
 		}
-		m.oil = nil
+		cmd = m.leaveOil("")
 	case oil.ForceQuit:
-		m.oil = nil
+		cmd = m.leaveOil("")
 	case oil.Write, oil.WriteQuit:
-		m.setNotice("writing is not wired up yet: :q! to leave", true) // until the plan screen lands
+		cmd = m.oilWrite(act == oil.WriteQuit)
 	}
 	if m.oil != nil {
 		m.oilScroll()
 	}
-	return m, nil
+	return m, cmd
 }
 
 // recount measures the edit. A buffer that cannot become a plan (two
@@ -151,12 +179,19 @@ func (m *Model) viewOil() tea.View {
 	b.WriteByte('\n')
 	b.WriteString(stHair.Render(strings.Repeat("─", w)))
 	b.WriteByte('\n')
-	for i := range h {
+	rows := make([]string, h)
+	for i := range rows {
 		if r := st.offset + i; r < len(lines) {
-			b.WriteString(m.oilRow(lines[r], r, numW))
+			rows[i] = m.oilRow(lines[r], r, numW)
 		} else {
-			b.WriteString(strings.Repeat(" ", w))
+			rows[i] = strings.Repeat(" ", w)
 		}
+	}
+	if st.plan != nil {
+		overlay(rows, st.planBox(min(planMaxW, w-2), min(planMaxH, h)), w)
+	}
+	for _, r := range rows {
+		b.WriteString(r)
 		b.WriteByte('\n')
 	}
 	b.WriteString(m.oilStatus())
@@ -164,8 +199,105 @@ func (m *Model) viewOil() tea.View {
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
-	v.Cursor = m.oilCursor(lines, numW)
+	if st.plan == nil { // the plan is read, not edited: no cursor
+		v.Cursor = m.oilCursor(lines, numW)
+	}
 	return v
+}
+
+// The plan pops up over the buffer in a box, as Oil.nvim's confirmation
+// does, sized like the owner's Oil float (rounded, at most 80 by 30): the
+// edit stays in sight around it, and the box says what it comes to.
+const (
+	planMaxW = 80
+	planMaxH = 30
+)
+
+// planBox draws the plan as a box of lines of equal width, at most maxW
+// by maxH cells: the question in the top border, a line per step (trashes
+// in red, so they cannot be missed), and the keys. A plan taller than the
+// box shows its start and how many steps more. Folders keep their "/",
+// which mutation.Diff drops: trashing a folder must look like it.
+func (st *oilState) planBox(maxW, maxH int) []string {
+	dirs := make(map[string]bool)
+	for i, it := range st.items {
+		if st.entries[i].IsDir {
+			dirs[strings.TrimSuffix(it.Name, "/")] = true
+		}
+	}
+	name := func(n string) string {
+		if dirs[n] {
+			n += "/"
+		}
+		return safeText(n)
+	}
+
+	room := max(maxH-5, 1) // borders, a blank line above and below the steps, the keys
+	var steps []string
+	for i, op := range st.plan {
+		if i == room-1 && len(st.plan) > room {
+			steps = append(steps, stPlanVerb.Render(fmt.Sprintf("… and %d more", len(st.plan)-i)))
+			break
+		}
+		switch op.Kind {
+		case mutation.OpRename:
+			to := safeText(op.To)
+			if dirs[op.From] {
+				to += "/"
+			}
+			steps = append(steps, stPlanVerb.Render("rename  ")+stName.Render(name(op.From)+" → "+to))
+		case mutation.OpCreate:
+			steps = append(steps, stPlanVerb.Render("create  ")+stName.Render(safeText(op.To)))
+		case mutation.OpDelete:
+			steps = append(steps, stPlanTrash.Render("trash   "+name(op.From)))
+		}
+	}
+
+	title := fmt.Sprintf("Apply %d changes?", len(st.plan))
+	if len(st.plan) == 1 {
+		title = "Apply 1 change?"
+	}
+	keys := stPlanTitle.Render("[y]") + stPlanVerb.Render("es   ") + stPlanTitle.Render("[n]") + stPlanVerb.Render("o")
+
+	// As wide as the longest line needs, within maxW.
+	inner := ansi.StringWidth(title) + 4
+	for _, l := range steps {
+		inner = max(inner, ansi.StringWidth(l)+4)
+	}
+	inner = max(min(max(inner, 24), maxW-2), 0) // a terminal narrower than any box still gets one, cut
+
+	line := func(content string) string { // "│  content  │"
+		return stPlanBorder.Render("│") + finish("  "+ansi.Truncate(content, max(inner-4, 0), "…"), inner) + stPlanBorder.Render("│")
+	}
+	title = ansi.Truncate(title, max(inner-3, 0), "…")
+	top := stPlanBorder.Render("╭─ ") + stPlanTitle.Render(title) + stPlanBorder.Render(" "+strings.Repeat("─", max(inner-3-ansi.StringWidth(title), 0))+"╮")
+
+	box := make([]string, 0, len(steps)+5)
+	box = append(box, finish(top, inner+2), line(""))
+	for _, l := range steps {
+		box = append(box, line(l))
+	}
+	box = append(box, line(""), line(keys), stPlanBorder.Render("╰"+strings.Repeat("─", inner)+"╯"))
+	return box
+}
+
+// overlay draws box over rows, centred: each covered row keeps what is
+// left and right of the box. rows are exactly width cells each.
+func overlay(rows, box []string, width int) {
+	if len(box) == 0 {
+		return
+	}
+	bw := ansi.StringWidth(box[0])
+	x, y := max((width-bw)/2, 0), max((len(rows)-len(box))/2, 0)
+	for i, l := range box {
+		if y+i >= len(rows) {
+			break
+		}
+		row := rows[y+i]
+		left := ansi.Truncate(row, x, "")
+		left += strings.Repeat(" ", x-ansi.StringWidth(left)) // a wide character cut at x leaves a gap
+		rows[y+i] = finish(left+l+ansi.TruncateLeft(row, x+bw, ""), width)
+	}
 }
 
 // oilRow renders line r of the buffer: its number, relative to the
@@ -223,8 +355,11 @@ func (m *Model) oilStatus() string {
 	// What gives way when space runs out: the folder first, cut from the
 	// left; the notice or the count of changes, which say what is at
 	// stake, last.
-	mode := pick(st.buf.Mode() == oil.Insert, &stModeNew, &stMode)
-	left := mode.Render(" " + st.buf.Mode().String() + " ")
+	mode, name := pick(st.buf.Mode() == oil.Insert, &stModeNew, &stMode), st.buf.Mode().String()
+	if st.plan != nil {
+		mode, name = &stModeConfirm, "CONFIRM"
+	}
+	left := mode.Render(" " + name + " ")
 	right := ""
 	switch {
 	case m.notice != "":

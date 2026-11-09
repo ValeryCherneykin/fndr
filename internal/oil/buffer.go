@@ -122,6 +122,14 @@ func (b *Buffer) Row() int { return b.row }
 // Col returns the cursor's byte offset into its line.
 func (b *Buffer) Col() int { return b.col }
 
+// GoTo puts the cursor on line row, counting from 0, at its first
+// character: the interface points at a line this way, as one that
+// mutation.Diff found wrong.
+func (b *Buffer) GoTo(row int) {
+	b.row = min(max(row, 0), len(b.lines)-1)
+	b.setCol(firstNonBlank(b.text()))
+}
+
 // text is the line the cursor is on.
 func (b *Buffer) text() string { return b.lines[b.row].Text }
 

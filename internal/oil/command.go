@@ -92,8 +92,7 @@ func (b *Buffer) run(cmd string) (Action, error) {
 		return WriteQuit, nil
 	}
 	if n, err := strconv.Atoi(cmd); err == nil { // ":42" goes to line 42
-		b.row = min(max(n, 1), len(b.lines)) - 1
-		b.setCol(firstNonBlank(b.text()))
+		b.GoTo(n - 1)
 		return None, nil
 	}
 	return None, fmt.Errorf("%w: %s", ErrCommand, cmd)
