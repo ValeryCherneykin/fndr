@@ -160,11 +160,18 @@ noticeably slower is treated as a bug.
 ## 🛡 Safe by default
 
 - **Enter never runs a program.** Native binaries are recognized by their
-  magic bytes (ELF, Mach-O), not by the `+x` bit, which FAT and exFAT set on
-  every file.
-- **Files can't drive your terminal.** Control characters in previews are
-  replaced before printing, so a hostile file cannot clear the screen, move
-  the cursor or retitle the window.
+  magic bytes (ELF, Mach-O, Windows `.exe`), not by the `+x` bit, which FAT
+  and exFAT set on every file.
+- **Files can't drive your terminal.** Not their contents, not their names:
+  a file named with an escape sequence cannot clear the screen, write your
+  clipboard or retitle the window, and an invisible bidi character cannot
+  make a program called `invoice<U+202E>fdp.exe` read as `invoiceexe.pdf`.
+- **No picture bombs.** A picture's size is read from its header first; a
+  tiny file claiming 20000×20000 gets an info card, not gigabytes of memory.
+- **Nothing is deleted for good, nothing is overwritten.** New files are
+  created with `O_EXCL`: if the name is taken, nothing happens.
+- **Several fndr, one history.** Open it in every tmux pane: visits add up
+  under a file lock instead of the last one to exit erasing the others.
 - **Never silent.** Whatever happens (opened, refused, failed) is said in the
   status bar.
 
