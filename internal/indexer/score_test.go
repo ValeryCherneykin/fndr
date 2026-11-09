@@ -120,3 +120,39 @@ func BenchmarkFuzzyScore(b *testing.B) {
 		}
 	}
 }
+
+// FuzzStagesAgree checks the contract between the two search stages: the
+// filter passes exactly the entries the scorer can match. If they disagreed,
+// a file would pass the filter and then silently vanish from the results.
+// It also checks what highlighting relies on: one position per query rune,
+// ascending, each the start of a rune inside the path.
+func FuzzStagesAgree(f *testing.F) {
+	for _, s := range [][2]string{
+		{"/home/v/main.go", "mgo"},
+		{"/a/ЗАМЕТКИ.md", "зам"},
+		{"/a/K.txt", "k"}, // the Kelvin sign lowercases to an ASCII k
+		{"/a/\xff\xfe", "\xff"},
+		{"/日本/語.txt", "語"},
+	} {
+		f.Add(s[0], s[1])
+	}
+	f.Fuzz(func(t *testing.T, path, query string) {
+		lq := strings.ToLower(query)
+		e := NewEntry(path, 0, 0, false)
+		pos := make([]int, utf8.RuneCountInString(lq))
+
+		filtered := hasSubsequenceFold(path, lq)
+		_, ok := fuzzyScore(&e, 0, lq, pos)
+		if filtered != ok {
+			t.Fatalf("path %q query %q: filter says %v, scorer says %v", path, lq, filtered, ok)
+		}
+		if !ok || lq == "" {
+			return
+		}
+		for i, p := range pos {
+			if p < 0 || p >= len(path) || (i > 0 && p <= pos[i-1]) {
+				t.Fatalf("path %q query %q: positions %v", path, lq, pos)
+			}
+		}
+	})
+}

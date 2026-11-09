@@ -13,7 +13,9 @@ import (
 // bytes times the number of files indexed; entry_test.go guards the size.
 type Entry struct {
 	// Path is the absolute, cleaned path (see filepath.Clean), so it never
-	// ends with a separator except for the root itself.
+	// ends with a separator except for the root itself. It is exported for
+	// reading; changing it would leave nameOff pointing into the old path,
+	// so build a new Entry with NewEntry instead.
 	Path string
 
 	// Size is the size in bytes as reported by the file system. For a
