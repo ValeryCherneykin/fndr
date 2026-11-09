@@ -1,6 +1,7 @@
 package oil
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ValeryCherneykin/fndr/internal/mutation"
@@ -94,4 +95,133 @@ func TestLinesAreCopies(t *testing.T) {
 	if got := b.Lines()[0].Text; got != "a" {
 		t.Errorf("buffer line %q, want %q", got, "a")
 	}
+}
+
+// texts returns the buffer's lines joined: "abcde" for lines a..e.
+func texts(b *Buffer) string {
+	var s strings.Builder
+	for _, l := range b.Lines() {
+		s.WriteString(l.Text)
+	}
+	return s.String()
+}
+
+func TestCommands(t *testing.T) {
+	tests := []struct {
+		keys, want string // keys typed on lines a..e; the lines after
+		row        int
+	}{
+		// Motions of their own.
+		{"G", "abcde", 4},
+		{"Ggg", "abcde", 0},
+		{"3G", "abcde", 2},
+		{"2gg", "abcde", 1},
+		{"9G", "abcde", 4},  // past the end: the last line
+		{"gxj", "abcde", 1}, // g then a key that is no command: both dropped
+
+		// Delete.
+		{"dd", "bcde", 0},
+		{"jdd", "acde", 1},
+		{"Gdd", "abcd", 3}, // the cursor stays on the new last line
+		{"2dd", "cde", 0},
+		{"d2d", "cde", 0},
+		{"9dd", "", 0}, // as many as there are; the buffer keeps a blank line
+		{"Gk2dd", "abc", 2},
+		{"dj", "cde", 0},
+		{"jjdk", "ade", 1},
+		{"2d2j", "", 0}, // "d4j": counts multiply
+		{"jjdgg", "de", 0},
+		{"jdG", "a", 0},
+		{"d3G", "de", 0},
+		{"Gdj", "abcde", 4}, // j cannot move: nothing is deleted
+		{"dk", "abcde", 0},
+
+		// Yank and put.
+		{"yyp", "aabcde", 1},
+		{"yyP", "aabcde", 0},
+		{"jykP", "ababcde", 0}, // yanking upwards takes the cursor along
+		{"ddp", "bacde", 1},
+		{"ddP", "abcde", 0},
+		{"dd3p", "baaacde", 1},
+		{"Gyy2P", "abcdeee", 4},
+		{"p", "abcde", 0}, // nothing yanked yet
+
+		// What pending keys become when a command is not finished.
+		{"dxj", "abcde", 1},
+		{"d0j", "abcde", 1}, // "0" is no count here, and no motion yet
+		{"y2y", "abcde", 0},
+	}
+	for _, tt := range tests {
+		b := folder(5)
+		typeKeys(b, tt.keys)
+		if texts(b) != tt.want || b.Row() != tt.row {
+			t.Errorf("%q: lines %q row %d, want %q row %d", tt.keys, texts(b), b.Row(), tt.want, tt.row)
+		}
+	}
+}
+
+// TestEscCancels: esc drops a half-typed command, and the keys after it
+// mean what they mean on their own.
+func TestEscCancels(t *testing.T) {
+	b := folder(5)
+	for _, k := range []string{"3", "d", "esc", "j"} {
+		b.Key(k)
+	}
+	if texts(b) != "abcde" || b.Row() != 1 {
+		t.Errorf("lines %q row %d after 3d<esc>j, want nothing deleted and row 1", texts(b), b.Row())
+	}
+}
+
+// TestMovedLineKeepsItsID: a line deleted and put back elsewhere is the
+// same entry, which is what makes dd and p a move rather than a delete and
+// a create.
+func TestMovedLineKeepsItsID(t *testing.T) {
+	b := folder(5)
+	typeKeys(b, "ddjp") // a, put back below c
+	lines := b.Lines()
+	if texts(b) != "bcade" || lines[2].ID != 1 {
+		t.Errorf("lines %v, want a with id 1 on the third line", lines)
+	}
+}
+
+// TestDeletingEverythingLeavesOneBlankLine: the buffer is never empty, and
+// what was deleted can still be put back.
+func TestDeletingEverythingLeavesOneBlankLine(t *testing.T) {
+	b := folder(3)
+	typeKeys(b, "dGp")
+	if got := b.Lines(); len(got) != 4 || got[0] != (mutation.Line{}) || texts(b) != "abc" {
+		t.Errorf("lines %v, want the blank line and a, b, c put below it", got)
+	}
+}
+
+func TestHugePutIsCapped(t *testing.T) {
+	b := folder(5)
+	typeKeys(b, "yG99999p")
+	if n := len(b.Lines()); n > maxCount+5 {
+		t.Errorf("%d lines: a count must not fill the memory", n)
+	}
+}
+
+// FuzzKeys: whatever is typed, the buffer keeps its invariants: never
+// empty, the cursor on a line, and no line lost or made up but by the keys
+// that delete and put.
+func FuzzKeys(f *testing.F) {
+	for _, s := range []string{"dd", "2d3jp", "yGP", "gg9G", "dGp", "jjdk3P"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		if len(s) > 64 {
+			return // long inputs only repeat what short ones do, slower
+		}
+		b := folder(5)
+		for _, r := range s {
+			b.Key(string(r))
+			if len(b.lines) == 0 || b.row < 0 || b.row >= len(b.lines) {
+				t.Fatalf("after %q: %d lines, row %d", s, len(b.lines), b.row)
+			}
+		}
+		if !strings.ContainsAny(s, "dpP") && texts(b) != "abcde" {
+			t.Fatalf("%q changed the lines to %q without d, p or P", s, texts(b))
+		}
+	})
 }
