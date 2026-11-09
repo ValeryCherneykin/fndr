@@ -149,3 +149,24 @@ func TestRevealSkipsHabits(t *testing.T) {
 		t.Errorf("cursor %d after coming back up, want 2: docs in the contents", m.cursor)
 	}
 }
+
+// TestVisitSavedAtOnce: entering a folder writes the history right away,
+// so closing the terminal, which kills fndr before any exit code, loses
+// nothing.
+func TestVisitSavedAtOnce(t *testing.T) {
+	m, root := browseModel(t, "")
+	path := withHistory(t, m)
+	m.selectName(t, "src")
+	send(m, tea.KeyPressMsg{Code: tea.KeyEnter}) // runs the save, as the runtime would
+
+	saved, err := frecency.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Score(filepath.Join(root, "src"), time.Now()) == 0 {
+		t.Error("the visit is not in the file before exit")
+	}
+	if m.hist.Pending() || m.noticeErr {
+		t.Errorf("pending %v, notice %q", m.hist.Pending(), m.notice)
+	}
+}

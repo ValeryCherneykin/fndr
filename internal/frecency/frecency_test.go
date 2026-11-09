@@ -1,6 +1,7 @@
 package frecency
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,21 +121,21 @@ func TestDamagedLinesAreSkipped(t *testing.T) {
 }
 
 // TestAgingForgetsOldHabits: past maxTotal every count shrinks, and paths
-// visited once long ago drop out, so the file stays small forever.
+// visited once long ago drop out, so the file stays small forever. Aging
+// happens as a save merges, on the whole file.
 func TestAgingForgetsOldHabits(t *testing.T) {
-	s := open(t)
-	s.Visit("/once", now)
-	for range maxTotal {
-		s.Visit("/daily", now)
+	entries := map[string]*entry{"/once": {count: 1, last: now}}
+	merge(entries, map[string]*entry{"/daily": {count: maxTotal, last: now}})
+
+	if entries["/once"] != nil {
+		t.Error("a single visit survived aging")
 	}
-	if s.Score("/once", now) != 0 {
-		t.Error("a single old visit survived aging")
+	total := 0.0
+	for _, e := range entries {
+		total += e.count
 	}
-	if s.total > maxTotal {
-		t.Errorf("total %v after aging, want at most %d", s.total, maxTotal)
-	}
-	if s.Score("/daily", now) == 0 {
-		t.Error("aging forgot the real habit")
+	if total > maxTotal || entries["/daily"] == nil {
+		t.Errorf("after aging: total %v, entries %v", total, entries)
 	}
 }
 
@@ -192,4 +193,30 @@ func TestBoostScale(t *testing.T) {
 	if b := boost(4000); b < 100 || b > 130 {
 		t.Errorf("boost(4000) = %d, want about 120", b)
 	}
+}
+
+// BenchmarkBoosts rebuilds the boost map of a store with 5000 paths, more
+// than aging lets a store keep in practice. It runs after every visit.
+func BenchmarkBoosts(b *testing.B) {
+	s, t := bigStore(5000)
+	for b.Loop() {
+		s.Boosts(t)
+	}
+}
+
+// BenchmarkTop picks the habits of a folder, as every folder listing does.
+func BenchmarkTop(b *testing.B) {
+	s, t := bigStore(5000)
+	for b.Loop() {
+		s.Top("/home/v/dev", 5, t)
+	}
+}
+
+func bigStore(n int) (*Store, time.Time) {
+	s := &Store{entries: make(map[string]*entry, n)}
+	for i := range n {
+		p := fmt.Sprintf("/home/v/dev/project%d/internal/pkg%d", i%50, i)
+		s.entries[p] = &entry{count: float64(1 + i%40), last: now.Add(-time.Duration(i) * time.Minute)}
+	}
+	return s, now
 }

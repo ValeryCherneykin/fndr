@@ -98,16 +98,16 @@ func (m *Model) activate() tea.Cmd {
 		return nil
 	}
 	e := &m.results[m.cursor].Entry
-	m.learn(e.Path)
+	save := m.learn(e.Path)
 	if !e.IsDir {
-		return m.openSelected()
+		return tea.Batch(save, m.openSelected())
 	}
 	dir, err := realDir(e.Path)
 	if err != nil {
 		m.setNotice(err.Error(), true)
-		return nil
+		return save
 	}
-	return m.chdir(dir, "")
+	return tea.Batch(save, m.chdir(dir, ""))
 }
 
 // realDir returns where entering the folder at path should lead: path

@@ -6,9 +6,15 @@
 // that falls as the last visit gets older. A folder visited 50 times today
 // outranks one visited 80 times half a year ago.
 //
-// The store is a small text file, one path per line, rewritten whole on Save.
-// It is meant to hold hundreds or thousands of paths, not the index of a
-// disk: aging (see Visit) keeps it that size.
+// The store is a small text file, one path per line, rewritten whole on
+// every save. It is meant to hold hundreds or thousands of paths, not the
+// index of a disk: aging (see merge) keeps it that size.
+//
+// Several fndr can run at once, one per tmux pane, all sharing the file.
+// If each wrote back what it had read plus its own visits, the last to save
+// would erase the visits of the others: a lost update. So a store remembers
+// only what this session added (pending), and saving is read, add, write,
+// under a lock on the file: visits from every pane add up.
 package frecency
 
 import (
@@ -35,17 +41,26 @@ const (
 )
 
 // Store is the remembered paths. It is not safe for concurrent use: the TUI
-// owns it and calls it from its update loop only.
+// owns it and calls it from its update loop only. The one part that runs
+// elsewhere, Flush.Write, touches nothing of the Store.
 type Store struct {
 	path    string
-	entries map[string]*entry
-	total   float64 // sum of all counts, to know when to age
-	dirty   bool    // changed since loaded: Save has something to write
+	entries map[string]*entry // what ranks: the file as last read, plus pending
+	pending map[string]*entry // visits of this session not yet in the file
+	flight  *Flush            // the save running, if any; see Flush
 }
 
 type entry struct {
 	count float64 // visits, scaled down by aging
 	last  time.Time
+}
+
+// add counts the visits of o into e: counts add up, the latest visit wins.
+func (e *entry) add(o *entry) {
+	e.count += o.count
+	if o.last.After(e.last) {
+		e.last = o.last
+	}
 }
 
 // DefaultPath is where the store lives: $XDG_STATE_HOME/fndr/frecency, or
@@ -68,13 +83,22 @@ func DefaultPath() (string, error) {
 // rather than failing the whole load: a damaged history should cost a few
 // entries, never the ability to start.
 func Open(path string) (*Store, error) {
-	s := &Store{path: path, entries: make(map[string]*entry)}
-	f, err := os.Open(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return s, nil
-	}
+	entries, err := read(path)
 	if err != nil {
 		return nil, fmt.Errorf("frecency: %w", err)
+	}
+	return &Store{path: path, entries: entries, pending: map[string]*entry{}}, nil
+}
+
+// read parses the file at path; a missing file reads as empty.
+func read(path string) (map[string]*entry, error) {
+	entries := map[string]*entry{}
+	f, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return entries, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close() //nolint:errcheck // read-only: Close has nothing to report
 
@@ -91,45 +115,53 @@ func Open(path string) (*Store, error) {
 		if err1 != nil || err2 != nil || count <= 0 || fields[2] == "" {
 			continue
 		}
-		s.entries[fields[2]] = &entry{count: count, last: time.Unix(unix, 0)}
-		s.total += count
+		entries[fields[2]] = &entry{count: count, last: time.Unix(unix, 0)}
 	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("frecency: %w", err)
-	}
-	return s, nil
+	return entries, sc.Err()
 }
 
-// Visit records a visit to path at now.
+// Visit records a visit to path at now. It ranks at once; it reaches the
+// file with the next save.
 func (s *Store) Visit(path string, now time.Time) {
 	if path == "" || strings.ContainsAny(path, "\n\r") {
 		return // a path the line format cannot hold; vanishingly rare
 	}
-	e := s.entries[path]
-	if e == nil {
-		e = &entry{}
-		s.entries[path] = e
-	}
-	e.count++
-	e.last = now
-	s.total++
-	s.dirty = true
-
-	if s.total > maxTotal {
-		s.age()
-	}
+	visit := &entry{count: 1, last: now}
+	addTo(s.entries, path, visit)
+	addTo(s.pending, path, visit)
 }
 
-// age scales every count down and forgets what falls below one visit.
-func (s *Store) age() {
-	s.total = 0
-	for p, e := range s.entries {
-		e.count *= ageScale
-		if e.count < 1 {
-			delete(s.entries, p)
-			continue
+// addTo counts visits of path into m.
+func addTo(m map[string]*entry, path string, visits *entry) {
+	if e := m[path]; e != nil {
+		e.add(visits)
+		return
+	}
+	cp := *visits
+	m[path] = &cp
+}
+
+// merge adds pending into entries and ages them: it is what a save writes.
+// Aging scales every count down once their sum passes maxTotal, and forgets
+// what falls below one visit.
+func merge(entries, pending map[string]*entry) {
+	for p, e := range pending {
+		addTo(entries, p, e)
+	}
+	for {
+		total := 0.0
+		for _, e := range entries {
+			total += e.count
 		}
-		s.total += e.count
+		if total <= maxTotal {
+			return
+		}
+		for p, e := range entries {
+			e.count *= ageScale
+			if e.count < 1 {
+				delete(entries, p)
+			}
+		}
 	}
 }
 
@@ -226,35 +258,126 @@ func byHabit(a, b scored) int {
 // Len is the number of remembered paths.
 func (s *Store) Len() int { return len(s.entries) }
 
-// Save writes the store back if it changed. The file is written to a
-// temporary name and renamed over the old one: a rename within a directory
-// is atomic, so a crash mid-write leaves the old history intact rather than
-// half a file.
-func (s *Store) Save() error {
-	if !s.dirty {
+// Saving runs in two halves, so the interface never waits for the disk:
+//
+//	f := s.Flush()   // UI goroutine: hand the pending visits over
+//	f.Write()        // any goroutine: lock, read, add, write, unlock
+//	s.Saved(f)       // UI goroutine: take in what the file now holds
+//
+// The file is read again under the lock rather than trusted from memory:
+// another fndr may have saved since. After Saved, the store ranks with the
+// visits of every pane, not only its own.
+
+// Flush is a save on its way to the file.
+type Flush struct {
+	path    string
+	pending map[string]*entry
+	result  map[string]*entry // the file as written, once Write succeeds
+	err     error             // what Write returned
+	done    chan struct{}     // closed when Write returns
+}
+
+// Flush hands the pending visits to a new save, or returns nil when there
+// is nothing to save or a save is already running: its Saved will see what
+// was added since, and the caller saves again then.
+func (s *Store) Flush() *Flush {
+	if len(s.pending) == 0 || s.flight != nil {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return fmt.Errorf("frecency: %w", err)
+	f := &Flush{path: s.path, pending: s.pending, done: make(chan struct{})}
+	s.pending, s.flight = map[string]*entry{}, f
+	return f
+}
+
+// Write adds the visits to the file. It is safe on any goroutine: it reads
+// only the Flush, and the lock orders it with every other fndr's Write.
+func (f *Flush) Write() error {
+	defer close(f.done)
+	f.result, f.err = f.write()
+	if f.err != nil {
+		f.err = fmt.Errorf("frecency: %w", f.err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".frecency-*")
+	return f.err
+}
+
+func (f *Flush) write() (map[string]*entry, error) {
+	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
+		return nil, err
+	}
+	unlock, err := lock(f.path + ".lock")
 	if err != nil {
-		return fmt.Errorf("frecency: %w", err)
+		return nil, err
+	}
+	defer unlock()
+
+	entries, err := read(f.path)
+	if err != nil {
+		return nil, err
+	}
+	merge(entries, f.pending)
+	return entries, write(f.path, entries)
+}
+
+// Saved takes in a finished save and returns its error. On success the
+// store ranks by the file as written, which holds the other panes' visits
+// too, plus whatever was visited meanwhile. On failure the visits go back
+// to pending, for the next save to try again: none is lost.
+func (s *Store) Saved(f *Flush) error {
+	if f == nil {
+		return nil
+	}
+	s.flight = nil
+	if f.err != nil {
+		for p, e := range f.pending {
+			addTo(s.pending, p, e)
+		}
+		return f.err
+	}
+	s.entries = f.result
+	for p, e := range s.pending {
+		addTo(s.entries, p, e)
+	}
+	return nil
+}
+
+// Pending reports whether visits are waiting for a save.
+func (s *Store) Pending() bool { return len(s.pending) > 0 }
+
+// Save writes the pending visits and waits for it: for the end of the
+// program, and for tests. A save still running is waited for first, so its
+// visits are neither lost nor written twice.
+func (s *Store) Save() error {
+	if f := s.flight; f != nil {
+		<-f.done
+		s.Saved(f) //nolint:errcheck // a failed save's visits are pending again: retried just below
+	}
+	f := s.Flush()
+	if f == nil {
+		return nil
+	}
+	f.Write() //nolint:errcheck // Saved returns it
+	return s.Saved(f)
+}
+
+// write replaces the file at path with entries. The lines go to a temporary
+// file that is renamed over the old one: a rename within a directory is
+// atomic, so a crash mid-write leaves the old history intact rather than
+// half a file.
+func write(path string, entries map[string]*entry) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".frecency-*")
+	if err != nil {
+		return err
 	}
 	defer os.Remove(tmp.Name()) //nolint:errcheck // gone after the rename; cleanup only on failure
 
 	w := bufio.NewWriter(tmp)
-	for p, e := range s.entries {
+	for p, e := range entries {
 		// A bufio.Writer remembers its first error and returns it from
 		// Flush, checked below, so one check covers every line.
 		fmt.Fprintf(w, "%s\t%d\t%s\n", strconv.FormatFloat(e.count, 'f', -1, 64), e.last.Unix(), p) //nolint:errcheck // see above
 	}
 	if err := errors.Join(w.Flush(), tmp.Close()); err != nil {
-		return fmt.Errorf("frecency: %w", err)
+		return err
 	}
-	if err := os.Rename(tmp.Name(), s.path); err != nil {
-		return fmt.Errorf("frecency: %w", err)
-	}
-	s.dirty = false
-	return nil
+	return os.Rename(tmp.Name(), path)
 }

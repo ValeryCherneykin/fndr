@@ -150,18 +150,51 @@ func (m *Model) useHistory(hist *frecency.Store) {
 	}
 }
 
-// learn records that the user went to path.
-func (m *Model) learn(path string) {
+// learn records that the user went to path, and saves it at once, in the
+// background: a terminal closed with fndr open kills it before any exit
+// code runs, and the visit must not be lost with it.
+func (m *Model) learn(path string) tea.Cmd {
 	if m.hist == nil || path == "" {
-		return
+		return nil
 	}
 	now := time.Now()
 	m.hist.Visit(path, now)
 	m.boosts = m.hist.Boosts(now) // a new map: searches in flight keep the old one
+	return m.saveHistory()
 }
 
-// SaveHistory writes what fndr learned this session. The program calls it
-// once, after the interface has closed.
+// historySavedMsg reports a background save of the history.
+type historySavedMsg struct{ f *frecency.Flush }
+
+// saveHistory writes the pending visits off the UI goroutine. With a save
+// already running it does nothing; that save's reply starts the next one.
+func (m *Model) saveHistory() tea.Cmd {
+	f := m.hist.Flush()
+	if f == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		f.Write() //nolint:errcheck // Saved reports it, back on the UI goroutine
+		return historySavedMsg{f}
+	}
+}
+
+// historySaved takes in a finished save. The history now holds the visits
+// of every fndr sharing it, so the ranking is refreshed.
+func (m *Model) historySaved(msg historySavedMsg) tea.Cmd {
+	if err := m.hist.Saved(msg.f); err != nil {
+		m.setNotice("history not saved: "+err.Error(), true)
+		return nil // kept as pending: the next visit tries again
+	}
+	m.boosts = m.hist.Boosts(time.Now())
+	if m.hist.Pending() {
+		return m.saveHistory() // visited while that save ran
+	}
+	return nil
+}
+
+// SaveHistory writes what is still unsaved and waits for it. The program
+// calls it once, after the interface has closed.
 func (m *Model) SaveHistory() error {
 	if m.hist == nil {
 		return nil
@@ -308,6 +341,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openMsg:
 		return m, msg.run()
 
+	case historySavedMsg:
+		cmd := m.historySaved(msg)
+		return m, cmd
+
 	case openedMsg:
 		m.opened(msg)
 		// The file may have just been edited: forget previews read before.
@@ -347,7 +384,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.quit()
 	case "ctrl+e":
 		m.exitDir = m.jumpTarget()
-		m.learn(m.exitDir)
+		_ = m.learn(m.exitDir) // quitting: SaveHistory writes it once the interface has closed
 		return m.quit()
 	case "ctrl+v":
 		// A switch, not a mode: every other key works the same with the pane
