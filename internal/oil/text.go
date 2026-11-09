@@ -45,6 +45,17 @@ func prevChar(s string, i int) int {
 	return i
 }
 
+// charEnd returns the end of the character that the byte before i belongs
+// to: i itself, unless what follows i is a combining mark that has joined
+// that character. Typing "0" before a lone mark makes one character of
+// the two, and the cursor goes after both, not between them.
+func charEnd(s string, i int) int {
+	if i == 0 {
+		return 0
+	}
+	return nextChar(s, prevChar(s, i))
+}
+
 // lastChar returns the start of the last character of s: the rightmost
 // place the cursor can be in normal mode. It is 0 for an empty line.
 func lastChar(s string) int { return prevChar(s, len(s)) }

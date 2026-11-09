@@ -7,18 +7,23 @@ import (
 	"github.com/ValeryCherneykin/fndr/internal/mutation"
 )
 
-// Mode is what the keys do: run commands (Normal) or type text (Insert).
+// Mode is what the keys do: run commands (Normal), type text (Insert),
+// or type a command line after ":" (Command).
 type Mode int
 
 // Modes of the buffer.
 const (
 	Normal Mode = iota
 	Insert
+	Command
 )
 
 func (m Mode) String() string {
-	if m == Insert {
+	switch m {
+	case Insert:
 		return "INSERT"
+	case Command:
+		return "COMMAND"
 	}
 	return "NORMAL"
 }
@@ -54,6 +59,7 @@ func (b *Buffer) startInsert(k string) {
 	case "A":
 		b.place(len(s))
 	case "o", "O":
+		b.change() // before the cursor moves: undo puts it back where it was
 		if k == "o" {
 			b.row++
 		}
@@ -74,6 +80,7 @@ func (b *Buffer) insertKey(k string) {
 		b.setCol(prevChar(s, b.col))
 	case "backspace":
 		if b.col > 0 {
+			b.change()
 			lo := prevChar(s, b.col)
 			b.lines[b.row].Text = s[:lo] + s[b.col:]
 			b.place(lo)
@@ -97,15 +104,18 @@ func (b *Buffer) insertKey(k string) {
 
 // typeText inserts t at the cursor and moves the cursor past it.
 func (b *Buffer) typeText(t string) {
+	b.change()
 	s := b.text()
-	b.lines[b.row].Text = s[:b.col] + t + s[b.col:]
-	b.place(b.col + len(t))
+	s = s[:b.col] + t + s[b.col:]
+	b.lines[b.row].Text = s
+	b.place(charEnd(s, b.col+len(t)))
 }
 
 // split breaks the line at the cursor, as enter does in any editor. The
 // line keeps its id and the text before the cursor; the text after it
 // becomes a new line, which mutation.Diff reads as a new entry.
 func (b *Buffer) split() {
+	b.change()
 	s := b.text()
 	b.lines[b.row].Text = s[:b.col]
 	b.lines = slices.Insert(b.lines, b.row+1, mutation.Line{Text: s[b.col:]})
@@ -118,11 +128,13 @@ func (b *Buffer) split() {
 // its entry shows as deleted in the plan, where the user sees it before
 // anything happens.
 func (b *Buffer) joinUp() {
+	b.change()
 	above := b.lines[b.row-1].Text
-	b.lines[b.row-1].Text = above + b.text()
+	s := above + b.text()
+	b.lines[b.row-1].Text = s
 	b.lines = slices.Delete(b.lines, b.row, b.row+1)
 	b.row--
-	b.place(len(above))
+	b.place(charEnd(s, len(above)))
 }
 
 // place puts the cursor at col in Insert mode, where it may be at the end

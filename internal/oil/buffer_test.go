@@ -1,6 +1,7 @@
 package oil
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -21,9 +22,15 @@ func folder(n int) *Buffer {
 // few control characters stand for the keys that have names, so a whole
 // edit reads as typed: "Anew\x1b".
 func typeKeys(b *Buffer, s string) {
+	_, _ = press(b, s)
+}
+
+// press types s like typeKeys and returns what the last key asked for.
+func press(b *Buffer, s string) (act Action, err error) {
 	for _, r := range s {
-		b.Key(keyName(r))
+		act, err = b.Key(keyName(r))
 	}
+	return act, err
 }
 
 func keyName(r rune) string {
@@ -81,9 +88,9 @@ func TestMoveUpAndDown(t *testing.T) {
 
 func TestArrowsMoveToo(t *testing.T) {
 	b := folder(5)
-	b.Key("3")
-	b.Key("down")
-	b.Key("up")
+	for _, k := range []string{"3", "down", "up"} {
+		_, _ = b.Key(k)
+	}
 	if b.Row() != 2 {
 		t.Errorf("row %d after 3↓↑, want 2", b.Row())
 	}
@@ -182,7 +189,7 @@ func TestCommands(t *testing.T) {
 func TestEscCancels(t *testing.T) {
 	b := folder(5)
 	for _, k := range []string{"3", "d", "esc", "j"} {
-		b.Key(k)
+		_, _ = b.Key(k)
 	}
 	if texts(b) != "abcde" || b.Row() != 1 {
 		t.Errorf("lines %q row %d after 3d<esc>j, want nothing deleted and row 1", texts(b), b.Row())
@@ -233,7 +240,7 @@ func FuzzKeys(f *testing.F) {
 		b := lines("hello", "и\u0306ога", "", "日本.txt", "a")
 		before := texts(b)
 		for _, r := range s {
-			b.Key(keyName(r))
+			_, _ = b.Key(keyName(r))
 			if len(b.lines) == 0 || b.row < 0 || b.row >= len(b.lines) {
 				t.Fatalf("after %q: %d lines, row %d", s, len(b.lines), b.row)
 			}
@@ -245,7 +252,7 @@ func FuzzKeys(f *testing.F) {
 				t.Fatalf("after %q: col %d in %q is not on a character", s, b.col, line)
 			}
 		}
-		if !strings.ContainsAny(s, "dpPxDcCsSiaIAoO") && texts(b) != before {
+		if !strings.ContainsAny(s, "dpPxDcCsSiaIAoOuU") && texts(b) != before {
 			t.Fatalf("%q changed the lines to %q without a command that edits", s, texts(b))
 		}
 	})
@@ -402,7 +409,7 @@ func TestInsert(t *testing.T) {
 	}
 	for _, tt := range tests {
 		b := lines("hello", "world")
-		b.Key("l")
+		typeKeys(b, "l")
 		typeKeys(b, tt.keys)
 		if g := joined(b); g != tt.want || b.Row() != tt.row || b.Col() != tt.col || b.Mode() != tt.mode {
 			t.Errorf("%q: %q row %d col %d %v, want %q row %d col %d %v",
@@ -427,7 +434,7 @@ func TestChange(t *testing.T) {
 	}
 	for _, tt := range tests {
 		b := lines("hello", "world")
-		b.Key("l")
+		typeKeys(b, "l")
 		typeKeys(b, tt.keys)
 		if g := joined(b); g != tt.want || b.Mode() != Normal {
 			t.Errorf("%q: %q %v, want %q NORMAL", tt.keys, g, b.Mode(), tt.want)
@@ -456,5 +463,128 @@ func TestEmptyLineStillTypes(t *testing.T) {
 		if got := b.Lines(); len(got) != 1 || got[0].Text != "x" {
 			t.Errorf("%q on an empty buffer: %+v, want one line x", keys, got)
 		}
+	}
+}
+
+func TestUndo(t *testing.T) {
+	tests := []struct {
+		keys, want string // keys typed on lines a..e; the lines after
+		row        int
+	}{
+		{"u", "abcde", 0}, // nothing to undo
+		{"ddu", "abcde", 0},
+		{"jjddu", "abcde", 2}, // the cursor goes back where the change was
+		{"3ddu", "abcde", 0},  // one command, one step
+		{"ddddu", "bcde", 0},
+		{"dddd2u", "abcde", 0},
+		{"Ixyz\x1bu", "abcde", 0}, // all the typing of one insert is one step
+		{"Ixyz\x1bAw\x1bu", "xyzabcde", 0},
+		{"ddi\x1bu", "abcde", 0}, // an insert that typed nothing is no step
+		{"ddyyu", "abcde", 0},    // nor is a yank
+		{"ddd0u", "abcde", 0},    // nor a delete of nothing
+		{"Go\x1bu", "abcde", 4},  // o on the last line, undone: back on that line
+		{"dduU", "bcde", 0},
+		{"ddjdduuUU", "bde", 1},
+		{"ddux", "bcde", 0},  // x erases a's only letter
+		{"dduxU", "bcde", 0}, // and a new change ends what U could redo
+	}
+	for _, tt := range tests {
+		b := folder(5)
+		typeKeys(b, tt.keys)
+		if texts(b) != tt.want || b.Row() != tt.row {
+			t.Errorf("%q: lines %q row %d, want %q row %d", tt.keys, texts(b), b.Row(), tt.want, tt.row)
+		}
+	}
+}
+
+// TestUndoKeepsIDs: an undone delete brings the entry back, not a new
+// line with the same name, or the plan would trash it and create another.
+func TestUndoKeepsIDs(t *testing.T) {
+	b := folder(3)
+	typeKeys(b, "dGu")
+	if got := b.Lines(); got[0].ID != 1 || got[2].ID != 3 {
+		t.Errorf("lines %+v, want ids 1..3 back", got)
+	}
+}
+
+func TestUndoIsBounded(t *testing.T) {
+	b := folder(5)
+	for range maxUndo + 10 {
+		typeKeys(b, "x")
+		typeKeys(b, "P")
+	}
+	if len(b.undo) > maxUndo {
+		t.Errorf("%d undo steps kept, want at most %d", len(b.undo), maxUndo)
+	}
+}
+
+func TestActions(t *testing.T) {
+	tests := []struct {
+		keys string
+		want Action
+	}{
+		{":w\n", Write},
+		{":q\n", Quit},
+		{":q!\n", ForceQuit},
+		{":wq\n", WriteQuit},
+		{":x\n", WriteQuit},
+		{": w \n", Write},
+		{"ZZ", WriteQuit},
+		{"ZQ", ForceQuit},
+		{"q", Quit},
+		{"\n", Open},
+		{"-", Parent},
+		{"_", Cwd},
+		{"g.", ToggleHidden},
+		{"gp", CopyPath},
+		{"g?", Help},
+		{"j", None},
+		{"dq", None}, // after an operator, q is no command
+		{"d\n", None},
+		{"Zx", None},
+		{":\x1b", None},
+		{":w\x1b", None}, // esc drops the line
+		{":\n", None},
+	}
+	for _, tt := range tests {
+		b := folder(5)
+		act, err := press(b, tt.keys)
+		if act != tt.want || err != nil {
+			t.Errorf("%q: %v %v, want %v", tt.keys, act, err, tt.want)
+		}
+		if b.Mode() != Normal {
+			t.Errorf("%q: left in %v", tt.keys, b.Mode())
+		}
+	}
+	if act, err := folder(1).Key("ctrl+r"); act != Refresh || err != nil {
+		t.Errorf("ctrl+r: %v %v, want Refresh: it reads the folder again, as in Oil.nvim", act, err)
+	}
+}
+
+func TestCommandLine(t *testing.T) {
+	b := folder(5)
+	typeKeys(b, ":wq")
+	if b.Mode() != Command || b.CmdLine() != "wq" {
+		t.Errorf("mode %v line %q, want COMMAND with wq", b.Mode(), b.CmdLine())
+	}
+	typeKeys(b, "\b\b")
+	if b.Mode() != Command || b.CmdLine() != "" {
+		t.Errorf("after two backspaces: mode %v line %q", b.Mode(), b.CmdLine())
+	}
+	typeKeys(b, "\b") // on an empty line: back to Normal
+	if b.Mode() != Normal {
+		t.Errorf("mode %v, want NORMAL", b.Mode())
+	}
+
+	if _, err := press(b, ":rm -rf\n"); !errors.Is(err, ErrCommand) {
+		t.Errorf("err %v, want ErrCommand", err)
+	}
+	typeKeys(b, ":3\n")
+	if b.Row() != 2 {
+		t.Errorf(":3 put the cursor on row %d, want 2", b.Row())
+	}
+	typeKeys(b, ":99\n")
+	if b.Row() != 4 {
+		t.Errorf(":99 put the cursor on row %d, want the last", b.Row())
 	}
 }

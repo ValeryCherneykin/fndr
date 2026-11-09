@@ -57,9 +57,16 @@ type Buffer struct {
 	// back to column 10, as in Vim. Horizontal moves set it.
 	want int
 
-	mode Mode
-	pend pending
-	reg  register
+	mode    Mode
+	pend    pending
+	reg     register
+	cmdline string // Command mode: what is typed after ":"
+
+	// Steps for u and U (see undo.go). changing is set by the first edit
+	// of a command and cleared when the command ends, so one command makes
+	// one step however many edits it does.
+	undo, redo []snapshot
+	changing   bool
 }
 
 // pending is the part of a command typed so far.
@@ -67,7 +74,7 @@ type pending struct {
 	count   int    // digits typed since the last operator or command; 0 if none
 	opCount int    // the count typed before the operator
 	op      string // "d", "y" or "c", waiting for its motion
-	prefix  string // "g", waiting for the key that completes "gg"
+	prefix  string // "g" or "Z", waiting for the key that completes "gg" or "ZZ"
 }
 
 // register holds what was last deleted or yanked, for p and P: whole
@@ -118,11 +125,23 @@ func (b *Buffer) Col() int { return b.col }
 // text is the line the cursor is on.
 func (b *Buffer) text() string { return b.lines[b.row].Text }
 
-// Key applies one key press.
-func (b *Buffer) Key(k string) {
-	if b.mode == Insert {
+// Key applies one key press and returns what it asks of the interface,
+// if anything. The error is for a command line that is not a command.
+func (b *Buffer) Key(k string) (Action, error) {
+	act, err := b.key(k)
+	if b.mode == Normal {
+		b.changing = false // the command is over: the next edit is a new step
+	}
+	return act, err
+}
+
+func (b *Buffer) key(k string) (Action, error) {
+	switch b.mode {
+	case Insert:
 		b.insertKey(k)
-		return
+		return None, nil
+	case Command:
+		return b.cmdKey(k)
 	}
 	p := &b.pend
 
@@ -130,11 +149,11 @@ func (b *Buffer) Key(k string) {
 	// a motion (to the start of the line).
 	if d, ok := digit(k); ok && p.prefix == "" && (d > 0 || p.count > 0) {
 		p.count = min(p.count*10+d, maxCount)
-		return
+		return None, nil
 	}
-	if k == "g" && p.prefix == "" {
-		p.prefix = "g"
-		return
+	if (k == "g" || k == "Z") && p.prefix == "" {
+		p.prefix = k
+		return None, nil
 	}
 	k = p.prefix + k
 	p.prefix = ""
@@ -145,7 +164,7 @@ func (b *Buffer) Key(k string) {
 	}
 	if p.op == "" && isOperator(k) {
 		p.op, p.opCount, p.count = k, p.count, 0
-		return
+		return None, nil
 	}
 
 	// From here on the key ends the command, whatever it does.
@@ -169,10 +188,19 @@ func (b *Buffer) Key(k string) {
 		}
 	case cmd.op == "" && (k == "p" || k == "P"):
 		b.put(k == "p", n)
-	case cmd.op == "" && isInsert(k):
+	case cmd.op != "":
+		// The key cannot follow an operator ("dx", "d<esc>"): all of
+		// it is dropped.
+	case isInsert(k):
 		b.startInsert(k)
+	case k == "u" || k == "U":
+		b.undoN(n, k == "u")
+	case k == ":":
+		b.mode, b.cmdline = Command, ""
+	default:
+		return keyActions[k], nil // None for a key that means nothing here
 	}
-	// Anything else, "dx" or esc among them, has dropped what was pending.
+	return None, nil
 }
 
 // total returns the count of the command, both counts multiplied, and
@@ -274,12 +302,14 @@ func (b *Buffer) operateLines(op string, lo, hi int) {
 		b.col = colOf(b.text(), b.want)
 		return
 	case "c":
+		b.change()
 		kept := mutation.Line{ID: b.lines[lo].ID}
 		b.lines = slices.Replace(b.lines, lo, hi+1, kept)
 		b.row, b.mode = lo, Insert
 		b.place(0)
 		return
 	}
+	b.change()
 	b.lines = slices.Delete(b.lines, lo, hi+1)
 	if len(b.lines) == 0 {
 		b.lines = []mutation.Line{{}}
@@ -296,6 +326,7 @@ func (b *Buffer) operateChars(op string, lo, hi int) {
 	if lo < hi { // "d0" at the start of a line takes nothing and keeps the register
 		b.reg = register{text: s[lo:hi]}
 		if op != "y" {
+			b.change()
 			s = s[:lo] + s[hi:]
 			b.lines[b.row].Text = s
 		}
@@ -321,6 +352,7 @@ func (b *Buffer) put(below bool, n int) {
 }
 
 func (b *Buffer) putLines(below bool, n int) {
+	b.change()
 	n = min(n, max(maxCount/len(b.reg.lines), 1))
 	at := b.row
 	if below {
@@ -336,6 +368,7 @@ func (b *Buffer) putLines(below bool, n int) {
 }
 
 func (b *Buffer) putText(below bool, n int) {
+	b.change()
 	n = min(n, max(maxCount/len(b.reg.text), 1))
 	s, at := b.text(), b.col
 	if below {
