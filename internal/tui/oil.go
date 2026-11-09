@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -75,12 +76,17 @@ func loadOil(dir string, hidden bool, reveal string) tea.Cmd {
 }
 
 // oilLoaded fills a buffer with the folder just read and enters OIL, or
-// refills it after a write. A refill keeps what the old state knew
-// beyond the folder: whether anything was written.
-func (m *Model) oilLoaded(msg *oilMsg) {
+// refills it after a write or a move to another folder. A refill keeps
+// what the old state knew beyond the folder: whether anything was written.
+//
+// Moving to another folder in OIL moves fndr there too, so leaving OIL
+// shows the list of the folder the user was editing. That happens only
+// here, once the folder is read: a folder that cannot be read leaves both
+// where they were, never one in each place.
+func (m *Model) oilLoaded(msg *oilMsg) tea.Cmd {
 	if msg.err != nil {
 		m.setNotice("cannot edit this folder: "+msg.err.Error(), true)
-		return
+		return nil
 	}
 	st := &oilState{dir: msg.dir, hidden: msg.hidden}
 	if m.oil != nil {
@@ -109,6 +115,10 @@ func (m *Model) oilLoaded(msg *oilMsg) {
 	}
 	m.oil = st
 	m.oilScroll()
+	if msg.dir != m.cwd {
+		return m.chdir(msg.dir, "")
+	}
+	return nil
 }
 
 // oilKey is handleKey in OIL: every key goes to the buffer, and what it
@@ -127,21 +137,69 @@ func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	switch act {
-	case oil.Quit:
+	case oil.Write, oil.WriteQuit:
+		cmd = m.oilWrite(act == oil.WriteQuit)
+	case oil.ForceQuit:
+		cmd = m.leaveOil("")
+	case oil.CopyPath:
+		m.setNotice("gp copies paths once fndr has a clipboard", true)
+	case oil.Help:
+		m.setNotice("hjkl move · i a o type · dd trash · cc rename · u undo · :w write · :q leave · - up · g. hidden", false)
+	case oil.Quit, oil.Open, oil.Parent, oil.Cwd, oil.Refresh, oil.ToggleHidden:
+		// These leave the buffer as it is on the disk: with an edit not
+		// written they would drop it, so they wait for :w or :q!.
 		if st.changes > 0 {
 			m.setNotice("unsaved changes: :w writes them, :q! drops them", true)
 			break
 		}
-		cmd = m.leaveOil("")
-	case oil.ForceQuit:
-		cmd = m.leaveOil("")
-	case oil.Write, oil.WriteQuit:
-		cmd = m.oilWrite(act == oil.WriteQuit)
+		cmd = m.oilGo(act)
 	}
 	if m.oil != nil {
 		m.oilScroll()
 	}
 	return m, cmd
+}
+
+// oilGo carries out an action that leaves the buffer: to another folder,
+// the same one read again, a file opened, or out of OIL. The buffer has
+// no edit to lose.
+func (m *Model) oilGo(act oil.Action) tea.Cmd {
+	st := m.oil
+	line := st.buf.Lines()[st.buf.Row()]
+	here := strings.TrimSuffix(line.Text, "/") // to keep the cursor on it when the folder is read again
+	switch act {
+	case oil.Quit:
+		return m.leaveOil("")
+	case oil.Refresh:
+		return loadOil(st.dir, st.hidden, here)
+	case oil.ToggleHidden:
+		return loadOil(st.dir, !st.hidden, here)
+	case oil.Cwd:
+		return loadOil(m.start, st.hidden, "")
+	case oil.Parent:
+		parent := filepath.Dir(st.dir)
+		if parent == st.dir {
+			m.setNotice("already at the top", false)
+			return nil
+		}
+		return loadOil(parent, st.hidden, filepath.Base(st.dir)) // the folder just left, selected
+	case oil.Open:
+		if line.ID == 0 {
+			return nil // a blank line: nothing to open
+		}
+		e := &st.entries[line.ID-1]
+		save := m.learn(e.Path)
+		if !e.IsDir {
+			return tea.Batch(save, m.open(e.Path))
+		}
+		dir, err := realDir(e.Path)
+		if err != nil {
+			m.setNotice(err.Error(), true)
+			return save
+		}
+		return tea.Batch(save, loadOil(dir, st.hidden, ""))
+	}
+	return nil
 }
 
 // recount measures the edit. A buffer that cannot become a plan (two
@@ -355,7 +413,7 @@ func (m *Model) oilStatus() string {
 	// What gives way when space runs out: the folder first, cut from the
 	// left; the notice or the count of changes, which say what is at
 	// stake, last.
-	mode, name := pick(st.buf.Mode() == oil.Insert, &stModeNew, &stMode), st.buf.Mode().String()
+	mode, name := pick(st.buf.Mode() == oil.Insert, &stModeInsert, &stMode), st.buf.Mode().String()
 	if st.plan != nil {
 		mode, name = &stModeConfirm, "CONFIRM"
 	}

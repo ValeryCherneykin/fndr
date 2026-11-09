@@ -111,6 +111,31 @@ func indexChanges(dir string, done mutation.Plan, snap []indexer.Entry) (remove 
 	return remove, add
 }
 
+// newEntries reads what Create made, for the index: every level from Top
+// down to Path that the index does not hold yet. "a/b/c.txt" may have made
+// a, a/b and the file, or only the file if a/b was there; adding a twice
+// would show it twice in search. Scanning the snapshot is linear, a few
+// milliseconds for a million entries, and it runs here, off the UI.
+func newEntries(c mutation.Created, snap []indexer.Entry) []indexer.Entry {
+	fresh := map[string]bool{}
+	for p := c.Path; ; p = filepath.Dir(p) {
+		fresh[p] = true
+		if p == c.Top || p == filepath.Dir(p) {
+			break
+		}
+	}
+	for i := range snap {
+		delete(fresh, snap[i].Path)
+	}
+	es := make([]indexer.Entry, 0, len(fresh))
+	for p := range fresh {
+		if info, err := os.Lstat(p); err == nil {
+			es = append(es, indexer.NewEntry(p, info.Size(), info.ModTime().UnixNano(), info.IsDir()))
+		}
+	}
+	return es
+}
+
 // tree returns the entry at path and, for a folder, everything below it.
 func tree(path string) []indexer.Entry {
 	info, err := os.Lstat(path)
@@ -144,6 +169,11 @@ func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
 	}
 
 	st.plan, st.applying, st.wrote = nil, false, st.wrote || len(msg.done) > 0
+	if len(msg.done) == 0 {
+		// Nothing changed on the disk, so the buffer is still true to it:
+		// it stays as typed, for the user to fix rather than retype.
+		return nil
+	}
 	if msg.quit && msg.err == nil {
 		return m.leaveOil(reveal)
 	}

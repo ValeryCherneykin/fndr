@@ -7,17 +7,14 @@ import (
 )
 
 // Keys while searching or browsing. The query line takes text; chords
-// move, enter, jump and quit. Other modes (naming, in create.go) have
-// their own handler, so a key never means two things at once.
+// move, enter, jump and quit. OIL (oil.go) has its own handler, so a key
+// never means two things at once.
 
 // handleKey is Update for a key press.
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.setNotice("", false) // a notice describes the last action; any key moves on
-	switch {
-	case m.oil != nil:
+	if m.oil != nil {
 		return m.oilKey(msg)
-	case m.naming:
-		return m.handleNameKey(msg)
 	}
 
 	switch msg.String() {

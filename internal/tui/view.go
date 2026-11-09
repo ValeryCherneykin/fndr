@@ -32,28 +32,15 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
-	text, pos := m.line()
-	v.Cursor = tea.NewCursor(min(promptWidth+ansi.StringWidth((*text)[:*pos]), m.width-1), 0)
+	v.Cursor = tea.NewCursor(min(promptWidth+ansi.StringWidth(m.query[:m.qpos]), m.width-1), 0)
 	v.Cursor.Shape = tea.CursorBar
 	v.Cursor.Color = colLocal
-	if m.naming {
-		v.Cursor.Color = colWarn
-	}
 	return v
 }
 
-// viewPrompt renders the query line. While naming, the prompt takes the NEW
-// colour and an empty field says what can be typed, so the change of meaning
-// is seen where the eyes are, not only in the status bar.
+// viewPrompt renders the query line.
 func (m *Model) viewPrompt() string {
-	if !m.naming {
-		return " " + stPrompt.Render("❯") + " " + stQuery.Render(m.query)
-	}
-	text := stQuery.Render(m.name)
-	if m.name == "" {
-		text = stEmptyState.Render("name, or name/ for a folder")
-	}
-	return " " + stPromptNew.Render("+") + " " + text
+	return " " + stPrompt.Render("❯") + " " + stQuery.Render(m.query)
 }
 
 // viewList writes listHeight lines: the visible results, or an empty state
@@ -105,9 +92,6 @@ func (m *Model) viewList(b *strings.Builder) {
 // every result row, shrinks from the left: "…/fndr/cmd".
 func (m *Model) viewStatus() string {
 	mode := stMode.Render(" LOCAL ")
-	if m.naming {
-		mode = stModeNew.Render(" NEW ")
-	}
 	sep := stBar.Render("  ")
 	// Cells left once the scope block, one cell of gap and one of right
 	// padding are placed.

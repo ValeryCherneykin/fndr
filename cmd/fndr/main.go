@@ -10,7 +10,8 @@
 // Ctrl+H and Ctrl+L (or left and right) to move through the query, Enter to
 // open a file or folder, "-" to go up, Esc to clear the query or quit,
 // Ctrl+E to quit and jump to the selected folder, Ctrl+V to show or hide the
-// preview, Ctrl+O to create a file ("name/" makes a folder).
+// preview, Ctrl+O to edit the folder as text with Vim keys (:w shows what
+// will change, y applies it).
 //
 // The flags are:
 //

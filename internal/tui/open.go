@@ -38,10 +38,14 @@ func (m *Model) openSelected() tea.Cmd {
 	if len(m.results) == 0 {
 		return nil
 	}
-	e := &m.results[m.cursor].Entry
+	return m.open(m.results[m.cursor].Entry.Path)
+}
+
+// open opens the file at path, as openSelected does.
+func (m *Model) open(path string) tea.Cmd {
 	// Copied out of m: the command runs on another goroutine and must not
 	// touch the model.
-	path, editor := e.Path, m.editor
+	editor := m.editor
 	return func() tea.Msg { return resolveOpen(path, editor) }
 }
 

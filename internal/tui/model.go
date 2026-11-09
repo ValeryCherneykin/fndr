@@ -24,6 +24,7 @@ const promptWidth = 3
 // terminal: feed messages to Update, inspect the result.
 type Model struct {
 	root   string // directory the index covers: where the current crawl started
+	start  string // directory fndr started in, where _ goes back to in OIL
 	cwd    string // directory shown and searched (LOCAL scope); always at or below root
 	home   string // $HOME, shown as "~"
 	editor string // editor command line; empty means $VISUAL, $EDITOR, then a fallback
@@ -64,13 +65,6 @@ type Model struct {
 	qpos    int              // text cursor: byte offset into query, on a rune boundary
 	results []indexer.Result // what the list shows: the listing or search results
 	total   int              // matches in the index, of which results holds the best
-
-	// naming: the query line edits name, of something to create
-	// (create.go), with npos as its cursor. The query is left alone, and so
-	// is everything that reads it: searches, the listing, the counts.
-	naming bool
-	name   string
-	npos   int
 
 	// oil is the folder being edited in OIL mode (oil.go), nil outside it.
 	oil *oilState
@@ -142,7 +136,7 @@ func New(root string) *Model {
 // so tests can control exactly what is indexed.
 func newModel(root, home string, ix *indexer.Index) *Model {
 	ctx, stop := context.WithCancel(context.Background())
-	return &Model{root: root, cwd: root, home: home, ix: ix, ctx: ctx, stop: stop}
+	return &Model{root: root, cwd: root, start: root, home: home, ix: ix, ctx: ctx, stop: stop}
 }
 
 // Init reads the starting directory and starts the crawl.
@@ -178,8 +172,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case oilMsg:
-		m.oilLoaded(&msg)
-		return m, nil
+		cmd := m.oilLoaded(&msg)
+		return m, cmd
 
 	case oilWrittenMsg:
 		cmd := m.oilWritten(&msg)
@@ -215,10 +209,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case listMsg:
 		m.listed(&msg)
 		return m, nil
-
-	case createdMsg:
-		cmd := m.created(&msg)
-		return m, cmd
 
 	case openMsg:
 		return m, msg.run()

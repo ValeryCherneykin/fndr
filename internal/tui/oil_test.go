@@ -396,3 +396,108 @@ func TestOilCreateHidden(t *testing.T) {
 		t.Errorf("cursor on %q, want the new .secret, shown", got)
 	}
 }
+
+// TestOilWalk: enter goes into a folder, - comes back out onto it, _
+// returns to where fndr started; fndr's folder follows, so leaving OIL
+// shows the folder that was being edited.
+func TestOilWalk(t *testing.T) {
+	m, root := oilModel(t)
+	typeText(m, "j") // src/
+	key(m, tea.KeyEnter, 0)
+	if got, want := m.oilTexts(), []string{"main.go", "util.go"}; !slices.Equal(got, want) {
+		t.Fatalf("after enter on src/: %q, want %q", got, want)
+	}
+	if m.cwd != filepath.Join(root, "src") {
+		t.Errorf("cwd %q: fndr did not follow OIL into src", m.cwd)
+	}
+
+	typeText(m, "-")
+	if got := m.oilTexts()[m.oil.buf.Row()]; got != "src/" || m.oil.dir != root {
+		t.Errorf("after -: in %q on %q, want the root, on src/", m.oil.dir, got)
+	}
+
+	typeText(m, "j")
+	key(m, tea.KeyEnter, 0)
+	typeText(m, "_")
+	if m.oil.dir != root {
+		t.Errorf("_ went to %q, want %q, where fndr started", m.oil.dir, root)
+	}
+}
+
+// TestOilEnterOnFileOpens: enter on a file opens it and stays in OIL.
+func TestOilEnterOnFileOpens(t *testing.T) {
+	m, root := oilModel(t)
+	m.oil.buf.GoTo(2) // README.md
+	if cmd := m.oilGo(oil.Open); cmd == nil {
+		t.Error("enter on a file returned no command")
+	}
+	if m.oil == nil || m.oil.dir != root {
+		t.Error("opening a file left OIL or the folder")
+	}
+}
+
+// TestOilHiddenAndRefresh: g. shows and hides dot names; ctrl+r reads the
+// folder again, finding what changed behind fndr's back. The cursor stays
+// on its line through both.
+func TestOilHiddenAndRefresh(t *testing.T) {
+	m, root := oilModel(t)
+	typeText(m, "G") // README.md
+	typeText(m, "g.")
+	if !slices.Contains(m.oilTexts(), ".env") || slices.Contains(m.oilTexts(), ".git/") {
+		t.Errorf("g.: %q, want .env shown and .git never", m.oilTexts())
+	}
+	if got := m.oilTexts()[m.oil.buf.Row()]; got != "README.md" {
+		t.Errorf("cursor moved to %q", got)
+	}
+	typeText(m, "g.")
+	if slices.Contains(m.oilTexts(), ".env") {
+		t.Error("g. again did not hide .env")
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "later.txt"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key(m, 'r', tea.ModCtrl)
+	if !slices.Contains(m.oilTexts(), "later.txt") {
+		t.Errorf("ctrl+r: %q, want later.txt read in", m.oilTexts())
+	}
+}
+
+// TestOilKeepsEditsWhenLeaving: an edit not written is never dropped by
+// going elsewhere; :w or :q! decide.
+func TestOilKeepsEditsWhenLeaving(t *testing.T) {
+	m, root := oilModel(t)
+	typeText(m, "jdd") // src/ deleted in the buffer, cursor on README.md
+	for _, k := range []func(){
+		func() { key(m, tea.KeyEnter, 0) },
+		func() { typeText(m, "-") },
+		func() { typeText(m, "_") },
+		func() { key(m, 'r', tea.ModCtrl) },
+		func() { typeText(m, "g.") },
+	} {
+		k()
+		if m.oil == nil || m.oil.dir != root || m.oil.changes != 1 || !m.noticeErr {
+			t.Fatalf("a move with an unwritten edit: dir %q, changes %d, notice %q", m.oil.dir, m.oil.changes, m.notice)
+		}
+	}
+}
+
+// TestOilFailedWriteKeepsTheEdit: creating a name a hidden file already
+// has fails on the disk. Nothing was done, so the buffer keeps the line as
+// typed, to be fixed rather than typed again.
+func TestOilFailedWriteKeepsTheEdit(t *testing.T) {
+	m, root, _ := writeModel(t)
+	typeText(m, "Go.env") // there already, hidden
+	key(m, tea.KeyEscape, 0)
+	command(m, "w")
+	typeText(m, "y")
+	if !m.noticeErr || !strings.Contains(m.notice, "0 of 1 done") {
+		t.Errorf("notice %q, want the failure", m.notice)
+	}
+	if !slices.Contains(m.oilTexts(), ".env") || m.oil.changes != 1 {
+		t.Errorf("buffer %q, changes %d: the typed line is lost", m.oilTexts(), m.oil.changes)
+	}
+	if fi, err := os.Stat(filepath.Join(root, ".env")); err != nil || fi.Size() != 0 {
+		t.Error("the existing .env was touched")
+	}
+}

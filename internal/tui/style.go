@@ -26,11 +26,10 @@ var (
 // Styles are built once. A lipgloss.Style is a value, so these are safe to
 // share and to derive from.
 var (
-	stPrompt    = lipgloss.NewStyle().Foreground(colLocal).Bold(true)
-	stPromptNew = lipgloss.NewStyle().Foreground(colWarn).Bold(true)
-	stQuery     = lipgloss.NewStyle().Foreground(colBright)
-	stHair      = lipgloss.NewStyle().Foreground(colHair)
-	stMarker    = lipgloss.NewStyle().Foreground(colLocal)
+	stPrompt = lipgloss.NewStyle().Foreground(colLocal).Bold(true)
+	stQuery  = lipgloss.NewStyle().Foreground(colBright)
+	stHair   = lipgloss.NewStyle().Foreground(colHair)
+	stMarker = lipgloss.NewStyle().Foreground(colLocal)
 
 	stName       = lipgloss.NewStyle().Foreground(colText)
 	stNameSel    = lipgloss.NewStyle().Foreground(colBright).Bold(true)
@@ -46,12 +45,12 @@ var (
 	stPaneTitle = lipgloss.NewStyle().Foreground(colBright).Bold(true)
 	stPaneDim   = lipgloss.NewStyle().Foreground(colDim)
 
-	stBar     = lipgloss.NewStyle().Background(colBar).Foreground(colDim)
-	stBarText = lipgloss.NewStyle().Background(colBar).Foreground(colText)
-	stBarWarn = lipgloss.NewStyle().Background(colBar).Foreground(colWarn)
-	stBarErr  = lipgloss.NewStyle().Background(colBar).Foreground(colAlert)
-	stMode    = lipgloss.NewStyle().Background(colLocal).Foreground(colBar).Bold(true)
-	stModeNew = stMode.Background(colWarn) // creating: the line means something else now
+	stBar        = lipgloss.NewStyle().Background(colBar).Foreground(colDim)
+	stBarText    = lipgloss.NewStyle().Background(colBar).Foreground(colText)
+	stBarWarn    = lipgloss.NewStyle().Background(colBar).Foreground(colWarn)
+	stBarErr     = lipgloss.NewStyle().Background(colBar).Foreground(colAlert)
+	stMode       = lipgloss.NewStyle().Background(colLocal).Foreground(colBar).Bold(true)
+	stModeInsert = stMode.Background(colWarn) // OIL is typing: keys are text now
 
 	stModeConfirm = stMode.Background(colAlert) // a plan waits for y: the disk is next
 	stPlanTitle   = lipgloss.NewStyle().Foreground(colBright).Bold(true)

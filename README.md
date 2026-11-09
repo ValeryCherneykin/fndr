@@ -118,7 +118,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+H` / `Ctrl+L`, `←` / `→` | Move through the query |
 | `Ctrl+W` · `Ctrl+U` | Delete a word · delete to the start |
 | `Ctrl+V` | Show or hide the preview (from 100 columns) |
-| `Ctrl+O` | New file · `name/` for a folder · `a/b/c.txt` makes the folders |
+| `Ctrl+O` | Edit the folder as text with Vim keys: rename a line, `dd` to trash, a new line `a/b/c.txt` creates it with its folders; `:w` shows the plan, `y` applies it |
 | `Ctrl+E` | Quit and jump there |
 | `Esc` | Clear the query, then quit |
 | `Ctrl+C` | Quit |
@@ -168,7 +168,8 @@ noticeably slower is treated as a bug.
   make a program called `invoice<U+202E>fdp.exe` read as `invoiceexe.pdf`.
 - **No picture bombs.** A picture's size is read from its header first; a
   tiny file claiming 20000×20000 gets an info card, not gigabytes of memory.
-- **Nothing is deleted for good, nothing is overwritten.** New files are
+- **Nothing is deleted for good, nothing is overwritten.** Deleting moves to
+  the trash, and only after the plan is shown and confirmed. New files are
   created with `O_EXCL`: if the name is taken, nothing happens.
 - **Several fndr, one history.** Open it in every tmux pane: visits add up
   under a file lock instead of the last one to exit erasing the others.
