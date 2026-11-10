@@ -1,0 +1,81 @@
+package indexer
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Prune says which folders a crawl lists but does not go into. On the
+// author's home, caches, package stores and app internals were 80% of the
+// entries and 85% of the crawl time, and they crowded search: nobody
+// looks for a file inside ~/Library/Caches or node_modules by name.
+//
+// A pruned folder is still an entry, so search finds it by name and the
+// user can go in. Only its contents stay out of the index. The crawl's
+// root is never pruned: fndr opened inside ~/.config indexes it, as asked.
+//
+// A nil *Prune prunes nothing. .git is a separate, harder rule of Crawl:
+// it is left out altogether.
+type Prune struct {
+	paths map[string]bool // absolute folders, such as ~/Library
+}
+
+// junkNames are folders that tools fill, wherever they are.
+var junkNames = map[string]bool{
+	"node_modules": true,
+	"__pycache__":  true,
+}
+
+// bundleExts are macOS bundles: folders that the Finder shows, and the
+// user thinks of, as one file. Ghostty.app is found and opened; what is in
+// Contents/ is the app's business.
+var bundleExts = map[string]bool{
+	".app":           true,
+	".bundle":        true,
+	".framework":     true,
+	".plugin":        true,
+	".kext":          true,
+	".photoslibrary": true,
+	".musiclibrary":  true,
+	".tvlibrary":     true,
+	".logicx":        true,
+	".band":          true,
+	".xcarchive":     true,
+}
+
+// DefaultPrune is what fndr leaves out by default, for the user whose home
+// is home: hidden folders, the folders in junkNames and bundleExts, the
+// macOS ~/Library (application data, two thirds of it caches) and the Go
+// package store ($GOPATH/pkg, and GOMODCACHE if moved elsewhere).
+func DefaultPrune(home string) *Prune {
+	p := &Prune{paths: map[string]bool{}}
+	if home == "" {
+		return p // no home to find ~/Library under: the rules by name still hold
+	}
+	p.paths[filepath.Join(home, "Library")] = true
+
+	// GOPATH may list several folders; go install, and so the package
+	// store, uses the first.
+	gopath := filepath.Join(home, "go")
+	if list := filepath.SplitList(os.Getenv("GOPATH")); len(list) > 0 && filepath.IsAbs(list[0]) {
+		gopath = list[0]
+	}
+	p.paths[filepath.Join(gopath, "pkg")] = true
+	if mc := os.Getenv("GOMODCACHE"); filepath.IsAbs(mc) {
+		p.paths[filepath.Clean(mc)] = true
+	}
+	return p
+}
+
+// Prunes reports whether a crawl lists the folder at path, named name,
+// without going in.
+func (p *Prune) Prunes(path, name string) bool {
+	if p == nil {
+		return false
+	}
+	return strings.HasPrefix(name, ".") ||
+		junkNames[name] ||
+		bundleExts[strings.ToLower(filepath.Ext(name))] ||
+		p.paths[path]
+}

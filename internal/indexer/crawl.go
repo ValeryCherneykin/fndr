@@ -53,12 +53,14 @@ type Stats struct {
 //   - Unreadable paths below root are counted in Stats.Skipped and the walk
 //     continues; only an unreadable root is an error.
 //   - .git directories are skipped: git internals, never what the user wants.
+//   - Folders prune names (see Prune) are sent but not entered. The root is
+//     never pruned. A nil prune enters everything but .git.
 //   - Hidden files are included. Hiding them is a view decision, and dropping
 //     them here would force a full re-crawl to show them later.
 //
 // On cancellation Crawl returns ctx.Err(), and Stats covers what was sent up
 // to that point.
-func Crawl(ctx context.Context, root string, out chan<- []Entry) (Stats, error) {
+func Crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry) (Stats, error) {
 	// Entries must hold absolute, cleaned paths (see Entry.Path); Abs gives
 	// both.
 	root, err := filepath.Abs(root)
@@ -68,7 +70,7 @@ func Crawl(ctx context.Context, root string, out chan<- []Entry) (Stats, error) 
 
 	// Lstat, not Stat: a root that is itself a symlink is rejected rather
 	// than silently followed, consistent with how links below it are treated.
-	info, err := os.Lstat(root)
+	info, err := os.Lstat(root) //nolint:gosec // reading the folder the caller names is what Crawl is for
 	if err != nil {
 		// The *PathError already names the path; wrapping only adds where it
 		// happened.
@@ -81,10 +83,11 @@ func Crawl(ctx context.Context, root string, out chan<- []Entry) (Stats, error) 
 	c := &crawler{
 		ctx:   ctx,
 		root:  root,
+		prune: prune,
 		out:   out,
 		batch: make([]Entry, 0, batchSize),
 	}
-	if err := filepath.WalkDir(root, c.visit); err != nil {
+	if err := filepath.WalkDir(root, c.visit); err != nil { //nolint:gosec // as above
 		return c.stats, err
 	}
 	// The last batch is usually partial; without this flush up to
@@ -97,6 +100,7 @@ func Crawl(ctx context.Context, root string, out chan<- []Entry) (Stats, error) 
 type crawler struct {
 	ctx   context.Context // fine in a struct: it lives exactly as long as one Crawl call
 	root  string
+	prune *Prune
 	out   chan<- []Entry
 	batch []Entry
 	stats Stats
@@ -147,7 +151,14 @@ func (c *crawler) visit(path string, d fs.DirEntry, err error) error {
 
 	c.batch = append(c.batch, NewEntry(path, info.Size(), info.ModTime().UnixNano(), d.IsDir()))
 	if len(c.batch) == batchSize {
-		return c.flush()
+		if err := c.flush(); err != nil {
+			return err
+		}
+	}
+	// After the entry is in the batch: a pruned folder is listed, only
+	// not entered.
+	if d.IsDir() && c.prune.Prunes(path, d.Name()) {
+		return fs.SkipDir
 	}
 	return nil
 }

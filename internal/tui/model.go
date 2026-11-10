@@ -23,11 +23,12 @@ const promptWidth = 3
 // only reads it, which is what makes the interface testable without a
 // terminal: feed messages to Update, inspect the result.
 type Model struct {
-	root   string // directory the index covers: where the current crawl started
-	start  string // directory fndr started in, where _ goes back to in OIL
-	cwd    string // directory shown and searched (LOCAL scope); always at or below root
-	home   string // $HOME, shown as "~"
-	editor string // editor command line; empty means $VISUAL, $EDITOR, then a fallback
+	root   string         // directory the index covers: where the current crawl started
+	start  string         // directory fndr started in, where _ goes back to in OIL
+	cwd    string         // directory shown and searched (LOCAL scope); always at or below root
+	home   string         // $HOME, shown as "~"
+	prune  *indexer.Prune // what the crawl lists without going in
+	editor string         // editor command line; empty means $VISUAL, $EDITOR, then a fallback
 
 	ix *indexer.Index
 
@@ -139,7 +140,7 @@ func New(root string) *Model {
 // so tests can control exactly what is indexed.
 func newModel(root, home string, ix *indexer.Index) *Model {
 	ctx, stop := context.WithCancel(context.Background())
-	return &Model{root: root, cwd: root, start: root, home: home, ix: ix, ctx: ctx, stop: stop}
+	return &Model{root: root, cwd: root, start: root, home: home, prune: indexer.DefaultPrune(home), ix: ix, ctx: ctx, stop: stop}
 }
 
 // Init reads the starting directory and starts the crawl.

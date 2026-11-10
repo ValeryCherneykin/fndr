@@ -110,18 +110,18 @@ func (m *Model) applyRename() tea.Cmd {
 		return nil
 	}
 	st.applying = true
-	return renameEntry(m.cwd, plan[0])
+	return renameEntry(m.cwd, plan[0], m.prune)
 }
 
 // renameEntry carries out op in dir, off the UI goroutine.
-func renameEntry(dir string, op mutation.Op) tea.Cmd {
+func renameEntry(dir string, op mutation.Op, prune *indexer.Prune) tea.Cmd {
 	return func() tea.Msg {
 		msg := renamedMsg{from: filepath.Join(dir, op.From), to: filepath.Join(dir, op.To)}
 		plan := mutation.Plan{op}
 		// No trash: a plan without deletes never asks for one.
 		n, err := mutation.Apply(dir, plan, nil)
 		msg.err = err
-		msg.remove, msg.add = indexChanges(dir, plan[:n], nil)
+		msg.remove, msg.add = indexChanges(dir, plan[:n], nil, prune)
 		return msg
 	}
 }

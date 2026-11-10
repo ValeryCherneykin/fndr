@@ -39,7 +39,7 @@ func browseModel(t *testing.T, start string) (m *Model, root string) {
 	out := make(chan []indexer.Entry)
 	go func() {
 		defer close(out)
-		_, _ = indexer.Crawl(context.Background(), dir, out)
+		_, _ = indexer.Crawl(context.Background(), dir, nil, out)
 	}()
 	for batch := range out {
 		ix.Add(batch)

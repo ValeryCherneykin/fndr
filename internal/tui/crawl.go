@@ -46,14 +46,14 @@ func (m *Model) startCrawl() tea.Cmd {
 	ctx, stop := context.WithCancel(m.ctx)
 	m.crawlStop = stop
 	m.crawling, m.skipped, m.crawlErr = true, 0, nil
-	return runCrawl(ctx, m.crawlGen, m.root)
+	return runCrawl(ctx, m.crawlGen, m.root, m.prune)
 }
 
 // runCrawl launches indexer.Crawl in its own goroutine. A small buffer lets
 // the crawl run a few batches ahead of the UI instead of waiting on every
 // handoff. The goroutine always ends: Crawl returns when ctx is canceled, and
 // done has room for its one result even if nobody reads it.
-func runCrawl(ctx context.Context, gen int, root string) tea.Cmd {
+func runCrawl(ctx context.Context, gen int, root string, prune *indexer.Prune) tea.Cmd {
 	return func() tea.Msg {
 		s := &crawlStream{
 			gen:     gen,
@@ -61,7 +61,7 @@ func runCrawl(ctx context.Context, gen int, root string) tea.Cmd {
 			done:    make(chan crawlDoneMsg, 1),
 		}
 		go func() {
-			stats, err := indexer.Crawl(ctx, root, s.batches)
+			stats, err := indexer.Crawl(ctx, root, prune, s.batches)
 			close(s.batches)
 			s.done <- crawlDoneMsg{gen: gen, stats: stats, err: err}
 		}()

@@ -17,6 +17,12 @@ import (
 // collects everything it sends.
 func crawlAll(tb testing.TB, root string) ([]Entry, Stats, error) {
 	tb.Helper()
+	return crawlPruned(tb, root, nil)
+}
+
+// crawlPruned is crawlAll with prune deciding which folders to enter.
+func crawlPruned(tb testing.TB, root string, prune *Prune) ([]Entry, Stats, error) {
+	tb.Helper()
 
 	out := make(chan []Entry)
 	var (
@@ -28,7 +34,7 @@ func crawlAll(tb testing.TB, root string) ([]Entry, Stats, error) {
 		// the range loop below sees the close, so the close orders the write
 		// before the read and there is no race.
 		defer close(out)
-		stats, err = Crawl(context.Background(), root, out)
+		stats, err = Crawl(context.Background(), root, prune, out)
 	}()
 
 	var all []Entry
@@ -223,7 +229,7 @@ func TestCrawlBatches(t *testing.T) {
 	out := make(chan []Entry)
 	go func() {
 		defer close(out)
-		_, _ = Crawl(context.Background(), root, out)
+		_, _ = Crawl(context.Background(), root, nil, out)
 	}()
 
 	var sizes []int
@@ -280,7 +286,7 @@ func TestCrawlCancelUnblocksSend(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			_, err = Crawl(ctx, root, out)
+			_, err = Crawl(ctx, root, nil, out)
 		}()
 
 		synctest.Wait() // Crawl is now stuck sending its only batch
@@ -306,7 +312,7 @@ func TestCrawlCanceledBeforeStart(t *testing.T) {
 	cancel()
 
 	out := make(chan []Entry, 1)
-	stats, err := Crawl(ctx, root, out)
+	stats, err := Crawl(ctx, root, nil, out)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
@@ -360,13 +366,82 @@ func BenchmarkCrawlDir(b *testing.B) {
 	if root == "" {
 		b.Skip("FNDR_BENCH_DIR is not set")
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		b.Fatal(err)
+	}
+	prune := DefaultPrune(home) // as fndr crawls
 	var n int
 	for b.Loop() {
-		entries, _, err := crawlAll(b, root)
+		entries, _, err := crawlPruned(b, root, prune)
 		if err != nil {
 			b.Fatal(err)
 		}
 		n = len(entries)
 	}
 	b.ReportMetric(float64(n), "entries/op")
+}
+
+// TestCrawlPrunes: the folders DefaultPrune names are listed, so search
+// finds them by name, but not entered: their contents are caches, packages
+// and app internals. Hidden files stay: ".env" is searched for.
+func TestCrawlPrunes(t *testing.T) {
+	t.Setenv("GOPATH", "") // the store is then ~/go/pkg, in the test's home
+	t.Setenv("GOMODCACHE", "")
+	home := t.TempDir()
+	for _, f := range []string{
+		".config/nvim/init.lua",
+		"Library/Caches/x",
+		"go/pkg/mod/m.go",
+		"go/src/app/main.go",
+		"dev/app/node_modules/left-pad/index.js",
+		"dev/app/src/index.js",
+		"dev/app/.git/HEAD",
+		"Applications/Ghostty.app/Contents/Info.plist",
+		"Pictures/Photos Library.photoslibrary/db",
+		".zshrc",
+	} {
+		writeFile(t, filepath.Join(home, f), "")
+	}
+	entries, _, err := crawlPruned(t, home, DefaultPrune(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := byRel(t, home, entries)
+	for _, want := range []string{
+		".config", "Library", "go/pkg", "go/src/app/main.go", "dev/app/node_modules",
+		"dev/app/src/index.js", "Applications/Ghostty.app", "Pictures/Photos Library.photoslibrary", ".zshrc",
+	} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("%s is missing: pruned folders are listed, the rest crawled", want)
+		}
+	}
+	for _, not := range []string{
+		".config/nvim", "Library/Caches", "go/pkg/mod", "dev/app/node_modules/left-pad",
+		"dev/app/.git", "Applications/Ghostty.app/Contents", "Pictures/Photos Library.photoslibrary/db",
+	} {
+		if _, ok := got[not]; ok {
+			t.Errorf("%s was crawled", not)
+		}
+	}
+}
+
+// TestCrawlPruneSparesTheRoot: fndr opened inside a pruned folder indexes
+// it, as asked; below it the rules hold again.
+func TestCrawlPruneSparesTheRoot(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".config", "nvim", "init.lua"), "")
+	writeFile(t, filepath.Join(home, ".config", ".secret", "x"), "")
+	root := filepath.Join(home, ".config")
+	entries, _, err := crawlPruned(t, root, DefaultPrune(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := byRel(t, root, entries)
+	if _, ok := got["nvim/init.lua"]; !ok {
+		t.Error("the root was pruned: nvim/init.lua is missing")
+	}
+	if _, ok := got[".secret/x"]; ok {
+		t.Error("a hidden folder below the root was crawled")
+	}
 }

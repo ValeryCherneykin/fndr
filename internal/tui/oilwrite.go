@@ -67,7 +67,7 @@ func (m *Model) confirmKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "y":
 		st.applying = true
-		return applyPlan(st.dir, st.plan, st.quitAfter, m.ix.Snapshot())
+		return applyPlan(st.dir, st.plan, st.quitAfter, m.ix.Snapshot(), m.prune)
 	case "n", "esc", "q":
 		st.plan = nil
 	}
@@ -77,7 +77,7 @@ func (m *Model) confirmKey(msg tea.KeyPressMsg) tea.Cmd {
 // applyPlan carries out plan in dir, off the UI goroutine, and works out
 // what the index must forget and learn, so search finds the new names at
 // once. snap is the index now, to tell what a create added.
-func applyPlan(dir string, plan mutation.Plan, quit bool, snap []indexer.Entry) tea.Cmd {
+func applyPlan(dir string, plan mutation.Plan, quit bool, snap []indexer.Entry, prune *indexer.Prune) tea.Cmd {
 	return func() tea.Msg {
 		msg := oilWrittenMsg{dir: dir, quit: quit}
 		trash, err := mutation.HomeTrash()
@@ -87,22 +87,23 @@ func applyPlan(dir string, plan mutation.Plan, quit bool, snap []indexer.Entry) 
 		}
 		n, err := mutation.Apply(dir, plan, trash)
 		msg.done, msg.err = plan[:n], err
-		msg.remove, msg.add = indexChanges(dir, msg.done, snap)
+		msg.remove, msg.add = indexChanges(dir, msg.done, snap, prune)
 		return msg
 	}
 }
 
 // indexChanges returns what the index must drop and add after steps were
 // carried out in dir. A renamed folder is read again below its new name:
-// everything in it moved with it.
-func indexChanges(dir string, done mutation.Plan, snap []indexer.Entry) (remove []string, add []indexer.Entry) {
+// everything in it moved with it. prune is the crawl's, so a folder renamed
+// is indexed as a crawl would have.
+func indexChanges(dir string, done mutation.Plan, snap []indexer.Entry, prune *indexer.Prune) (remove []string, add []indexer.Entry) {
 	for _, op := range done {
 		switch op.Kind {
 		case mutation.OpDelete:
 			remove = append(remove, filepath.Join(dir, op.From))
 		case mutation.OpRename:
 			remove = append(remove, filepath.Join(dir, op.From))
-			add = append(add, tree(filepath.Join(dir, op.To))...)
+			add = append(add, tree(filepath.Join(dir, op.To), prune)...)
 		case mutation.OpCreate:
 			path := filepath.Join(dir, op.To)
 			first, _, _ := strings.Cut(filepath.ToSlash(filepath.Clean(op.To)), "/")
@@ -137,20 +138,22 @@ func newEntries(c mutation.Created, snap []indexer.Entry) []indexer.Entry {
 	return es
 }
 
-// tree returns the entry at path and, for a folder, everything below it.
-func tree(path string) []indexer.Entry {
+// tree returns the entry at path and, for a folder prune lets a crawl
+// into, everything below it: renamed to ".old", a folder is hidden and
+// stays closed, as the next crawl would leave it.
+func tree(path string, prune *indexer.Prune) []indexer.Entry {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil
 	}
 	es := []indexer.Entry{indexer.NewEntry(path, info.Size(), info.ModTime().UnixNano(), info.IsDir())}
-	if !info.IsDir() {
+	if !info.IsDir() || prune.Prunes(path, filepath.Base(path)) {
 		return es
 	}
 	out := make(chan []indexer.Entry)
 	go func() {
 		defer close(out)
-		_, _ = indexer.Crawl(context.Background(), path, out) //nolint:errcheck // unreadable parts are just not indexed
+		_, _ = indexer.Crawl(context.Background(), path, prune, out) //nolint:errcheck // unreadable parts are just not indexed
 	}()
 	for batch := range out {
 		es = append(es, batch...)
