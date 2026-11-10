@@ -212,3 +212,44 @@ func TestEnterLinkedFolder(t *testing.T) {
 		t.Errorf("error: %s", m.notice)
 	}
 }
+
+// run carries out cmd, a batch or not, and every message it leads to.
+func run(m *Model, cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	switch msg := cmd().(type) {
+	case tea.BatchMsg:
+		for _, c := range msg {
+			run(m, c)
+		}
+	case nil:
+	default:
+		send(m, msg)
+	}
+}
+
+// TestIntoPrunedFolderRecrawls: the crawl lists a hidden folder without
+// going in, so going into it must index it, or search there finds nothing
+// while the listing shows files.
+func TestIntoPrunedFolderRecrawls(t *testing.T) {
+	m, root := browseModel(t, "")
+	ci := filepath.Join(root, ".github", "workflows", "ci.yml")
+	if err := os.MkdirAll(filepath.Dir(ci), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ci, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.ix = &indexer.Index{} // index the tree again, the way fndr does: pruned
+	run(m, m.startCrawl())
+	if !m.indexed(filepath.Join(root, ".github")) || m.indexed(ci) {
+		t.Fatal("want .github listed and not entered: nothing to test")
+	}
+
+	run(m, m.chdir(filepath.Join(root, ".github"), ""))
+	typeText(m, "ci")
+	if len(m.results) == 0 || m.results[0].Entry.Path != ci {
+		t.Errorf("search in .github: %q, want ci.yml found", m.resultPaths())
+	}
+}

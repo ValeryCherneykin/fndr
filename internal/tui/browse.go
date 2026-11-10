@@ -146,8 +146,9 @@ func (m *Model) up() tea.Cmd {
 }
 
 // chdir makes dir the current folder: the query is cleared, the listing
-// reloaded, and search narrowed to dir. Going above the indexed root
-// starts a new crawl from dir, because nothing above root is indexed.
+// reloaded, and search narrowed to dir. Going where the index does not
+// reach starts a new crawl from dir: above root, or into a folder the
+// crawl listed without entering (node_modules, .github).
 func (m *Model) chdir(dir, reveal string) tea.Cmd {
 	m.cwd, m.reveal = dir, reveal
 	m.listing, m.listErr = nil, nil
@@ -155,11 +156,28 @@ func (m *Model) chdir(dir, reveal string) tea.Cmd {
 	m.search()              // cancels any search in flight and shows the (empty) listing
 
 	cmds := []tea.Cmd{m.load(dir)}
-	if !within(dir, m.root) {
+	if !within(dir, m.root) || m.prunedOnTheWay(dir) {
 		m.root, m.ix = dir, &indexer.Index{}
 		cmds = append(cmds, m.startCrawl())
 	}
 	return tea.Batch(cmds...)
+}
+
+// prunedOnTheWay reports whether the way from root down to dir, which lies
+// below it, goes through a folder the crawl did not enter.
+func (m *Model) prunedOnTheWay(dir string) bool {
+	rel, err := filepath.Rel(m.root, dir)
+	if err != nil || rel == "." {
+		return false
+	}
+	p := m.root
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		p = filepath.Join(p, part)
+		if m.prune.Prunes(p, part) {
+			return true
+		}
+	}
+	return false
 }
 
 // within reports whether path is dir or lies below it. Both are absolute
