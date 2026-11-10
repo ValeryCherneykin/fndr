@@ -164,7 +164,7 @@ func tree(path string, prune *indexer.Prune) []indexer.Entry {
 // oilWritten takes in a plan carried out: the index learns the changes,
 // the status bar says what happened, and the folder is read again.
 func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
-	m.local.ix.Update(msg.remove, msg.add)
+	m.updateIndexes(msg.remove, msg.add)
 	st, reveal := m.oil, revealName(msg.done)
 	if msg.err != nil {
 		m.setNotice(fmt.Sprintf("%d of %d done: %v", len(msg.done), len(st.plan), msg.err), true)

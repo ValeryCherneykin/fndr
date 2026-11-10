@@ -37,7 +37,7 @@ const (
 //
 // A habit row (a place the user often goes, shown above a folder's contents)
 // carries a clock instead of its type icon: it says why the row is there.
-func renderRow(r *indexer.Result, root string, width int, selected, habit bool) string {
+func renderRow(r *indexer.Result, root string, width int, selected, habit bool, a *accent) string {
 	path := safeText(r.Entry.Path) // same length: offsets and positions still fit
 	nameLo := len(path) - len(r.Entry.Name())
 	dirLo, dirHi := relDir(path, nameLo, root)
@@ -57,7 +57,7 @@ func renderRow(r *indexer.Result, root string, width int, selected, habit bool) 
 
 	var b strings.Builder
 	if selected {
-		b.WriteString(stMarker.Render("▎"))
+		b.WriteString(a.marker.Render("▎"))
 	} else {
 		b.WriteByte(' ')
 	}
@@ -73,11 +73,11 @@ func renderRow(r *indexer.Result, root string, width int, selected, habit bool) 
 	if nameW > avail {
 		// The name alone overflows: cut it and show no directory.
 		hi := cutRight(path, nameLo, len(path), avail-1)
-		b.WriteString(styleRange(path, nameLo, hi, r.Positions, nameSt, &stNameHit))
+		b.WriteString(styleRange(path, nameLo, hi, r.Positions, nameSt, &a.nameHit))
 		b.WriteString(nameSt.Render(ellipsis))
 		return finish(b.String(), width)
 	}
-	b.WriteString(styleRange(path, nameLo, len(path), r.Positions, nameSt, &stNameHit))
+	b.WriteString(styleRange(path, nameLo, len(path), r.Positions, nameSt, &a.nameHit))
 
 	// What is left for the gap and the directory.
 	room := avail - nameW - rowMinGap
@@ -87,10 +87,10 @@ func renderRow(r *indexer.Result, root string, width int, selected, habit bool) 
 	case dirLo >= dirHi || room < 6:
 		// Nothing to show, or so little room that "…/x" would be noise.
 	case dirW <= room:
-		dir = styleRange(path, dirLo, dirHi, r.Positions, dirSt, &stDirHit)
+		dir = styleRange(path, dirLo, dirHi, r.Positions, dirSt, &a.dirHit)
 	default:
 		lo := cutLeft(path, dirLo, dirHi, room-1)
-		dir = dirSt.Render(ellipsis) + styleRange(path, lo, dirHi, r.Positions, dirSt, &stDirHit)
+		dir = dirSt.Render(ellipsis) + styleRange(path, lo, dirHi, r.Positions, dirSt, &a.dirHit)
 	}
 
 	gap := avail - nameW - lipgloss.Width(dir)

@@ -25,12 +25,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m.quit()
 	case "esc":
-		// Esc is always one step back: first the query, then the program.
+		// Esc is always one step back: the query, then GLOBAL, then fndr.
 		if m.query != "" {
 			cmd := m.setQuery("")
 			return m, cmd
 		}
+		if m.globalOn {
+			cmd := m.toggleGlobal()
+			return m, cmd
+		}
 		return m.quit()
+	case "tab":
+		cmd := m.toggleGlobal()
+		return m, cmd
 	case "ctrl+e":
 		m.exitDir = m.jumpTarget()
 		_ = m.learn(m.exitDir) // its save never runs, quitting: SaveHistory writes it once the interface has closed

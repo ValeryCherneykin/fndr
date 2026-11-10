@@ -140,6 +140,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | Key | Action |
 |---|---|
 | *type* | Search everything below the current folder |
+| `Tab` | Search your whole home instead (GLOBAL), and back; the query stays |
 | `Ctrl+N` / `Ctrl+P`, `↓` / `↑` | Move through the list |
 | `PgDn` / `PgUp`, `End` / `Home` | Move by a page, to the end |
 | `Enter` | Open a file · enter a folder |
@@ -150,7 +151,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+O` | Edit the folder as text with Vim keys (see above); `Esc` or `Ctrl+O` goes back, `:q` quits |
 | `Ctrl+R` | Rename or move the selected entry: edit its path, `Enter`; missing folders are made, nothing is ever overwritten |
 | `Ctrl+E` | Quit and jump there |
-| `Esc` | Clear the query, then quit |
+| `Esc` | Clear the query, then leave GLOBAL, then quit |
 | `Ctrl+C` | Quit |
 
 ---

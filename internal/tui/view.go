@@ -47,7 +47,7 @@ func (m *Model) viewPrompt() string {
 	if m.rename != nil {
 		return " " + stPromptRename.Render("❯") + " " + stQuery.Render(safeText(m.rename.line.text))
 	}
-	return " " + stPrompt.Render("❯") + " " + stQuery.Render(m.query)
+	return " " + m.accent().prompt.Render("❯") + " " + stQuery.Render(m.query)
 }
 
 // viewList writes listHeight lines: the visible results, or an empty state
@@ -81,7 +81,7 @@ func (m *Model) viewList(b *strings.Builder) {
 	for i := range h {
 		if r := m.offset + i; r < len(m.results) {
 			habit := m.query == "" && r < m.habits
-			b.WriteString(renderRow(&m.results[r], m.cwd, w, r == m.cursor, habit))
+			b.WriteString(renderRow(&m.results[r], m.under(), w, r == m.cursor, habit, m.accent()))
 		} else {
 			b.WriteString(strings.Repeat(" ", w))
 		}
@@ -98,7 +98,8 @@ func (m *Model) viewList(b *strings.Builder) {
 // and the counts make room for it. The directory, which is also visible in
 // every result row, shrinks from the left: "…/fndr/cmd".
 func (m *Model) viewStatus() string {
-	mode := stMode.Render(" LOCAL ")
+	a := m.accent()
+	mode := a.mode.Render(" " + a.name + " ")
 	if m.rename != nil {
 		mode = stModeInsert.Render(" RENAME ") // keys are text now, as in OIL's INSERT
 	}
@@ -108,7 +109,7 @@ func (m *Model) viewStatus() string {
 	avail := m.width - ansi.StringWidth(mode) - 2
 
 	var right []string
-	s := m.local
+	s := m.current()
 	if s.err != nil {
 		right = append(right, stBarErr.Render(safeText(s.err.Error())))
 	}
@@ -143,7 +144,7 @@ func (m *Model) viewStatus() string {
 	}
 
 	left := mode
-	dir := safeText(m.tildify(m.cwd))
+	dir := safeText(m.tildify(m.under()))                      // where search runs: "~" in GLOBAL
 	if room := avail - ansi.StringWidth(rest) - 2; room >= 4 { // 2: spaces around dir
 		left += stBarText.Render(" " + shortenLeft(dir, room) + " ")
 	}

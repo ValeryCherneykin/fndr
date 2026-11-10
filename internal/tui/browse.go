@@ -151,6 +151,7 @@ func (m *Model) up() tea.Cmd {
 // crawl listed without entering (node_modules, .github).
 func (m *Model) chdir(dir, reveal string) tea.Cmd {
 	m.cwd, m.reveal = dir, reveal
+	m.globalOn = false // a folder entered is searched in: LOCAL there
 	m.listing, m.listErr = nil, nil
 	m.query, m.qpos = "", 0 // the cursor must never point past the query
 	m.search()              // cancels any search in flight and shows the (empty) listing

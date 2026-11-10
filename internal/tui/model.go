@@ -33,6 +33,11 @@ type Model struct {
 	// started in, or of wherever the user went that it does not cover.
 	local *scope
 
+	// global is the whole home, for GLOBAL search (global.go): nil until
+	// Tab first asks for it. globalOn: search runs on it now.
+	global   *scope
+	globalOn bool
+
 	// hist is what fndr has learned about where the user goes: entered
 	// folders, opened files, jumps. nil when it could not be opened; fndr
 	// then works as before and just does not learn. boosts is its snapshot

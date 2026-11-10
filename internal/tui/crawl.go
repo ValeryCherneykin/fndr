@@ -70,8 +70,10 @@ func (m *Model) startCrawl(s *scope) tea.Cmd {
 // crawled returns the scope whose current crawl is gen, or nil if that
 // crawl has been replaced.
 func (m *Model) crawled(gen int) *scope {
-	if m.local.gen == gen {
-		return m.local
+	for _, s := range []*scope{m.local, m.global} {
+		if s != nil && s.gen == gen {
+			return s
+		}
 	}
 	return nil
 }
@@ -116,8 +118,9 @@ func (m *Model) batch(msg *batchMsg) tea.Cmd {
 	s.ix.Add(msg.entries)
 	cmd := s.stream.next()
 	// Refresh results as the index grows, but never queue searches: if one
-	// is running, its reply triggers the next (see searched).
-	if m.query != "" && !m.searching {
+	// is running, its reply triggers the next (see searched). A batch of
+	// the scope not searched now changes nothing on screen.
+	if s == m.current() && m.query != "" && !m.searching {
 		return tea.Batch(cmd, m.search())
 	}
 	return cmd
@@ -134,7 +137,7 @@ func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
 	if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
 		s.err = msg.err
 	}
-	if m.query != "" && !m.searching {
+	if s == m.current() && m.query != "" && !m.searching {
 		return m.search()
 	}
 	return nil

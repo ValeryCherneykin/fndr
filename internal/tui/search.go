@@ -55,7 +55,7 @@ func (m *Model) search() tea.Cmd {
 	// A trailing "/" asks for folders only, the way a path names a folder:
 	// "internal/" finds the folder, not the files that live in it.
 	text, dirs := strings.CutSuffix(m.query, "/")
-	seq, snap, q := m.seq, m.local.ix.Snapshot(), indexer.Query{Text: text, Under: m.cwd, Dirs: dirs, Boost: m.boosts}
+	seq, snap, q := m.seq, m.current().ix.Snapshot(), indexer.Query{Text: text, Under: m.under(), Dirs: dirs, Boost: m.boosts}
 	return func() tea.Msg {
 		defer cancel() // release the context once done; canceling twice is harmless
 		rs, total, err := indexer.Search(ctx, snap, q)
@@ -78,7 +78,7 @@ func (m *Model) searched(msg *searchMsg) tea.Cmd {
 	m.scrollToCursor()
 	// The crawl added entries while this search ran: search again, so the
 	// list keeps up with indexing without a search per batch.
-	if m.local.ix.Len() > msg.indexed {
+	if m.current().ix.Len() > msg.indexed {
 		return m.search()
 	}
 	return nil
