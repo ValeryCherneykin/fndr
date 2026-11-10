@@ -2,7 +2,12 @@
 // renaming and deleting files and folders. Every operation refuses rather
 // than guesses when something is off, because a file manager that loses a
 // file once is never trusted again: nothing is overwritten, nothing is
-// deleted for good, and nothing happens outside the folder the user is in.
+// deleted for good, and no name typed leaves the folder the user is in.
+//
+// That last rule is about names, not about links: "../x" and "/etc/x" are
+// refused, but a symbolic link inside the folder is gone through, as a
+// shell or an editor would ("dotfiles/nvim/init.lua", where dotfiles links
+// to ~/.config). The user made the link; following it is what they asked.
 package mutation
 
 import (
