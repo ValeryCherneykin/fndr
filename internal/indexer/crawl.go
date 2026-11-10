@@ -6,6 +6,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
+	"sync/atomic"
 )
 
 // batchSize is how many entries Crawl groups into one channel send. Large
@@ -38,14 +41,15 @@ type Stats struct {
 //	out := make(chan []Entry)
 //	go func() {
 //		defer close(out)
-//		stats, err = indexer.Crawl(ctx, root, out)
+//		stats, err = indexer.Crawl(ctx, root, prune, out)
 //	}()
 //	for batch := range out {
 //		// the receiver owns batch from here on
 //	}
 //
 // Each batch is a fresh slice that Crawl never touches again after sending,
-// so the receiver may keep or modify it without copying.
+// so the receiver may keep or modify it without copying. Batches come in no
+// particular order: folders are read in parallel (see walker).
 //
 // Behaviour on the awkward cases:
 //   - Symbolic links are recorded but never followed, so link cycles cannot
@@ -61,6 +65,19 @@ type Stats struct {
 // On cancellation Crawl returns ctx.Err(), and Stats covers what was sent up
 // to that point.
 func Crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry) (Stats, error) {
+	return crawl(ctx, root, prune, out, crawlWorkers())
+}
+
+// crawlWorkers is how many folders are read at once. The work is mostly
+// waiting on the file system, not computing, so it is not bound to the
+// number of cores; but past a point the disk and the kernel are the limit,
+// and more workers only add contention. BenchmarkCrawlWorkers measures
+// where that point is.
+func crawlWorkers() int {
+	return min(max(runtime.GOMAXPROCS(0), 4), 8)
+}
+
+func crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry, workers int) (Stats, error) {
 	// Entries must hold absolute, cleaned paths (see Entry.Path); Abs gives
 	// both.
 	root, err := filepath.Abs(root)
@@ -80,119 +97,230 @@ func Crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry) (
 		return Stats{}, fmt.Errorf("crawl %s: not a directory", root)
 	}
 
-	c := &crawler{
-		ctx:     ctx,
-		root:    root,
-		prune:   prune,
-		out:     out,
-		ignores: map[string]ignoreStack{root: prune.ignoresIn(nil, root)},
-		batch:   make([]Entry, 0, batchSize),
+	w := &walker{ctx: ctx, root: root, prune: prune, out: out}
+	w.cond = sync.NewCond(&w.mu)
+	w.stack = []dirJob{{dir: root}}
+
+	// Workers wait on the condition variable, which knows nothing of ctx.
+	// AfterFunc stops the walk the moment ctx is done, waking them all.
+	defer context.AfterFunc(ctx, w.stop)()
+
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(w.work)
 	}
-	if err := filepath.WalkDir(root, c.visit); err != nil { //nolint:gosec // as above
-		return c.stats, err
+	wg.Wait()
+
+	stats := Stats{Entries: int(w.entries.Load()), Skipped: int(w.skipped.Load())}
+	if w.err != nil {
+		return stats, w.err
 	}
-	// The last batch is usually partial; without this flush up to
-	// batchSize-1 entries would be lost.
-	return c.stats, c.flush()
+	return stats, ctx.Err()
 }
 
-// crawler holds the state of one Crawl call. It is used by a single goroutine
-// only, so it needs no locking.
-type crawler struct {
-	ctx   context.Context // fine in a struct: it lives exactly as long as one Crawl call
+// The walk reads folders in parallel. A shared stack holds the folders still
+// to read; every worker takes one, reads it, sends its entries and puts its
+// subfolders back. Most of a crawl is waiting on the file system (a Lstat
+// per entry for size and time), so while one worker waits, others read: the
+// disk serves many requests at once, and a single goroutine would hand it
+// only one.
+//
+// Why a slice under a mutex and not a channel: workers both take folders
+// and add them. With a bounded channel, every worker could block adding
+// subfolders with none left to take them: a deadlock. Go has no unbounded
+// channel; a slice grows as needed, and the condition variable lets idle
+// workers sleep until there is work.
+//
+// A stack, last in first out, walks depth first: it holds the folders along
+// the current paths, where a queue, breadth first, would hold every folder
+// of a whole level of a wide tree at once.
+
+// dirJob is a folder to read.
+type dirJob struct {
+	dir     string
+	ignores ignoreStack // the .gitignore files above dir
+}
+
+// walker is the state of one crawl, shared by its workers.
+type walker struct {
+	ctx   context.Context // fine in a struct: it lives exactly as long as one crawl
 	root  string
 	prune *Prune
+	out   chan<- []Entry
 
-	// ignores is, by folder, the .gitignore files that apply to what is in
-	// it. WalkDir visits a folder before its contents, so a folder's entry
-	// is in the map when its children ask for it.
-	ignores map[string]ignoreStack
-	out     chan<- []Entry
-	batch   []Entry
-	stats   Stats
+	mu    sync.Mutex
+	cond  *sync.Cond // signalled when stack grows or the walk ends
+	stack []dirJob
+	busy  int  // folders taken and not yet finished: they may add more
+	done  bool // nothing left to read, or the walk was stopped
+	err   error
+
+	entries, skipped atomic.Int64
 }
 
-// visit is the filepath.WalkDir callback. Returning nil continues the walk;
-// returning an error stops it and makes WalkDir return that error.
-func (c *crawler) visit(path string, d fs.DirEntry, err error) error {
-	if err != nil {
-		// WalkDir reports a failed directory read by calling us a second
-		// time for that directory with the error. For the root that means
-		// there is nothing to index at all, which the caller must hear about.
-		if path == c.root {
-			return fmt.Errorf("crawl: %w", err)
-		}
-		c.stats.Skipped++
-		return nil
+// next takes a folder to read, waiting while there is none. It returns
+// false once the walk is over.
+//
+// An empty stack alone does not mean the end: a worker reading a folder may
+// be about to add its subfolders. The end is an empty stack with no folder
+// in work, which finish notices.
+func (w *walker) next() (dirJob, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for len(w.stack) == 0 && !w.done {
+		w.cond.Wait()
 	}
-
-	// Checked per entry so that cancellation is noticed within one entry,
-	// not one batch. ctx.Err is a few nanoseconds; the Lstat behind
-	// d.Info below costs a microsecond or more.
-	if err := c.ctx.Err(); err != nil {
-		return err
+	if w.done {
+		return dirJob{}, false
 	}
-
-	if path == c.root {
-		return nil
-	}
-
-	// Git internals: thousands of objects and refs nobody searches for,
-	// crowding real files out of the results. Checked after the root, so
-	// crawling a .git directory on purpose still works.
-	if d.IsDir() && d.Name() == ".git" {
-		return fs.SkipDir
-	}
-
-	// WalkDir already knows the name and type from reading the directory;
-	// size and modification time cost one extra Lstat per entry. That
-	// syscall is the main cost of a crawl.
-	info, err := d.Info()
-	if err != nil {
-		// Typically the file was deleted between the directory read and the
-		// Lstat. Not worth failing the crawl over.
-		c.stats.Skipped++
-		return nil
-	}
-
-	c.batch = append(c.batch, NewEntry(path, info.Size(), info.ModTime().UnixNano(), d.IsDir()))
-	if len(c.batch) == batchSize {
-		if err := c.flush(); err != nil {
-			return err
-		}
-	}
-	// After the entry is in the batch: a pruned folder is listed, only
-	// not entered.
-	if d.IsDir() {
-		above := c.ignores[filepath.Dir(path)]
-		if c.prune.Prunes(path, d.Name()) || above.ignores(path) {
-			return fs.SkipDir
-		}
-		if stack := c.prune.ignoresIn(above, path); stack != nil {
-			c.ignores[path] = stack
-		}
-	}
-	return nil
+	j := w.stack[len(w.stack)-1]
+	w.stack = w.stack[:len(w.stack)-1]
+	w.busy++
+	return j, true
 }
 
-// flush sends the current batch, unless it is empty, and starts a new one.
-func (c *crawler) flush() error {
-	if len(c.batch) == 0 {
-		return nil
+// finish hands back what reading a folder found to read next, and ends
+// the walk if that was the last of it.
+func (w *walker) finish(subdirs []dirJob) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.stack = append(w.stack, subdirs...)
+	w.busy--
+	switch {
+	case len(w.stack) == 0 && w.busy == 0:
+		w.done = true
+		w.cond.Broadcast() // everyone waiting can go home
+	case len(subdirs) > 0:
+		w.cond.Broadcast() // work for whoever is idle
+	}
+}
+
+// stop ends the walk early: on cancellation, or an unreadable root.
+func (w *walker) stop() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.done = true
+	w.cond.Broadcast()
+}
+
+// fail stops the walk with err, the first error only.
+func (w *walker) fail(err error) {
+	w.mu.Lock()
+	if w.err == nil {
+		w.err = err
+	}
+	w.mu.Unlock()
+	w.stop()
+}
+
+// work is one worker: it reads folders until the walk is over. Its entries
+// collect in a batch of its own, so workers never contend over each entry,
+// only once per batchSize of them.
+func (w *walker) work() {
+	batch := make([]Entry, 0, batchSize)
+	for {
+		j, ok := w.next()
+		if !ok {
+			break
+		}
+		subdirs, ok := w.read(j, &batch)
+		if !ok {
+			return // canceled: the walk is stopped, and the batch is not wanted
+		}
+		w.finish(subdirs)
+	}
+	w.send(batch) // the last one, usually partial
+}
+
+// read reads one folder: its entries go into batch, sent whenever it is
+// full, and its subfolders to enter are returned. It reports false if the
+// walk was canceled.
+func (w *walker) read(j dirJob, batch *[]Entry) ([]dirJob, bool) {
+	des, err := os.ReadDir(j.dir)
+	if err != nil {
+		if j.dir == w.root {
+			// Nothing at all can be indexed: the caller must hear of it.
+			w.fail(fmt.Errorf("crawl: %w", err))
+			return nil, true
+		}
+		// ReadDir returns what it read before the error: index that much.
+		w.skipped.Add(1)
 	}
 
-	// Without the ctx case, a receiver that stopped reading would block this
-	// send forever and leak the goroutine running Crawl.
+	// The listing tells whether the folder has a .gitignore, so a folder
+	// without one costs nothing: no file is opened to find out.
+	ignores := j.ignores
+	if w.prune != nil && w.prune.gitignore && hasFile(des, ".gitignore") {
+		ignores = ignores.with(loadGitignore(j.dir))
+	}
+
+	var subdirs []dirJob
+	for _, d := range des {
+		// Checked per entry, so a canceled crawl stops within one Lstat,
+		// not one batch: a few nanoseconds against a microsecond or more.
+		if w.ctx.Err() != nil {
+			return nil, false
+		}
+		path := filepath.Join(j.dir, d.Name())
+		// Git internals: thousands of objects and refs nobody searches for.
+		// Checked below the root only, so crawling a .git on purpose works.
+		if d.IsDir() && d.Name() == ".git" {
+			continue
+		}
+		// ReadDir knows the name and type from the folder itself; size and
+		// modification time cost one Lstat per entry. That syscall is the
+		// main cost of a crawl, and what the workers overlap.
+		info, err := d.Info()
+		if err != nil {
+			// Typically deleted between the listing and the Lstat.
+			w.skipped.Add(1)
+			continue
+		}
+		*batch = append(*batch, NewEntry(path, info.Size(), info.ModTime().UnixNano(), d.IsDir()))
+		if len(*batch) == batchSize {
+			if !w.send(*batch) {
+				return nil, false
+			}
+			*batch = make([]Entry, 0, batchSize)
+		}
+		// A pruned folder is listed, as above, and not entered.
+		if d.IsDir() && !w.prune.Prunes(path, d.Name()) && !ignores.ignores(path) {
+			subdirs = append(subdirs, dirJob{dir: path, ignores: ignores})
+		}
+	}
+	return subdirs, true
+}
+
+// send hands a batch to the receiver, unless it is empty. It reports false
+// if ctx was canceled first: without that case, a receiver that stopped
+// reading would block the send forever and leak the worker.
+//
+// The receiver owns the slice once sent; the caller starts a new one.
+func (w *walker) send(batch []Entry) bool {
+	if len(batch) == 0 {
+		return true
+	}
+	// Checked first: when both cases are ready, select picks one at
+	// random, and a crawl canceled before it began would still send half
+	// the time.
+	if w.ctx.Err() != nil {
+		return false
+	}
 	select {
-	case c.out <- c.batch:
-	case <-c.ctx.Done():
-		return c.ctx.Err()
+	case w.out <- batch:
+		w.entries.Add(int64(len(batch)))
+		return true
+	case <-w.ctx.Done():
+		return false
 	}
+}
 
-	c.stats.Entries += len(c.batch)
-
-	// The receiver owns the sent slice now. Reusing it with c.batch[:0]
-	// would overwrite entries the receiver is still reading: a data race.
-	c.batch = make([]Entry, 0, batchSize)
-	return nil
+// hasFile reports whether des, a folder's listing, holds a file named name.
+func hasFile(des []fs.DirEntry, name string) bool {
+	for _, d := range des {
+		if d.Name() == name {
+			return !d.IsDir()
+		}
+	}
+	return false
 }

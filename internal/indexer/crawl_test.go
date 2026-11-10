@@ -502,3 +502,109 @@ func TestReaches(t *testing.T) {
 		t.Error("a nil Prune prunes nothing")
 	}
 }
+
+// crawlWith is crawlPruned with a set number of workers.
+func crawlWith(tb testing.TB, root string, workers int) []Entry {
+	tb.Helper()
+	out := make(chan []Entry)
+	var err error
+	go func() {
+		defer close(out)
+		_, err = crawl(context.Background(), root, nil, out, workers)
+	}()
+	var all []Entry
+	for batch := range out {
+		all = append(all, batch...)
+	}
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return all
+}
+
+// TestCrawlParallelFindsTheSame: however many workers read the tree, the
+// crawl finds every entry once, as one worker does. The tree mixes deep
+// chains, wide folders and empty ones, so workers run dry and refill.
+func TestCrawlParallelFindsTheSame(t *testing.T) {
+	root := t.TempDir()
+	for i := range 40 {
+		deep := filepath.Join(root, fmt.Sprintf("chain%d", i%4))
+		for d := range i % 7 {
+			deep = filepath.Join(deep, fmt.Sprintf("d%d", d))
+		}
+		writeFile(t, filepath.Join(deep, fmt.Sprintf("f%d", i)), "")
+		if err := os.MkdirAll(filepath.Join(root, "empty", fmt.Sprint(i)), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 3000 {
+		writeFile(t, filepath.Join(root, "wide", fmt.Sprintf("w%d", i)), "")
+	}
+
+	want := byRel(t, root, crawlWith(t, root, 1))
+	for _, workers := range []int{2, 8, 32} {
+		got := byRel(t, root, crawlWith(t, root, workers)) // byRel reports an entry sent twice
+		if len(got) != len(want) {
+			t.Errorf("%d workers: %d entries, one worker finds %d", workers, len(got), len(want))
+		}
+		for rel := range want {
+			if _, ok := got[rel]; !ok {
+				t.Errorf("%d workers missed %s", workers, rel)
+			}
+		}
+	}
+}
+
+// TestCrawlManyTinyFolders: thousands of folders with a file or nothing,
+// where workers finish faster than others add work. A wrong end condition
+// either quits early, missing folders, or waits forever; the test's
+// timeout catches the second.
+func TestCrawlManyTinyFolders(t *testing.T) {
+	root := t.TempDir()
+	for i := range 2000 {
+		dir := filepath.Join(root, fmt.Sprintf("a%d", i%50), fmt.Sprintf("b%d", i))
+		if i%2 == 0 {
+			writeFile(t, filepath.Join(dir, "x"), "")
+		} else if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 20 {
+		if n := len(crawlWith(t, root, 8)); n != 50+2000+1000 {
+			t.Fatalf("found %d entries, want %d", n, 50+2000+1000)
+		}
+	}
+}
+
+// BenchmarkCrawlWorkers crawls a real folder (FNDR_BENCH_DIR, as
+// BenchmarkCrawlDir) with each number of workers, to see where more stop
+// helping:
+//
+//	FNDR_BENCH_DIR=$HOME go test -run '^$' -bench CrawlWorkers -benchtime 1x -count 3 ./internal/indexer
+func BenchmarkCrawlWorkers(b *testing.B) {
+	root := os.Getenv("FNDR_BENCH_DIR")
+	if root == "" {
+		b.Skip("FNDR_BENCH_DIR is not set")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		b.Fatal(err)
+	}
+	prune := DefaultPrune(home)
+	for _, workers := range []int{1, 2, 4, 8, 16} {
+		b.Run(fmt.Sprintf("workers=%d", workers), func(b *testing.B) {
+			for b.Loop() {
+				out := make(chan []Entry, 16)
+				go func() {
+					for range out {
+					}
+				}()
+				_, err := crawl(context.Background(), root, prune, out, workers)
+				close(out)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
