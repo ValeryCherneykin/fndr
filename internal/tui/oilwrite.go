@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,8 +54,82 @@ func (m *Model) oilWrite(quit bool) tea.Cmd {
 		m.setNotice("nothing to write", false)
 	default:
 		st.plan, st.quitAfter = plan, quit
+		return countTrash(st.dir, plan)
 	}
 	return nil
+}
+
+// trashLimit is where counting a folder to trash stops: past it the plan
+// says "10000+ items". Whether it is ten thousand or a million, the user
+// sees it is a lot; counting on through node_modules would only delay it.
+const trashLimit = 10000
+
+// trashCountedMsg carries how many entries the folders of a plan hold.
+type trashCountedMsg struct {
+	dir    string
+	counts map[string]int // by the name in the plan
+}
+
+// countTrash counts what each folder the plan trashes holds, off the UI
+// goroutine. The plan is shown at once; the counts join it when ready,
+// within milliseconds for a usual folder.
+func countTrash(dir string, plan mutation.Plan) tea.Cmd {
+	var names []string
+	for _, op := range plan {
+		if op.Kind == mutation.OpDelete {
+			names = append(names, op.From)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		msg := trashCountedMsg{dir: dir, counts: map[string]int{}}
+		for _, name := range names {
+			path := filepath.Join(dir, name)
+			if info, err := os.Lstat(path); err == nil && info.IsDir() {
+				msg.counts[name] = countEntries(path, trashLimit)
+			}
+		}
+		return msg
+	}
+}
+
+// countEntries counts what is below the folder at path, files and folders,
+// stopping at limit. What cannot be read is not counted.
+func countEntries(path string, limit int) int {
+	n := -1                                                             // WalkDir visits path itself first
+	_ = filepath.WalkDir(path, func(string, fs.DirEntry, error) error { //nolint:errcheck // a partial count is still a count
+		n++
+		if n >= limit {
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return max(n, 0)
+}
+
+// trashCounted adds the counts to the plan they were made for. They are
+// keyed by name, so counts that arrive for an earlier plan of the same
+// folder are still true.
+func (m *Model) trashCounted(msg *trashCountedMsg) {
+	if st := m.oil; st != nil && st.dir == msg.dir {
+		st.trashCounts = msg.counts
+	}
+}
+
+// itemCount says how much a folder to trash holds: "(empty)", "(1 item)",
+// "(12 items)", "(10000+ items)".
+func itemCount(n int) string {
+	switch {
+	case n == 0:
+		return "(empty)"
+	case n == 1:
+		return "(1 item)"
+	case n >= trashLimit:
+		return fmt.Sprintf("(%d+ items)", trashLimit)
+	}
+	return fmt.Sprintf("(%d items)", n)
 }
 
 // confirmKey is a key while the plan is shown: y carries it out; n, esc

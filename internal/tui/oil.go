@@ -57,8 +57,12 @@ type oilState struct {
 	// list must be read again on leaving.
 	plan      mutation.Plan
 	quitAfter bool
-	applying  bool
-	wrote     bool
+
+	// trashCounts says how many entries each folder to trash holds, by
+	// its name in the plan; filled in off the UI goroutine (oilwrite.go).
+	trashCounts map[string]int
+	applying    bool
+	wrote       bool
 }
 
 // oilMsg carries a folder read for OIL, and the name to put the cursor
@@ -332,7 +336,11 @@ func (st *oilState) planBox(maxW, maxH int) []string {
 		case mutation.OpCreate:
 			steps = append(steps, stPlanVerb.Render("create  ")+stName.Render(safeText(op.To)))
 		case mutation.OpDelete:
-			steps = append(steps, stPlanTrash.Render("trash   "+name(op.From)))
+			step := "trash   " + name(op.From)
+			if n, ok := st.trashCounts[op.From]; ok {
+				step += " " + itemCount(n)
+			}
+			steps = append(steps, stPlanTrash.Render(step))
 		}
 	}
 

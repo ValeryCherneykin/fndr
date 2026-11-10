@@ -185,6 +185,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case oilWrittenMsg:
 		cmd := m.oilWritten(&msg)
 		return m, cmd
+	case trashCountedMsg:
+		m.trashCounted(&msg)
 	case renamedMsg:
 		cmd := m.renamed(&msg)
 		return m, cmd

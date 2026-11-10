@@ -337,6 +337,42 @@ func TestOilTrash(t *testing.T) {
 	}
 }
 
+// TestOilPlanCountsTrash: a folder to trash says how much is in it, so
+// dd on the wrong line is seen before y, not after.
+func TestOilPlanCountsTrash(t *testing.T) {
+	m, _, _ := writeModel(t)
+	typeText(m, "dd") // docs/, empty
+	typeText(m, "dd") // src/: main.go, util.go
+	command(m, "w")
+	v := ansi.Strip(m.View().Content)
+	for _, want := range []string{"trash   docs/ (empty)", "trash   src/ (2 items)"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("the plan does not say %q:\n%s", want, v)
+		}
+	}
+}
+
+// TestCountEntriesStops: counting a huge folder stops at the limit, which
+// the plan shows as "10000+": the number matters, not its last digit.
+func TestCountEntriesStops(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"a", "b", "c/d", "c/e"} {
+		p := filepath.Join(dir, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := countEntries(dir, 100); n != 5 { // a b c c/d c/e
+		t.Errorf("count %d, want 5", n)
+	}
+	if n := countEntries(dir, 3); n != 3 {
+		t.Errorf("count with limit 3: %d, want 3", n)
+	}
+}
+
 // TestOilPlanDeclined: n goes back to the buffer with the edit intact,
 // and nothing on the disk has changed.
 func TestOilPlanDeclined(t *testing.T) {
