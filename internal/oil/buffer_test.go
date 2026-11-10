@@ -537,7 +537,13 @@ func TestActions(t *testing.T) {
 		{": w \n", Write},
 		{"ZZ", WriteQuit},
 		{"ZQ", ForceQuit},
-		{"q", Quit},
+		{"q", Close},
+		{"\x1b", Close},
+		{"3\x1b", None}, // esc drops the count and no more, as in Vim
+		{"d\x1b", None}, // or the operator
+		{"g\x1b", None}, // or the prefix
+		{"i\x1b", None}, // or Insert mode: the second esc closes
+		{"i\x1b\x1b", Close},
 		{"\n", Open},
 		{"-", Parent},
 		{"_", Cwd},
@@ -551,6 +557,9 @@ func TestActions(t *testing.T) {
 		{":\x1b", None},
 		{":w\x1b", None}, // esc drops the line
 		{":\n", None},
+	}
+	if act, _ := folder(5).Key("ctrl+o"); act != Close {
+		t.Errorf("ctrl+o: %v, want Close: the key that opens OIL closes it", act)
 	}
 	for _, tt := range tests {
 		b := folder(5)

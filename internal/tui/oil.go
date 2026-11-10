@@ -17,7 +17,8 @@ import (
 
 // OIL mode edits the current folder as text, the way Oil.nvim does: one
 // name per line, Vim keys (package oil), and :w to turn the edit into
-// changes on the disk. ctrl+o enters it; :q leaves.
+// changes on the disk. ctrl+o enters it; esc, q or ctrl+o again go back to
+// search, and :q quits fndr, as it quits Vim from its only window.
 //
 // Everything OIL needs lives in oilState, and m.oil is nil outside the
 // mode. So OIL's fields cannot be read by mistake while searching, and
@@ -143,16 +144,16 @@ func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case oil.Write, oil.WriteQuit:
 		cmd = m.oilWrite(act == oil.WriteQuit)
 	case oil.ForceQuit:
-		cmd = m.leaveOil("")
+		_, cmd = m.quit()
 	case oil.CopyPath:
 		m.setNotice("gp copies paths once fndr has a clipboard", true)
 	case oil.Help:
-		m.setNotice("hjkl move · i a o type · dd trash · cc rename · u undo · :w write · :q leave · - up · g. hidden", false)
-	case oil.Quit, oil.Open, oil.Parent, oil.Cwd, oil.Refresh, oil.ToggleHidden:
+		m.setNotice("hjkl move · i a o type · dd trash · cc rename · u undo · :w write · esc back · :q quit · - up · g. hidden", false)
+	case oil.Close, oil.Quit, oil.Open, oil.Parent, oil.Cwd, oil.Refresh, oil.ToggleHidden:
 		// These leave the buffer as it is on the disk: with an edit not
-		// written they would drop it, so they wait for :w or :q!.
+		// written they would drop it, so they wait for :w, or u.
 		if st.changes > 0 {
-			m.setNotice("unsaved changes: :w writes them, :q! drops them", true)
+			m.setNotice("unsaved changes: :w writes them, u undoes, :q! quits without them", true)
 			break
 		}
 		cmd = m.oilGo(act)
@@ -171,8 +172,11 @@ func (m *Model) oilGo(act oil.Action) tea.Cmd {
 	line := st.buf.Line(st.buf.Row())
 	here := strings.TrimSuffix(line.Text, "/") // to keep the cursor on it when the folder is read again
 	switch act {
-	case oil.Quit:
+	case oil.Close:
 		return m.leaveOil("")
+	case oil.Quit:
+		_, cmd := m.quit()
+		return cmd
 	case oil.Refresh:
 		return loadOil(st.dir, st.hidden, here)
 	case oil.ToggleHidden:

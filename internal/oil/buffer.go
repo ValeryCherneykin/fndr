@@ -217,6 +217,8 @@ func (b *Buffer) key(k string) (Action, error) {
 		b.undoN(n, k == "u")
 	case k == ":":
 		b.mode, b.cmdline = Command, ""
+	case k == "esc" && cmd != (pending{}):
+		// A command was being typed ("3", "d"): esc drops it and no more.
 	default:
 		return keyActions[k], nil // None for a key that means nothing here
 	}

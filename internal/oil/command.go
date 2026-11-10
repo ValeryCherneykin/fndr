@@ -17,9 +17,10 @@ type Action int
 const (
 	None      Action = iota
 	Write            // :w
-	Quit             // :q, q: leave if there is nothing to write
-	ForceQuit        // :q!, ZQ: leave and drop the changes
-	WriteQuit        // :wq, :x, ZZ: write if there is anything, then leave
+	Quit             // :q: quit the program if there is nothing to write
+	ForceQuit        // :q!, ZQ: quit the program, dropping the changes
+	WriteQuit        // :wq, :x, ZZ: write if there is anything, then quit
+	Close            // esc, q, ctrl+o: back to where the buffer was opened from
 
 	Open         // enter: open the file or go into the folder on the line
 	Parent       // -: the folder above
@@ -33,7 +34,13 @@ const (
 // ErrCommand is returned for a command line that is not a command.
 var ErrCommand = errors.New("not an editor command")
 
-// keyActions are the keys of the owner's Oil.nvim setup, and q to leave.
+// keyActions are the keys of the owner's Oil.nvim setup, and esc, q and
+// ctrl+o to close the buffer.
+//
+// The buffer fills the screen, as a single window in Vim, where :q quits
+// Vim itself: so :q and its kin quit the program, and closing the buffer
+// alone is esc or q, a step back. esc closes only with no command typed:
+// "3<esc>" or "d<esc>" drop the command, as in Vim (see key).
 var keyActions = map[string]Action{
 	"enter":  Open,
 	"-":      Parent,
@@ -42,7 +49,9 @@ var keyActions = map[string]Action{
 	"g.":     ToggleHidden,
 	"gp":     CopyPath,
 	"g?":     Help,
-	"q":      Quit,
+	"q":      Close,
+	"esc":    Close,
+	"ctrl+o": Close, // the key that opened it closes it: a switch
 	"ZZ":     WriteQuit,
 	"ZQ":     ForceQuit,
 }

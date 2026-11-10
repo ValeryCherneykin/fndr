@@ -118,7 +118,8 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+H` / `Ctrl+L`, `←` / `→` | Move through the query |
 | `Ctrl+W` · `Ctrl+U` | Delete a word · delete to the start |
 | `Ctrl+V` | Show or hide the preview (from 100 columns) |
-| `Ctrl+O` | Edit the folder as text with Vim keys: rename a line, `dd` to trash, a new line `a/b/c.txt` creates it with its folders; `:w` shows the plan, `y` applies it |
+| `Ctrl+O` | Edit the folder as text with Vim keys: rename a line, `dd` to trash, a new line `a/b/c.txt` creates it with its folders; `:w` shows the plan, `y` applies it; `Esc` (or `Ctrl+O` again) goes back to search, `:q` quits fndr as it quits Vim |
+| `Ctrl+R` | Rename or move the selected entry: edit its path, `Enter`; missing folders are made, nothing is ever overwritten |
 | `Ctrl+E` | Quit and jump there |
 | `Esc` | Clear the query, then quit |
 | `Ctrl+C` | Quit |

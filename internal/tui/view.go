@@ -32,14 +32,21 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
-	v.Cursor = tea.NewCursor(min(promptWidth+ansi.StringWidth(m.query[:m.qpos]), m.width-1), 0)
+	line, color := m.queryLine(), colLocal
+	if m.rename != nil {
+		line, color = m.rename.line, colWarn
+	}
+	v.Cursor = tea.NewCursor(min(promptWidth+ansi.StringWidth(safeText(line.text[:line.pos])), m.width-1), 0)
 	v.Cursor.Shape = tea.CursorBar
-	v.Cursor.Color = colLocal
+	v.Cursor.Color = color
 	return v
 }
 
 // viewPrompt renders the query line.
 func (m *Model) viewPrompt() string {
+	if m.rename != nil {
+		return " " + stPromptRename.Render("❯") + " " + stQuery.Render(safeText(m.rename.line.text))
+	}
 	return " " + stPrompt.Render("❯") + " " + stQuery.Render(m.query)
 }
 
@@ -92,6 +99,9 @@ func (m *Model) viewList(b *strings.Builder) {
 // every result row, shrinks from the left: "…/fndr/cmd".
 func (m *Model) viewStatus() string {
 	mode := stMode.Render(" LOCAL ")
+	if m.rename != nil {
+		mode = stModeInsert.Render(" RENAME ") // keys are text now, as in OIL's INSERT
+	}
 	sep := stBar.Render("  ")
 	// Cells left once the scope block, one cell of gap and one of right
 	// padding are placed.
@@ -110,6 +120,9 @@ func (m *Model) viewStatus() string {
 	}
 	if m.crawling {
 		count = "indexing " + count
+	}
+	if m.rename != nil {
+		count = "enter rename · esc cancel" // what counts now is how to finish
 	}
 	right = append(right, stBar.Render(count))
 	rest := strings.Join(right, sep)

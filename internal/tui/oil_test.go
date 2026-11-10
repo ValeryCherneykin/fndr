@@ -40,10 +40,11 @@ func (m *Model) oilTexts() []string {
 	return ts
 }
 
-// command types a command line and runs it: command(m, "q!").
-func command(m *Model, cmd string) {
+// command types a command line and runs it: command(m, "q!"). It reports
+// whether fndr quit.
+func command(m *Model, cmd string) (quit bool) {
 	typeText(m, ":"+cmd)
-	key(m, tea.KeyEnter, 0)
+	return key(m, tea.KeyEnter, 0)
 }
 
 // TestOilShowsFolder: the buffer is the folder as Oil shows it: folders
@@ -85,38 +86,68 @@ func TestOilLeavesOutWhatItHides(t *testing.T) {
 	}
 }
 
-func TestOilQuit(t *testing.T) {
+// TestOilClose: esc, q and ctrl+o again step back to search, without
+// quitting fndr. esc after a half-typed command drops the command only,
+// as in Vim, and from Insert mode it goes back to Normal first.
+func TestOilClose(t *testing.T) {
+	for _, leave := range []func(m *Model) bool{
+		func(m *Model) bool { return key(m, tea.KeyEscape, 0) },
+		func(m *Model) bool { return key(m, 'q', 0) },
+		func(m *Model) bool { return key(m, 'o', tea.ModCtrl) },
+	} {
+		m, _ := oilModel(t)
+		if quit := leave(m); quit || m.oil != nil {
+			t.Errorf("quit %v, in OIL %v; want back in search", quit, m.oil != nil)
+		}
+	}
+
 	m, _ := oilModel(t)
-	command(m, "q")
-	if m.oil != nil {
-		t.Error(":q on an untouched buffer did not leave OIL")
+	for _, keys := range []string{"3\x1b", "d\x1b", "i\x1b"} {
+		for _, r := range keys {
+			if r == '\x1b' {
+				key(m, tea.KeyEscape, 0)
+			} else {
+				typeText(m, string(r))
+			}
+		}
+		if m.oil == nil {
+			t.Fatalf("%q closed OIL; esc should only drop what was typed", keys)
+		}
 	}
 }
 
-// TestOilQuitRefusesChanges: :q never drops an edit; :q! does, on
-// purpose. An edit undone is no edit.
+// TestOilQuit: :q quits fndr, as :q in Vim's only window quits Vim.
+func TestOilQuit(t *testing.T) {
+	m, _ := oilModel(t)
+	if !command(m, "q") {
+		t.Error(":q on an untouched buffer did not quit fndr")
+	}
+}
+
+// TestOilQuitRefusesChanges: neither :q nor esc ever drops an edit; :q!
+// does, on purpose. An edit undone is no edit.
 func TestOilQuitRefusesChanges(t *testing.T) {
 	m, _ := oilModel(t)
 	typeText(m, "dd")
 	if m.oil.changes != 1 || !strings.Contains(m.View().Content, "1 change") {
 		t.Errorf("changes %d; the status bar should say 1 change", m.oil.changes)
 	}
-	command(m, "q")
-	if m.oil == nil || !m.noticeErr {
-		t.Fatal(":q left OIL with a change unwritten")
+	if command(m, "q") || m.oil == nil || !m.noticeErr {
+		t.Fatal(":q quit or left OIL with a change unwritten")
+	}
+	if key(m, tea.KeyEscape, 0) || m.oil == nil {
+		t.Fatal("esc left OIL with a change unwritten")
 	}
 
 	typeText(m, "u")
-	command(m, "q")
-	if m.oil != nil {
-		t.Fatal(":q after undoing everything did not leave")
+	if !command(m, "q") {
+		t.Fatal(":q after undoing everything did not quit")
 	}
 
-	key(m, 'o', tea.ModCtrl)
+	m, _ = oilModel(t)
 	typeText(m, "dd")
-	command(m, "q!")
-	if m.oil != nil {
-		t.Error(":q! did not leave")
+	if !command(m, "q!") {
+		t.Error(":q! did not quit")
 	}
 }
 
@@ -160,7 +191,7 @@ func TestOilScrolls(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	command(m, "q")
+	typeText(m, "q") // back to search, and in again to read the new files
 	key(m, 'o', tea.ModCtrl)
 	typeText(m, "G")
 	h, row := m.listHeight(), m.oil.buf.Row()
@@ -343,26 +374,25 @@ func TestOilNothingToWrite(t *testing.T) {
 	if m.oil.plan != nil || m.notice != "nothing to write" {
 		t.Errorf("plan %v notice %q", m.oil.plan, m.notice)
 	}
-	command(m, "wq")
-	if m.oil != nil {
-		t.Error(":wq with nothing to write did not leave")
+	if !command(m, "wq") {
+		t.Error(":wq with nothing to write did not quit")
 	}
 }
 
-// TestOilWriteQuit: :wq writes, leaves OIL, and the list shows the
-// result selected.
+// TestOilWriteQuit: :wq writes, then quits fndr, as it quits Vim.
 func TestOilWriteQuit(t *testing.T) {
 	m, root, _ := writeModel(t)
 	typeText(m, "G")
 	typeText(m, "ccNOTES.md")
 	key(m, tea.KeyEscape, 0)
-	command(m, "wq")
-	typeText(m, "y")
-	if m.oil != nil {
-		t.Fatal(":wq and y did not leave OIL")
+	if command(m, "wq") {
+		t.Fatal(":wq quit before the plan was confirmed")
 	}
-	if got := m.selectedPath(); got != filepath.Join(root, "NOTES.md") {
-		t.Errorf("selected %q, want NOTES.md", got)
+	if !key(m, 'y', 0) {
+		t.Fatal(":wq and y did not quit fndr")
+	}
+	if !exists(filepath.Join(root, "NOTES.md")) {
+		t.Error("quit without writing NOTES.md")
 	}
 }
 
@@ -466,7 +496,7 @@ func TestOilHiddenAndRefresh(t *testing.T) {
 }
 
 // TestOilKeepsEditsWhenLeaving: an edit not written is never dropped by
-// going elsewhere; :w or :q! decide.
+// going elsewhere or back to search; :w, u or :q! decide.
 func TestOilKeepsEditsWhenLeaving(t *testing.T) {
 	m, root := oilModel(t)
 	typeText(m, "jdd") // src/ deleted in the buffer, cursor on README.md
@@ -476,6 +506,9 @@ func TestOilKeepsEditsWhenLeaving(t *testing.T) {
 		func() { typeText(m, "_") },
 		func() { key(m, 'r', tea.ModCtrl) },
 		func() { typeText(m, "g.") },
+		func() { key(m, tea.KeyEscape, 0) },
+		func() { typeText(m, "q") },
+		func() { key(m, 'o', tea.ModCtrl) },
 	} {
 		k()
 		if m.oil == nil || m.oil.dir != root || m.oil.changes != 1 || !m.noticeErr {

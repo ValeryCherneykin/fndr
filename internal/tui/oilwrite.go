@@ -29,7 +29,7 @@ type oilWrittenMsg struct {
 	dir    string
 	done   mutation.Plan // the steps that were carried out
 	err    error         // why the next one was not
-	quit   bool          // :wq: leave OIL once written
+	quit   bool          // :wq: quit fndr once written
 	remove []string      // for the index: paths gone or moved away
 	add    []indexer.Entry
 }
@@ -47,7 +47,8 @@ func (m *Model) oilWrite(quit bool) tea.Cmd {
 	case err != nil:
 		m.setNotice(err.Error(), true)
 	case len(plan) == 0 && quit:
-		return m.leaveOil("")
+		_, cmd := m.quit()
+		return cmd
 	case len(plan) == 0:
 		m.setNotice("nothing to write", false)
 	default:
@@ -175,7 +176,8 @@ func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
 		return nil
 	}
 	if msg.quit && msg.err == nil {
-		return m.leaveOil(reveal)
+		_, cmd := m.quit() // :wq, written: quit fndr, as :wq quits Vim
+		return cmd
 	}
 	// What was just made is always shown: a new ".env" turns hidden names
 	// on, or it would vanish the moment it exists.
