@@ -207,6 +207,9 @@ make         # list every command
 
 Contributions are welcome. Please run `make check` before opening a PR.
 
+Found a bug? [Open a bug report](https://github.com/ValeryCherneykin/fndr/issues/new?template=bug_report.yml).
+fndr never sends anything on its own, so a report is the only way I hear of it.
+
 ---
 
 <p align="center">

@@ -1,0 +1,86 @@
+name: Bug report
+description: Something in fndr does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. fndr never sends anything on its own, so
+        this report is the only way a bug reaches me.
+
+        **Mind your privacy:** paths, file names and screenshots can say a lot
+        about you. Rename or crop them before posting; `~/work/secret/x.txt`
+        can just as well be `~/a/b/c.txt`.
+
+  - type: input
+    id: version
+    attributes:
+      label: fndr version
+      description: The output of `fndr -version`.
+      placeholder: fndr v0.3.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows (WSL)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      description: Pictures in the preview and some keys depend on it.
+      placeholder: Ghostty 1.2, iTerm2, kitty, Alacritty, Terminal.app…
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tmux
+    attributes:
+      label: Inside tmux?
+      options:
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The keys you pressed, in order. The smaller the folder, the better.
+      placeholder: |
+        1. `fndr` in a folder with `a.txt`
+        2. Ctrl+O, `dd`, `:w`
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Error text from the status bar, if any, word for word.
+    validations:
+      required: true
+
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, a hunch, how often it happens.
