@@ -47,6 +47,15 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
 
 - **Search-first.** Fuzzy matching with fzf-style scoring: word starts,
   camelCase humps and path separators win. Matched letters are highlighted.
+- **Your whole home, one key away.** Search starts in the folder you are
+  in; `Tab` widens it to everything under `~`, with the same query, and
+  back. The home is indexed the first time you ask, in the background.
+- **Only what you would look for.** Caches, package stores, `node_modules`,
+  hidden folders, app bundles and the folders a project's `.gitignore`
+  names (`bin/`, `dist/`, `target/`) are listed, so you can find them by
+  name and go in, but their insides stay out of the results. Ignored
+  *files*, like `.env`, stay searchable. On a real home
+  that is 88 thousand entries instead of 760 thousand.
 - **Browse when you want to.** An empty query is a plain folder view:
   folders first, hidden files dimmed. `Enter` goes in, `-` goes up, and
   search narrows to wherever you are.
@@ -89,8 +98,9 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
 | a line ending in `/` | create a folder |
 
 Nothing touches the disk until you write. `:w` shows the plan, with
-trashed entries in red, and `y` applies it. Afterwards the buffer is read
-again from disk, and the status bar says what was done.
+trashed entries in red and how much a folder holds (`trash node_modules/
+(10000+ items)`), and `y` applies it. Afterwards the buffer is read again
+from disk, and the status bar says what was done.
 
 The keys are Vim's: `hjkl`, `0 ^ $ gg G`, counts (`3j`, `2dd`), `i a I A
 o O`, `x dd D cc C s S yy p P`, `u` to undo and `U` to redo. Pasting a
@@ -175,6 +185,12 @@ noticeably slower is treated as a bug.
   cache-friendly, trivially split across cores.
 - **Two-pass matching.** A cheap subsequence check throws out almost
   everything; only survivors are scored.
+- **Don't crawl what nobody searches.** The fastest crawl is the one that
+  never happens: skipping caches and package stores took a real home from
+  26 s to 0.6 s.
+- **Read folders in parallel.** A crawl is mostly waiting on the disk,
+  one `lstat` per file; eight workers keep it busy where one would ask for
+  a file at a time. The same home: 0.6 s down to 0.19 s.
 - **Never block the UI.** Crawling, searching and previews all run off the UI
   goroutine. A newer keystroke cancels the older search; stale replies are
   dropped by sequence number.
@@ -215,6 +231,7 @@ noticeably slower is treated as a bug.
 - [x] Preview pane, icons by type, query cursor
 - [x] **fndr learns you** — frecency for files *and* folders you visit
 - [x] Syntax highlighting and pictures in the preview
+- [x] **Search the whole home** with `Tab`, junk left out
 - [ ] **Instant start** — an on-disk index, caught up in the background
   (FSEvents on macOS)
 - [x] Oil-style editing: rename, trash and create by editing a buffer with

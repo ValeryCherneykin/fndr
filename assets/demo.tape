@@ -61,6 +61,23 @@ Sleep 1.5s
 Ctrl+E
 Sleep 1.2s
 
+# 3b. Search starts in the folder you are in: README.md is above tui, so
+#     LOCAL finds nothing. Tab searches the whole home (GLOBAL, in violet)
+#     with the same query. Esc steps back: the query, GLOBAL, fndr.
+Type "fndr"
+Enter
+Sleep 1s
+Type "readme"
+Sleep 1.5s
+Tab
+Sleep 2.5s
+Escape
+Sleep 400ms
+Escape
+Sleep 400ms
+Escape
+Sleep 800ms
+
 # 4. Back where we started, open fndr again: it remembers. The places you
 #    go are on top, the strongest selected; Enter takes you there.
 Type "cd ../.."
