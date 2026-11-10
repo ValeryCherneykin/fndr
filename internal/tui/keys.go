@@ -16,6 +16,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.oil != nil {
 		return m.oilKey(msg)
 	}
+	if m.rename != nil {
+		cmd := m.renameKey(msg)
+		return m, cmd
+	}
 
 	switch msg.String() {
 	case "ctrl+c":
@@ -41,6 +45,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case "ctrl+o":
 		return m, loadOil(m.cwd, false, "")
+	case "ctrl+r":
+		m.startRename()
 
 	case "up", "ctrl+p":
 		m.move(-1)

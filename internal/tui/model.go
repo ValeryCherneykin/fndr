@@ -69,6 +69,9 @@ type Model struct {
 	// oil is the folder being edited in OIL mode (oil.go), nil outside it.
 	oil *oilState
 
+	// rename is the path ctrl+r is editing (rename.go); nil otherwise.
+	rename *renameState
+
 	// Searches run off the UI goroutine. Every new search gets a fresh seq and
 	// cancels the previous one; a reply whose seq is not the latest is stale
 	// (the user has typed since) and is dropped.
@@ -178,6 +181,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case oilWrittenMsg:
 		cmd := m.oilWritten(&msg)
 		return m, cmd
+	case renamedMsg:
+		cmd := m.renamed(&msg)
+		return m, cmd
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
@@ -187,6 +193,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// included, become one space; other control characters, such as
 		// the ESC of an escape sequence, are dropped: the line is printed.
 		text := strings.Join(strings.Fields(dropControls(msg.Content)), " ")
+		if m.rename != nil {
+			m.rename.line.insert(text)
+			return m, nil
+		}
 		l := m.queryLine()
 		l.insert(text)
 		cmd := m.setQueryLine(l)
