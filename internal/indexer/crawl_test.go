@@ -445,3 +445,60 @@ func TestCrawlPruneSparesTheRoot(t *testing.T) {
 		t.Error("a hidden folder below the root was crawled")
 	}
 }
+
+// TestCrawlGitignore: folders a .gitignore names are listed, not entered;
+// files it names stay, as .env must be found; a deeper .gitignore can take
+// a folder back.
+func TestCrawlGitignore(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".gitignore"), "bin/\n/dist\n.env\n*.log\n")
+	writeFile(t, filepath.Join(root, "app", ".gitignore"), "!bin\n")
+	for _, f := range []string{"bin/app", "dist/x.js", "cmd/bin/tool", "app/bin/keep", "src/dist/y.js", "debug.log"} {
+		writeFile(t, filepath.Join(root, f), "")
+	}
+	writeFile(t, filepath.Join(root, ".env"), "")
+
+	entries, _, err := crawlPruned(t, root, DefaultPrune(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := byRel(t, root, entries)
+	for _, want := range []string{"bin", "dist", "cmd/bin", ".env", "debug.log", "app/bin/keep", "src/dist/y.js"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("%s is missing", want)
+		}
+	}
+	for _, not := range []string{"bin/app", "dist/x.js", "cmd/bin/tool"} {
+		if _, ok := got[not]; ok {
+			t.Errorf("%s was crawled: its folder is ignored", not)
+		}
+	}
+}
+
+// TestReaches: whether a crawl from root goes into a folder below it, for
+// the interface to crawl again when the user goes where it did not.
+func TestReaches(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".gitignore"), "bin/\n")
+	for _, d := range []string{"src/deep", "bin/x", ".hidden/x", "app/node_modules/x"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := DefaultPrune("")
+	for dir, want := range map[string]bool{
+		"":                   true,
+		"src/deep":           true,
+		"bin":                false,
+		"bin/x":              false,
+		".hidden/x":          false,
+		"app/node_modules/x": false,
+	} {
+		if got := p.Reaches(root, filepath.Join(root, dir)); got != want {
+			t.Errorf("Reaches %q = %v, want %v", dir, got, want)
+		}
+	}
+	if !(*Prune)(nil).Reaches(root, filepath.Join(root, "bin")) {
+		t.Error("a nil Prune prunes nothing")
+	}
+}

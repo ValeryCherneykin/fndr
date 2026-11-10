@@ -81,11 +81,12 @@ func Crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry) (
 	}
 
 	c := &crawler{
-		ctx:   ctx,
-		root:  root,
-		prune: prune,
-		out:   out,
-		batch: make([]Entry, 0, batchSize),
+		ctx:     ctx,
+		root:    root,
+		prune:   prune,
+		out:     out,
+		ignores: map[string]ignoreStack{root: prune.ignoresIn(nil, root)},
+		batch:   make([]Entry, 0, batchSize),
 	}
 	if err := filepath.WalkDir(root, c.visit); err != nil { //nolint:gosec // as above
 		return c.stats, err
@@ -101,9 +102,14 @@ type crawler struct {
 	ctx   context.Context // fine in a struct: it lives exactly as long as one Crawl call
 	root  string
 	prune *Prune
-	out   chan<- []Entry
-	batch []Entry
-	stats Stats
+
+	// ignores is, by folder, the .gitignore files that apply to what is in
+	// it. WalkDir visits a folder before its contents, so a folder's entry
+	// is in the map when its children ask for it.
+	ignores map[string]ignoreStack
+	out     chan<- []Entry
+	batch   []Entry
+	stats   Stats
 }
 
 // visit is the filepath.WalkDir callback. Returning nil continues the walk;
@@ -157,8 +163,14 @@ func (c *crawler) visit(path string, d fs.DirEntry, err error) error {
 	}
 	// After the entry is in the batch: a pruned folder is listed, only
 	// not entered.
-	if d.IsDir() && c.prune.Prunes(path, d.Name()) {
-		return fs.SkipDir
+	if d.IsDir() {
+		above := c.ignores[filepath.Dir(path)]
+		if c.prune.Prunes(path, d.Name()) || above.ignores(path) {
+			return fs.SkipDir
+		}
+		if stack := c.prune.ignoresIn(above, path); stack != nil {
+			c.ignores[path] = stack
+		}
 	}
 	return nil
 }

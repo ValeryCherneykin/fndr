@@ -18,7 +18,8 @@ import (
 // A nil *Prune prunes nothing. .git is a separate, harder rule of Crawl:
 // it is left out altogether.
 type Prune struct {
-	paths map[string]bool // absolute folders, such as ~/Library
+	paths     map[string]bool // absolute folders, such as ~/Library
+	gitignore bool            // folders that .gitignore files name, too (gitignore.go)
 }
 
 // junkNames are folders that tools fill, wherever they are.
@@ -46,10 +47,11 @@ var bundleExts = map[string]bool{
 
 // DefaultPrune is what fndr leaves out by default, for the user whose home
 // is home: hidden folders, the folders in junkNames and bundleExts, the
-// macOS ~/Library (application data, two thirds of it caches) and the Go
-// package store ($GOPATH/pkg, and GOMODCACHE if moved elsewhere).
+// folders .gitignore files name, the macOS ~/Library (application data,
+// two thirds of it caches) and the Go package store ($GOPATH/pkg, and
+// GOMODCACHE if moved elsewhere).
 func DefaultPrune(home string) *Prune {
-	p := &Prune{paths: map[string]bool{}}
+	p := &Prune{paths: map[string]bool{}, gitignore: true}
 	if home == "" {
 		return p // no home to find ~/Library under: the rules by name still hold
 	}
@@ -68,8 +70,39 @@ func DefaultPrune(home string) *Prune {
 	return p
 }
 
+// Reaches reports whether a crawl from root goes into dir, at or below it:
+// not if a folder on the way, dir included, is one the crawl lists without
+// entering. The interface asks it when the user goes into a folder, to
+// crawl it if the index has nothing of what is inside.
+func (p *Prune) Reaches(root, dir string) bool {
+	rel, err := filepath.Rel(root, dir)
+	if p == nil || err != nil || rel == "." {
+		return true
+	}
+	stack := p.ignoresIn(nil, root)
+	at := root
+	for name := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		at = filepath.Join(at, name)
+		if p.Prunes(at, name) || stack.ignores(at) {
+			return false
+		}
+		stack = p.ignoresIn(stack, at)
+	}
+	return true
+}
+
+// ignoresIn returns the .gitignore files that apply below dir: those of
+// its parents, in stack, and its own.
+func (p *Prune) ignoresIn(stack ignoreStack, dir string) ignoreStack {
+	if p == nil || !p.gitignore {
+		return nil
+	}
+	return stack.with(loadGitignore(dir))
+}
+
 // Prunes reports whether a crawl lists the folder at path, named name,
-// without going in.
+// without going in. The .gitignore files are the crawl's to apply (see
+// Reaches): they hang on the folders above, which a name does not tell.
 func (p *Prune) Prunes(path, name string) bool {
 	if p == nil {
 		return false
