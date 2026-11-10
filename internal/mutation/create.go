@@ -19,6 +19,7 @@ var (
 	ErrEmptyName = errors.New("empty name")
 	ErrOutside   = errors.New("name leaves the folder")
 	ErrExists    = errors.New("already exists")
+	ErrNotFolder = errors.New("not a folder")
 )
 
 // Created is what Create made.

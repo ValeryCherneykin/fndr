@@ -3,9 +3,12 @@ package mutation
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 )
 
 // Apply carries out a plan from Diff in dir, in the plan's order: deletes
@@ -19,7 +22,13 @@ import (
 // b→a) would fail on the first step, b being taken, and a chain (a→b,
 // b→c) would depend on the order; in two phases all old names are free
 // before any new one is taken.
+//
+// Before the first step, check makes sure every new name is free, so what
+// can be found out in advance never stops a plan halfway.
 func Apply(dir string, p Plan, trash *Trash) (done int, err error) {
+	if err := check(dir, p); err != nil {
+		return 0, err
+	}
 	var renames []Op
 	for _, op := range p {
 		switch op.Kind {
@@ -49,6 +58,76 @@ func Apply(dir string, p Plan, trash *Trash) (done int, err error) {
 		done++
 	}
 	return done, nil
+}
+
+// check makes sure, before Apply changes anything, that every name the
+// plan takes is free: nothing is there, or what is there leaves in the
+// same plan, by a delete or a rename away. Diff cannot know it, as it sees
+// the buffer and not the disk: a hidden file left out of the buffer may
+// hold the name, or a file may stand where a path needs a folder.
+//
+// What leaves is told by os.SameFile, not by comparing names: on macOS
+// "A.txt" opens "a.txt", and only the file system knows which names it
+// takes for one, letter case, Unicode normalization and all.
+//
+// Two new names the file system takes for one ("A.txt" and "a.txt", both
+// created) still fail inside Apply: neither exists yet to compare. Nor
+// does a check close the gap before the step itself; that is noReplace's
+// and O_EXCL's job.
+func check(dir string, p Plan) error {
+	var leaving []os.FileInfo
+	for _, op := range p {
+		if op.Kind == OpCreate {
+			continue
+		}
+		info, err := os.Lstat(filepath.Join(dir, op.From))
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				err = fs.ErrNotExist // the path is in the message already, short
+			}
+			return fmt.Errorf("%q: %w", op.From, err)
+		}
+		leaving = append(leaving, info)
+	}
+	for _, op := range p {
+		if op.Kind == OpDelete {
+			continue
+		}
+		if err := free(dir, op.To, leaving); err != nil {
+			if op.Kind == OpRename {
+				return fmt.Errorf("rename %q to %q: %w", op.From, op.To, err)
+			}
+			return fmt.Errorf("create %q: %w", op.To, err)
+		}
+	}
+	return nil
+}
+
+// free says whether name can be taken in dir. Walking it from the top,
+// each part may be missing (then the rest is made new), leaving, or a
+// folder to go through; the last part must not be there at all.
+func free(dir, name string, leaving []os.FileInfo) error {
+	parts := strings.Split(filepath.Clean(name), string(filepath.Separator))
+	path := dir
+	for i, part := range parts {
+		path = filepath.Join(path, part)
+		info, err := os.Lstat(path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
+			return err
+		case slices.ContainsFunc(leaving, func(l os.FileInfo) bool { return os.SameFile(l, info) }):
+			return nil // gone before anything is put here, and all below it
+		case i == len(parts)-1:
+			return ErrExists
+		}
+		// MkdirAll goes through a link to a folder, so the check does too.
+		if info, err := os.Stat(path); err != nil || !info.IsDir() {
+			return fmt.Errorf("%s: %w", filepath.Join(parts[:i+1]...), ErrNotFolder)
+		}
+	}
+	return nil
 }
 
 // renameAll does the renames in two phases (see Apply). If the second

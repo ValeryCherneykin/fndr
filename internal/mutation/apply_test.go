@@ -5,13 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 // tree makes files with their content as their own name, so a test can
 // tell after renames which file ended where.
-func tree(t *testing.T, names ...string) string {
+func tree(t testing.TB, names ...string) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, n := range names {
@@ -26,7 +27,7 @@ func tree(t *testing.T, names ...string) string {
 	return dir
 }
 
-func content(t *testing.T, path string) string {
+func content(t testing.TB, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -83,22 +84,45 @@ func TestApplyMovesIntoNewFolder(t *testing.T) {
 }
 
 // TestApplyNeverReplaces: a rename onto a name Diff could not see (a
-// hidden file left out of the buffer) fails, and the plan is rolled back:
-// every file is where it was, under its own name.
+// hidden file left out of the buffer) is refused, and nothing is done.
 func TestApplyNeverReplaces(t *testing.T) {
 	dir := tree(t, "a", "x", ".hidden")
 	p := Plan{
 		{Kind: OpRename, From: "x", To: "y"},
 		{Kind: OpRename, From: "a", To: ".hidden"},
 	}
-	_, err := Apply(dir, p, nil)
-	if !errors.Is(err, ErrExists) {
-		t.Fatalf("err %v, want ErrExists", err)
+	done, err := Apply(dir, p, nil)
+	if done != 0 || !errors.Is(err, ErrExists) {
+		t.Fatalf("done %d, err %v; want nothing done and ErrExists", done, err)
 	}
-	if content(t, filepath.Join(dir, ".hidden")) != ".hidden" || content(t, filepath.Join(dir, "a")) != "a" {
-		t.Error("a file was replaced or lost")
+	if got := ls(t, dir); !slices.Equal(got, []string{".hidden", "a", "x"}) {
+		t.Errorf("folder holds %q, want it untouched", got)
 	}
-	if got := ls(t, dir); !slices.Equal(got, []string{".hidden", "a", "y"}) {
+}
+
+// TestApplyRollsBack: a rename that fails in the second phase, past the
+// check (here a folder that may not be written), sends the items still
+// under temporary names back to their own: y is done, a is back, and no
+// ".fndr-rename-" name is left.
+func TestApplyRollsBack(t *testing.T) {
+	dir := tree(t, "a", "x", "ro/keep")
+	ro := filepath.Join(dir, "ro")
+	if err := os.Chmod(ro, 0o500); err != nil { //nolint:gosec // read-only on purpose
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:errcheck,gosec // so TempDir can remove it
+	p := Plan{
+		{Kind: OpRename, From: "x", To: "y"},
+		{Kind: OpRename, From: "a", To: "ro/a"},
+	}
+	done, err := Apply(dir, p, nil)
+	if err == nil {
+		t.Skip("a read-only folder took a file: running as root?")
+	}
+	if done != 1 {
+		t.Errorf("done %d, want 1", done)
+	}
+	if got := ls(t, dir); !slices.Equal(got, []string{"a", "ro", "y"}) {
 		t.Errorf("folder holds %q: want y done, a back, no temporary names", got)
 	}
 }
@@ -130,5 +154,85 @@ func TestTrashMac(t *testing.T) {
 	}
 	if content(t, filepath.Join(trash.files, "d", "f")) != "d/f" {
 		t.Error("the folder did not arrive whole")
+	}
+}
+
+// TestApplyChecksFirst: a new name that is taken on disk, though Diff
+// could not see it, is found before anything is done. The plan starts with
+// a delete, so a check made only on the way would leave it half done.
+func TestApplyChecksFirst(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		files []string
+		op    Op
+		want  error
+	}{
+		{"a hidden name", []string{".env"}, Op{Kind: OpRename, From: "x", To: ".env"}, ErrExists},
+		{"a create", []string{".env"}, Op{Kind: OpCreate, To: ".env"}, ErrExists},
+		{"deep", []string{"a/b"}, Op{Kind: OpRename, From: "x", To: "a/b"}, ErrExists},
+		{"a file on the way", []string{"notes"}, Op{Kind: OpRename, From: "x", To: "notes/x"}, ErrNotFolder},
+		{"a file on the way to a create", []string{"notes"}, Op{Kind: OpCreate, To: "notes/a/"}, ErrNotFolder},
+	} {
+		dir := tree(t, append(tt.files, "old", "x")...)
+		done, err := Apply(dir, Plan{{Kind: OpDelete, From: "old"}, tt.op}, freedesktop(t.TempDir()))
+		if done != 0 || !errors.Is(err, tt.want) {
+			t.Errorf("%s: done %d, err %v; want nothing done and %v", tt.name, done, err, tt.want)
+		}
+		if content(t, filepath.Join(dir, "old")) != "old" {
+			t.Errorf("%s: old went to the trash before the check", tt.name)
+		}
+	}
+}
+
+// TestApplyCheckSeesWhatLeaves: a name held by something the same plan
+// moves away is free. The check must not refuse what two phases allow.
+func TestApplyCheckSeesWhatLeaves(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		files []string
+		plan  Plan
+	}{
+		{"trashed, then taken", []string{"a/b"}, Plan{{Kind: OpDelete, From: "a"}, {Kind: OpCreate, To: "a/b"}}},
+		{"moved, then taken", []string{"a/b", "x"}, Plan{{Kind: OpRename, From: "a", To: "c"}, {Kind: OpRename, From: "x", To: "a/b"}}},
+		{"a new case", []string{"readme"}, Plan{{Kind: OpRename, From: "readme", To: "README"}}},
+		{"nested from", []string{"src/x"}, Plan{{Kind: OpRename, From: "src/x", To: "src/y"}}},
+	} {
+		dir := tree(t, tt.files...)
+		if done, err := Apply(dir, tt.plan, freedesktop(t.TempDir())); err != nil || done != len(tt.plan) {
+			t.Errorf("%s: done %d, err %v", tt.name, done, err)
+		}
+	}
+}
+
+// TestApplyCaseInsensitive: where the file system takes "A.txt" for
+// "a.txt" (macOS by default), creating one beside the other is refused
+// before anything is done.
+func TestApplyCaseInsensitive(t *testing.T) {
+	dir := tree(t, "a.txt", "old")
+	if _, err := os.Lstat(filepath.Join(dir, "A.txt")); err != nil {
+		t.Skip("this file system tells A.txt from a.txt")
+	}
+	done, err := Apply(dir, Plan{{Kind: OpDelete, From: "old"}, {Kind: OpCreate, To: "A.txt"}}, freedesktop(t.TempDir()))
+	if done != 0 || !errors.Is(err, ErrExists) || content(t, filepath.Join(dir, "old")) != "old" {
+		t.Errorf("done %d, err %v; want nothing done and ErrExists", done, err)
+	}
+}
+
+// BenchmarkCheck: renaming a whole folder of 1000 files in a ring (f0 to
+// f1, f1 to f2, ...), the worst case for check: every new name is taken
+// and found among the leaving ones only by comparing.
+func BenchmarkCheck(b *testing.B) {
+	const n = 1000
+	names := make([]string, n)
+	p := make(Plan, n)
+	for i := range n {
+		names[i] = "f" + strconv.Itoa(i)
+		p[i] = Op{Kind: OpRename, From: "f" + strconv.Itoa(i), To: "f" + strconv.Itoa((i+1)%n)}
+	}
+	dir := tree(b, names...)
+	for b.Loop() {
+		if err := check(dir, p); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
