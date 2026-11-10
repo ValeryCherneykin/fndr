@@ -183,13 +183,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case oilWrittenMsg:
-		cmd := m.oilWritten(&msg)
-		return m, cmd
+		learn := m.relearn(msg.dir, msg.done)
+		return m, tea.Batch(learn, m.oilWritten(&msg))
 	case trashCountedMsg:
 		m.trashCounted(&msg)
 	case renamedMsg:
-		cmd := m.renamed(&msg)
-		return m, cmd
+		learn := m.relearn(msg.dir, msg.done)
+		return m, tea.Batch(learn, m.renamed(&msg))
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)

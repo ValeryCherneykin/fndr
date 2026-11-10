@@ -247,3 +247,110 @@ func bigStore(n int) (*Store, time.Time) {
 	}
 	return s, now
 }
+
+// TestRename: a renamed folder keeps its habits, and so does everything
+// below it; a path that only starts the same ("/a/bc") is not below it.
+func TestRename(t *testing.T) {
+	s := open(t)
+	for _, p := range []string{"/a/b", "/a/b", "/a/b/x.go", "/a/bc", "/c"} {
+		s.Visit(p, now)
+	}
+	s.Visit("/c", now)
+	s.Rename("/a/b", "/c") // onto a remembered path: the visits add up
+	for p, want := range map[string]float64{"/a/b": 0, "/a/b/x.go": 0, "/c": 4 * 4, "/c/x.go": 4, "/a/bc": 4} {
+		if got := s.Score(p, now); got != want {
+			t.Errorf("score of %s = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// TestRenameReachesTheFile: the rename is saved, and opening the file again
+// finds the habits under the new name only.
+func TestRenameReachesTheFile(t *testing.T) {
+	s := open(t)
+	s.Visit("/old", now)
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s.Rename("/old", "/new")
+	if !s.Pending() {
+		t.Fatal("a rename alone is nothing to save")
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Open(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Score("/old", now) != 0 || r.Score("/new", now) == 0 {
+		t.Errorf("in the file: old %v, new %v; want the habit moved", r.Score("/old", now), r.Score("/new", now))
+	}
+}
+
+// TestRenameAcrossPanes: one fndr renames, another, opened before, saves
+// its own visits later. Its save reads the file again, so it must not bring
+// the old name back.
+func TestRenameAcrossPanes(t *testing.T) {
+	a := open(t)
+	a.Visit("/old", now)
+	if err := a.Save(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(a.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a.Rename("/old", "/new")
+	if err := a.Save(); err != nil {
+		t.Fatal(err)
+	}
+	b.Visit("/elsewhere", now)
+	if err := b.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Open(a.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Score("/old", now) != 0 || r.Score("/new", now) == 0 || r.Score("/elsewhere", now) == 0 {
+		t.Errorf("old %v, new %v, elsewhere %v; want the rename and b's visit kept", r.Score("/old", now), r.Score("/new", now), r.Score("/elsewhere", now))
+	}
+	if b.Score("/old", now) != 0 {
+		t.Error("b still ranks the old name after its save took in the file")
+	}
+}
+
+// TestRenameSurvivesAFailedSave: a save that fails hands the rename back,
+// and the next one writes it.
+func TestRenameSurvivesAFailedSave(t *testing.T) {
+	s := open(t)
+	s.Visit("/old", now)
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s.Rename("/old", "/new")
+
+	good := s.path
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.path = filepath.Join(blocker, "frecency") // under a file: cannot be written
+	if err := s.Save(); err == nil {
+		t.Fatal("the save did not fail: nothing to test")
+	}
+	s.path = good
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Open(good)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Score("/old", now) != 0 || r.Score("/new", now) == 0 {
+		t.Errorf("old %v, new %v; want the rename written by the second save", r.Score("/old", now), r.Score("/new", now))
+	}
+}

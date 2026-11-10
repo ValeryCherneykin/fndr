@@ -170,3 +170,27 @@ func TestVisitSavedAtOnce(t *testing.T) {
 		t.Errorf("pending %v, notice %q", m.hist.Pending(), m.notice)
 	}
 }
+
+// TestRenameKeepsTheHabit: a file moved with ctrl+r keeps its rank under
+// the new name, and the file of the history says so.
+func TestRenameKeepsTheHabit(t *testing.T) {
+	m, root := renameModel(t)
+	path := withHistory(t, m)
+	from, to := filepath.Join(root, "src", "util.go"), filepath.Join(root, "lib", "util.go")
+	m.hist.Visit(from, time.Now())
+
+	retype(m, "lib/util.go")
+	if m.hist.Score(from, time.Now()) != 0 || m.hist.Score(to, time.Now()) == 0 {
+		t.Errorf("score old %v, new %v; want the habit moved", m.hist.Score(from, time.Now()), m.hist.Score(to, time.Now()))
+	}
+	if m.boosts[to] == 0 {
+		t.Error("search does not rank the new name yet")
+	}
+	saved, err := frecency.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Score(to, time.Now()) == 0 {
+		t.Error("the move was not saved")
+	}
+}

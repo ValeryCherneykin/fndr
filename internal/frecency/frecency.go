@@ -48,6 +48,7 @@ type Store struct {
 	path    string
 	entries map[string]*entry // what ranks: the file as last read, plus pending
 	pending map[string]*entry // visits of this session not yet in the file
+	moves   []move            // renames of this session not yet in the file
 	flight  *Flush            // the save running, if any; see Flush
 }
 
@@ -130,6 +131,44 @@ func (s *Store) Visit(path string, now time.Time) {
 	visit := &entry{count: 1, last: now}
 	addTo(s.entries, path, visit)
 	addTo(s.pending, path, visit)
+}
+
+// Rename moves the habits of from, and of everything below it, to to: a
+// file or folder renamed or moved keeps its rank, and so does what is in a
+// folder. Where to already has habits, the visits add up.
+//
+// A visit adds to a count, and adding can be replayed on whatever the file
+// holds by then. A rename is not an addition, so it is kept as a move and
+// replayed by the save on the file as read under the lock. Changing only
+// the store would not last: the save reads the file again, old names and
+// all, and the other fndr open at the time would never hear of it.
+func (s *Store) Rename(from, to string) {
+	if from == to || from == "" || to == "" || strings.ContainsAny(to, "\n\r") {
+		return
+	}
+	m := move{from, to}
+	m.apply(s.entries) // ranks at once
+	m.apply(s.pending) // a visit made before the rename is saved under the new name
+	s.moves = append(s.moves, m)
+}
+
+// move is a rename of a path and everything below it.
+type move struct{ from, to string }
+
+// apply renames the paths of entries at or below m.from.
+func (m move) apply(entries map[string]*entry) {
+	prefix := m.from + string(filepath.Separator)
+	var hit []string // collected first: renaming into its own subtree, /a to /a/b, must move each path once
+	for p := range entries {
+		if p == m.from || strings.HasPrefix(p, prefix) {
+			hit = append(hit, p)
+		}
+	}
+	for _, p := range hit {
+		e := entries[p]
+		delete(entries, p)
+		addTo(entries, m.to+p[len(m.from):], e)
+	}
 }
 
 // addTo counts visits of path into m.
@@ -273,6 +312,7 @@ func (s *Store) Len() int { return len(s.entries) }
 type Flush struct {
 	path    string
 	pending map[string]*entry
+	moves   []move
 	result  map[string]*entry // the file as written, once Write succeeds
 	err     error             // what Write returned
 
@@ -283,15 +323,15 @@ type Flush struct {
 	once sync.Once
 }
 
-// Flush hands the pending visits to a new save, or returns nil when there
-// is nothing to save or a save is already running: its Saved will see what
-// was added since, and the caller saves again then.
+// Flush hands the pending visits and renames to a new save, or returns
+// nil when there is nothing to save or a save is already running: its
+// Saved will see what was added since, and the caller saves again then.
 func (s *Store) Flush() *Flush {
-	if len(s.pending) == 0 || s.flight != nil {
+	if !s.Pending() || s.flight != nil {
 		return nil
 	}
-	f := &Flush{path: s.path, pending: s.pending}
-	s.pending, s.flight = map[string]*entry{}, f
+	f := &Flush{path: s.path, pending: s.pending, moves: s.moves}
+	s.pending, s.moves, s.flight = map[string]*entry{}, nil, f
 	return f
 }
 
@@ -323,6 +363,11 @@ func (f *Flush) write() (map[string]*entry, error) {
 		return nil, err
 	}
 	merge(entries, f.pending)
+	// After the visits: one to a path since renamed, handed back by a save
+	// that failed, moves with the rest.
+	for _, m := range f.moves {
+		m.apply(entries)
+	}
 	return entries, write(f.path, entries)
 }
 
@@ -339,17 +384,21 @@ func (s *Store) Saved(f *Flush) error {
 		for p, e := range f.pending {
 			addTo(s.pending, p, e)
 		}
+		s.moves = append(f.moves, s.moves...) // in the order they were made
 		return f.err
 	}
 	s.entries = f.result
 	for p, e := range s.pending {
 		addTo(s.entries, p, e)
 	}
+	for _, m := range s.moves { // made while the save ran: not in the file yet
+		m.apply(s.entries)
+	}
 	return nil
 }
 
-// Pending reports whether visits are waiting for a save.
-func (s *Store) Pending() bool { return len(s.pending) > 0 }
+// Pending reports whether visits or renames are waiting for a save.
+func (s *Store) Pending() bool { return len(s.pending) > 0 || len(s.moves) > 0 }
 
 // Save writes the pending visits and waits for it: for the end of the
 // program, and for tests. A save handed out earlier is finished first, so

@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"path/filepath"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ValeryCherneykin/fndr/internal/frecency"
+	"github.com/ValeryCherneykin/fndr/internal/mutation"
 )
 
 // fndr learns where the user goes (package frecency) to rank search and to
@@ -40,6 +42,27 @@ func (m *Model) learn(path string) tea.Cmd {
 	now := time.Now()
 	m.hist.Visit(path, now)
 	m.boosts = m.hist.Boosts(now) // a new map: searches in flight keep the old one
+	return m.saveHistory()
+}
+
+// relearn moves what fndr learned about the entries renamed in dir to
+// their new names, and saves it: a folder renamed in OIL, or a file moved
+// with ctrl+r, keeps its rank and its place among the habits.
+func (m *Model) relearn(dir string, done mutation.Plan) tea.Cmd {
+	if m.hist == nil {
+		return nil
+	}
+	moved := false
+	for _, op := range done {
+		if op.Kind == mutation.OpRename {
+			m.hist.Rename(filepath.Join(dir, op.From), filepath.Join(dir, op.To))
+			moved = true
+		}
+	}
+	if !moved {
+		return nil
+	}
+	m.boosts = m.hist.Boosts(time.Now())
 	return m.saveHistory()
 }
 

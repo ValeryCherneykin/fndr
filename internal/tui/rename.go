@@ -39,6 +39,8 @@ type renameState struct {
 // renamedMsg reports a rename carried out, or why it was not.
 type renamedMsg struct {
 	from, to string // absolute
+	dir      string
+	done     mutation.Plan // the rename, if it was carried out
 	err      error
 	remove   []string // for the index, as after an OIL write
 	add      []indexer.Entry
@@ -116,12 +118,12 @@ func (m *Model) applyRename() tea.Cmd {
 // renameEntry carries out op in dir, off the UI goroutine.
 func renameEntry(dir string, op mutation.Op, prune *indexer.Prune) tea.Cmd {
 	return func() tea.Msg {
-		msg := renamedMsg{from: filepath.Join(dir, op.From), to: filepath.Join(dir, op.To)}
+		msg := renamedMsg{from: filepath.Join(dir, op.From), to: filepath.Join(dir, op.To), dir: dir}
 		plan := mutation.Plan{op}
 		// No trash: a plan without deletes never asks for one.
 		n, err := mutation.Apply(dir, plan, nil)
-		msg.err = err
-		msg.remove, msg.add = indexChanges(dir, plan[:n], nil, prune)
+		msg.err, msg.done = err, plan[:n]
+		msg.remove, msg.add = indexChanges(dir, msg.done, nil, prune)
 		return msg
 	}
 }
