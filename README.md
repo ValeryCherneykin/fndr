@@ -70,8 +70,37 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
 - **Jump on exit.** `Ctrl+E` quits and `cd`s your shell into the selected
   folder, or into the folder of the selected file. Search + jump is a zoxide
   that already knows your whole disk.
+- **Edit the folder as text** (`Ctrl+O`), as in Oil.nvim. See below.
+- **Rename or move what you found** (`Ctrl+R`). The query line turns into
+  the entry's path: change the name, or the folders in it, and press
+  `Enter`. Missing folders are made, and nothing is ever overwritten.
 - **A real query line.** Move through it with `Ctrl+H` / `Ctrl+L`, fix a typo
   in the middle without retyping the rest.
+
+### ✏️ Edit the folder as text
+
+`Ctrl+O` turns the folder into a buffer you edit with Vim keys:
+
+| In the buffer | On disk |
+|---|---|
+| change a line | rename |
+| `dd` a line | move to the trash |
+| a new line `notes/ideas.md` | create it, with its folders |
+| a line ending in `/` | create a folder |
+
+Nothing touches the disk until you write. `:w` shows the plan, with
+trashed entries in red, and `y` applies it. Afterwards the buffer is read
+again from disk, and the status bar says what was done.
+
+The keys are Vim's: `hjkl`, `0 ^ $ gg G`, counts (`3j`, `2dd`), `i a I A
+o O`, `x dd D cc C s S yy p P`, `u` to undo and `U` to redo. Pasting a
+list of names creates that many files. `g.` shows hidden entries.
+`Enter`, `-` and `_` go into a folder, up a folder, and back to where
+fndr started.
+
+`Esc` (or `Ctrl+O` again) goes back to search. `:q`, `:wq` and `ZZ` quit
+fndr, as they quit Vim. With unsaved changes, fndr won't leave the buffer:
+write them with `:w`, undo them with `u`, or quit without them with `:q!`.
 
 ---
 
@@ -118,7 +147,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+H` / `Ctrl+L`, `←` / `→` | Move through the query |
 | `Ctrl+W` · `Ctrl+U` | Delete a word · delete to the start |
 | `Ctrl+V` | Show or hide the preview (from 100 columns) |
-| `Ctrl+O` | Edit the folder as text with Vim keys: rename a line, `dd` to trash, a new line `a/b/c.txt` creates it with its folders; `:w` shows the plan, `y` applies it; `Esc` (or `Ctrl+O` again) goes back to search, `:q` quits fndr as it quits Vim |
+| `Ctrl+O` | Edit the folder as text with Vim keys (see above); `Esc` or `Ctrl+O` goes back, `:q` quits |
 | `Ctrl+R` | Rename or move the selected entry: edit its path, `Enter`; missing folders are made, nothing is ever overwritten |
 | `Ctrl+E` | Quit and jump there |
 | `Esc` | Clear the query, then quit |
@@ -187,8 +216,9 @@ noticeably slower is treated as a bug.
 - [x] Syntax highlighting and pictures in the preview
 - [ ] **Instant start** — an on-disk index, caught up in the background
   (FSEvents on macOS)
+- [x] Oil-style editing: rename, trash and create by editing a buffer with
+  Vim keys; rename or move any search result
 - [ ] Stackable filters: `main .go >1mb @today`
-- [ ] Oil-style editing: rename and delete by editing a buffer with Vim keys
 - [ ] Config: rebind any key, choose your editor
 - [ ] bash and fish integration
 

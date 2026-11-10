@@ -78,3 +78,48 @@ Sleep 800ms
 Type "ls"
 Enter
 Sleep 2.5s
+
+# 5. Edit the folder as text. A deleted line goes to the trash, an edited
+#    one is a rename, a new one is created with its folders; :w shows the
+#    plan and y applies it. The log is made off camera to be thrown away.
+Hide
+Type "cd ~/dev/fndr && touch debug.log && clear"
+Enter
+Sleep 500ms
+Show
+Type "fndr"
+Enter
+Sleep 1s
+Ctrl+O
+Sleep 1.5s
+Type "3j"
+Sleep 600ms
+Type "dd"
+Sleep 800ms
+Type "2j"
+Sleep 400ms
+Type "A.md"
+Escape
+Sleep 800ms
+Type "Go"
+Type "notes/ideas.md"
+Escape
+Sleep 800ms
+Type ":w"
+Enter
+Sleep 2.5s
+Type "y"
+Sleep 2s
+
+# 6. Back in search: find it, Ctrl+R, give it a new path, Enter.
+Escape
+Sleep 500ms
+Type "ideas"
+Sleep 1s
+Ctrl+R
+Sleep 1.2s
+Ctrl+W
+Type "docs/ideas.md"
+Sleep 800ms
+Enter
+Sleep 2.5s
