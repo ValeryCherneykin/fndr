@@ -29,7 +29,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.quit()
 	case "ctrl+e":
 		m.exitDir = m.jumpTarget()
-		_ = m.learn(m.exitDir) // quitting: SaveHistory writes it once the interface has closed
+		_ = m.learn(m.exitDir) // its save never runs, quitting: SaveHistory writes it once the interface has closed
 		return m.quit()
 	case "ctrl+v":
 		// A switch, not a mode: every other key works the same with the pane

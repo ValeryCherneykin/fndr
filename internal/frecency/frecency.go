@@ -29,6 +29,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -274,7 +275,12 @@ type Flush struct {
 	pending map[string]*entry
 	result  map[string]*entry // the file as written, once Write succeeds
 	err     error             // what Write returned
-	done    chan struct{}     // closed when Write returns
+
+	// once makes Write run a single time, whoever calls it first: the
+	// command it was handed to, or Save at the end. A Flush whose command
+	// never ran (the program quit first) is then written by Save rather
+	// than waited for forever, and one already running is waited for.
+	once sync.Once
 }
 
 // Flush hands the pending visits to a new save, or returns nil when there
@@ -284,19 +290,21 @@ func (s *Store) Flush() *Flush {
 	if len(s.pending) == 0 || s.flight != nil {
 		return nil
 	}
-	f := &Flush{path: s.path, pending: s.pending, done: make(chan struct{})}
+	f := &Flush{path: s.path, pending: s.pending}
 	s.pending, s.flight = map[string]*entry{}, f
 	return f
 }
 
 // Write adds the visits to the file. It is safe on any goroutine: it reads
 // only the Flush, and the lock orders it with every other fndr's Write.
+// Calls after the first wait for it and return its error.
 func (f *Flush) Write() error {
-	defer close(f.done)
-	f.result, f.err = f.write()
-	if f.err != nil {
-		f.err = fmt.Errorf("frecency: %w", f.err)
-	}
+	f.once.Do(func() {
+		f.result, f.err = f.write()
+		if f.err != nil {
+			f.err = fmt.Errorf("frecency: %w", f.err)
+		}
+	})
 	return f.err
 }
 
@@ -344,11 +352,12 @@ func (s *Store) Saved(f *Flush) error {
 func (s *Store) Pending() bool { return len(s.pending) > 0 }
 
 // Save writes the pending visits and waits for it: for the end of the
-// program, and for tests. A save still running is waited for first, so its
-// visits are neither lost nor written twice.
+// program, and for tests. A save handed out earlier is finished first, so
+// its visits are neither lost nor written twice: waited for if it is
+// running, written here if its command never ran.
 func (s *Store) Save() error {
 	if f := s.flight; f != nil {
-		<-f.done
+		f.Write()  //nolint:errcheck // Saved reads it
 		s.Saved(f) //nolint:errcheck // a failed save's visits are pending again: retried just below
 	}
 	f := s.Flush()

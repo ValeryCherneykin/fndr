@@ -83,6 +83,33 @@ func TestSaveAndOpen(t *testing.T) {
 	}
 }
 
+// TestSaveAfterADroppedFlush: a Flush whose Write never runs (the program
+// quit before its command did) must not hang Save. It did: ctrl+e quit
+// fndr and the shell waited forever.
+func TestSaveAfterADroppedFlush(t *testing.T) {
+	s := open(t)
+	s.Visit("/dev", now)
+	_ = s.Flush() // handed out, never written
+
+	saved := make(chan error)
+	go func() { saved <- s.Save() }()
+	select {
+	case err := <-saved:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Save waits for a write that nothing will run")
+	}
+	back, err := Open(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Len() != 1 {
+		t.Errorf("reopened store has %d paths, want the visit Save wrote", back.Len())
+	}
+}
+
 func TestOpenMissingIsEmpty(t *testing.T) {
 	s := open(t)
 	if s.Len() != 0 {
