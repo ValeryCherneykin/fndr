@@ -168,7 +168,7 @@ func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // no edit to lose.
 func (m *Model) oilGo(act oil.Action) tea.Cmd {
 	st := m.oil
-	line := st.buf.Lines()[st.buf.Row()]
+	line := st.buf.Line(st.buf.Row())
 	here := strings.TrimSuffix(line.Text, "/") // to keep the cursor on it when the folder is read again
 	switch act {
 	case oil.Quit:
@@ -224,7 +224,7 @@ func (st *oilState) recount() {
 // where the buffer has them.
 func (m *Model) oilScroll() {
 	st, h := m.oil, m.listHeight()
-	n := len(st.buf.Lines())
+	n := st.buf.Len()
 	so := min(oilScrolloff, (h-1)/2)
 	row := st.buf.Row()
 	st.offset = min(st.offset, row-so)
@@ -235,9 +235,8 @@ func (m *Model) oilScroll() {
 // viewOil renders OIL: the folder's path, the buffer, and the status bar.
 func (m *Model) viewOil() tea.View {
 	st := m.oil
-	lines := st.buf.Lines()
 	h, w := m.listHeight(), m.width
-	numW := max(len(strconv.Itoa(len(lines))), 3)
+	numW := max(len(strconv.Itoa(st.buf.Len())), 3)
 
 	var b strings.Builder
 	b.WriteString(finish(" "+stQuery.Render(shortenLeft(safeText(m.tildify(st.dir)), max(w-2, 1))), w))
@@ -246,8 +245,8 @@ func (m *Model) viewOil() tea.View {
 	b.WriteByte('\n')
 	rows := make([]string, h)
 	for i := range rows {
-		if r := st.offset + i; r < len(lines) {
-			rows[i] = m.oilRow(lines[r], r, numW)
+		if r := st.offset + i; r < st.buf.Len() {
+			rows[i] = m.oilRow(st.buf.Line(r), r, numW)
 		} else {
 			rows[i] = strings.Repeat(" ", w)
 		}
@@ -265,7 +264,7 @@ func (m *Model) viewOil() tea.View {
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
 	if st.plan == nil { // the plan is read, not edited: no cursor
-		v.Cursor = m.oilCursor(lines, numW)
+		v.Cursor = m.oilCursor(numW)
 	}
 	return v
 }
@@ -447,14 +446,14 @@ func (m *Model) oilStatus() string {
 // oilCursor places the terminal's cursor on the buffer's: a block on a
 // character in Normal mode, a bar between characters while typing, and
 // at the end of the command line while one is typed.
-func (m *Model) oilCursor(lines []mutation.Line, numW int) *tea.Cursor {
+func (m *Model) oilCursor(numW int) *tea.Cursor {
 	st := m.oil
 	if st.buf.Mode() == oil.Command {
 		c := tea.NewCursor(min(1+ansi.StringWidth(safeText(st.buf.CmdLine())), m.width-1), m.height-1)
 		c.Shape = tea.CursorBar
 		return c
 	}
-	text := safeText(lines[st.buf.Row()].Text)
+	text := safeText(st.buf.Line(st.buf.Row()).Text)
 	x := numW + 1 + 2 + ansi.StringWidth(text[:st.buf.Col()]) // number, space, icon and its space
 	c := tea.NewCursor(min(x, m.width-1), 2+st.buf.Row()-st.offset)
 	c.Color = colLocal

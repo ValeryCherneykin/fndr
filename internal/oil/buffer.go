@@ -117,7 +117,16 @@ func New(lines []mutation.Line) *Buffer {
 }
 
 // Lines returns a copy of the lines as they are now, for mutation.Diff.
+// A copy, so that no one can change them past the tick and undo; drawing,
+// which needs only the lines on screen, uses Len and Line instead.
 func (b *Buffer) Lines() []mutation.Line { return slices.Clone(b.lines) }
+
+// Len returns the number of lines, at least 1.
+func (b *Buffer) Len() int { return len(b.lines) }
+
+// Line returns line i, 0 <= i < Len. A Line is a value, so the caller
+// gets its own and cannot change the buffer through it.
+func (b *Buffer) Line(i int) mutation.Line { return b.lines[i] }
 
 // Row returns the line the cursor is on, counting from 0.
 func (b *Buffer) Row() int { return b.row }
