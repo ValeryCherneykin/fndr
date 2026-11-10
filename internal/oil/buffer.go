@@ -67,6 +67,9 @@ type Buffer struct {
 	// one step however many edits it does.
 	undo, redo []snapshot
 	changing   bool
+
+	// tick grows with every edit, undo and redo included (see Tick).
+	tick uint64
 }
 
 // pending is the part of a command typed so far.

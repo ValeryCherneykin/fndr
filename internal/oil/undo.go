@@ -25,9 +25,20 @@ type snapshot struct {
 	row, col int
 }
 
+// Tick is a number that grows whenever the lines change, as Vim's
+// b:changedtick does. It lets the interface skip work on keys that only
+// move the cursor: the same tick, the same lines. It counts edits, not
+// differences: typing a letter and deleting it moves it twice.
+func (b *Buffer) Tick() uint64 { return b.tick }
+
 // change records the buffer as it is, once per command, before the first
 // edit the command makes. Every edit calls it; Key ends the command.
+//
+// The tick moves on every call, before the once-per-command check: all the
+// typing from i to esc is one undo step but many edits, and each must be
+// seen.
 func (b *Buffer) change() {
+	b.tick++
 	if b.changing {
 		return
 	}
@@ -56,5 +67,6 @@ func (b *Buffer) undoN(n int, back bool) {
 		*from = (*from)[:len(*from)-1]
 		b.lines, b.row = s.lines, s.row
 		b.setCol(s.col)
+		b.tick++ // the lines changed without change(): it is for new edits only
 	}
 }

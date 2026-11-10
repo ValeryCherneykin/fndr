@@ -230,7 +230,7 @@ func TestHugePutIsCapped(t *testing.T) {
 // empty, the cursor on a line, and no line lost or made up but by the keys
 // that delete and put.
 func FuzzKeys(f *testing.F) {
-	for _, s := range []string{"dd", "2d3jp", "yGP", "gg9G", "dGp", "jjdk3P", "jx", "jjj$xp", "3lD", "y$P", "Anew\x1b", "ccx\x1bj", "o\b\b\x1b", "li\n\x1b"} {
+	for _, s := range []string{"dd", "2d3jp", "yGP", "gg9G", "dGp", "jjdk3P", "jx", "jjj$xp", "3lD", "y$P", "Anew\x1b", "ccx\x1bj", "o\b\b\x1b", "li\n\x1b", "d$u", "xuU"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
@@ -240,7 +240,13 @@ func FuzzKeys(f *testing.F) {
 		b := lines("hello", "и\u0306ога", "", "日本.txt", "a")
 		before := texts(b)
 		for _, r := range s {
+			tick, was := b.Tick(), texts(b)
 			_, _ = b.Key(keyName(r))
+			if b.Tick() == tick && texts(b) != was {
+				// The interface trusts the tick to skip work: an edit it
+				// does not see would be dropped by :q without a word.
+				t.Fatalf("after %q: lines changed to %q, tick did not move", s, texts(b))
+			}
 			if len(b.lines) == 0 || b.row < 0 || b.row >= len(b.lines) {
 				t.Fatalf("after %q: %d lines, row %d", s, len(b.lines), b.row)
 			}

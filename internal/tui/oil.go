@@ -45,7 +45,10 @@ type oilState struct {
 
 	// changes is how many steps the edit comes to, kept up to date after
 	// every key: the status bar shows it, and :q refuses to drop them.
+	// counted is the buffer's tick it was counted at: a key that only moves
+	// the cursor leaves the tick, and Diff over the whole folder is skipped.
 	changes int
+	counted uint64
 
 	// plan, once :w made one, is shown for y (oilwrite.go); nil while
 	// editing. quitAfter: it came from :wq. applying: y was pressed and
@@ -206,6 +209,10 @@ func (m *Model) oilGo(act oil.Action) tea.Cmd {
 // lines with one name) still counts as changed: leaving it must not
 // silently drop what was typed.
 func (st *oilState) recount() {
+	if st.buf.Tick() == st.counted {
+		return // a fresh buffer is at tick 0 with no changes, as counted starts
+	}
+	st.counted = st.buf.Tick()
 	plan, err := mutation.Diff(st.items, st.buf.Lines())
 	st.changes = len(plan)
 	if err != nil {
