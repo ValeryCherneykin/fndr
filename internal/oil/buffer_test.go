@@ -603,3 +603,51 @@ func TestCommandLine(t *testing.T) {
 		t.Errorf(":99 put the cursor on row %d, want the last", b.Row())
 	}
 }
+
+// TestPaste: pasted text goes where Neovim puts it, and is one step for u.
+func TestPaste(t *testing.T) {
+	tests := []struct {
+		keys, paste string // keys typed on "hello|world" first
+		want        string
+		mode        Mode
+		row, col    int
+	}{
+		{"i", "ab", "abhello|world", Insert, 0, 2},
+		{"A", "x.txt\ny.txt", "hellox.txt|y.txt|world", Insert, 1, 5},
+		{"i", "a\n\nb", "a||bhello|world", Insert, 2, 1}, // empty lines are kept: Diff skips them
+		{"", "ab", "habello|world", Normal, 0, 2},        // after the cursor, like p
+		{"d", "ab", "habello|world", Normal, 0, 2},       // a half-typed d is dropped, not done
+		{"o", "new/", "hello|new/|world", Insert, 1, 4},
+	}
+	for _, tt := range tests {
+		b := lines("hello", "world")
+		typeKeys(b, tt.keys)
+		b.Paste(tt.paste)
+		if joined(b) != tt.want || b.Mode() != tt.mode || b.Row() != tt.row || b.Col() != tt.col {
+			t.Errorf("%q then paste %q: %q %v at %d:%d, want %q %v at %d:%d",
+				tt.keys, tt.paste, joined(b), b.Mode(), b.Row(), b.Col(), tt.want, tt.mode, tt.row, tt.col)
+		}
+	}
+
+	b := lines("hello", "world")
+	typeKeys(b, "d")
+	b.Paste("x")
+	typeKeys(b, "j") // with the d still pending, dj would delete both lines
+	if joined(b) != "hxello|world" || b.Row() != 1 {
+		t.Errorf("d, paste, j: %q row %d; want j to move, the d long gone", joined(b), b.Row())
+	}
+
+	b = lines("hello", "world")
+	b.Paste("a\nb\nc")
+	typeKeys(b, "u")
+	if joined(b) != "hello|world" {
+		t.Errorf("u after a paste: %q, want it all undone in one step", joined(b))
+	}
+
+	b = lines("hello")
+	typeKeys(b, ":")
+	b.Paste("wq\nrm -rf")
+	if b.CmdLine() != "wq" {
+		t.Errorf("command line %q, want the first line pasted only", b.CmdLine())
+	}
+}

@@ -559,3 +559,18 @@ func BenchmarkOilKey(b *testing.B) {
 		})
 	}
 }
+
+// TestOilPaste: a paste goes into the buffer, not into the query hidden
+// behind OIL; a pasted list of names is that many lines to create.
+func TestOilPaste(t *testing.T) {
+	m, _ := oilModel(t)
+	typeText(m, "Go")
+	send(m, tea.PasteMsg{Content: "a.txt\r\nb\tc.txt\x1b[31m"})
+	got := m.oilTexts()
+	if tail := got[len(got)-2:]; tail[0] != "a.txt" || tail[1] != "b c.txt[31m" {
+		t.Errorf("last lines %q; want the pasted names, line ends split, controls dropped", tail)
+	}
+	if m.query != "" || m.oil.changes != 2 {
+		t.Errorf("query %q, changes %d; want the paste in the buffer, 2 to create", m.query, m.oil.changes)
+	}
+}

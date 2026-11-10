@@ -164,6 +164,21 @@ func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// oilPaste puts pasted text into the buffer (oil.Buffer.Paste says
+// where). Line ends of any kind become "\n", which may start new lines;
+// tabs become spaces; other control characters are dropped, as everywhere
+// text reaches the screen. While a plan waits for y, nothing is pasted.
+func (m *Model) oilPaste(text string) {
+	st := m.oil
+	if st.plan != nil {
+		return
+	}
+	text = strings.NewReplacer("\r\n", "\n", "\r", "\n", "\t", " ").Replace(text)
+	st.buf.Paste(dropControls(text))
+	st.recount()
+	m.oilScroll()
+}
+
 // oilGo carries out an action that leaves the buffer: to another folder,
 // the same one read again, a file opened, or out of OIL. The buffer has
 // no edit to lose.

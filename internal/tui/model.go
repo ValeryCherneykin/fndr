@@ -189,6 +189,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.PasteMsg:
+		if m.oil != nil {
+			m.oilPaste(msg.Content)
+			return m, nil
+		}
 		// A pasted path or name becomes the query. Whitespace runs, newlines
 		// included, become one space; other control characters, such as
 		// the ESC of an escape sequence, are dropped: the line is printed.

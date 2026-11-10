@@ -2,6 +2,7 @@ package oil
 
 import (
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/ValeryCherneykin/fndr/internal/mutation"
@@ -142,4 +143,36 @@ func (b *Buffer) joinUp() {
 func (b *Buffer) place(col int) {
 	b.col = col
 	b.want = charIndex(b.text(), col)
+}
+
+// Paste puts pasted text into the buffer, as Neovim does: at the cursor
+// in Insert mode, where each newline starts a new line, so a pasted list
+// of names becomes that many lines to create; after the cursor in Normal
+// mode, which it stays in, as p does; into the command line in Command
+// mode, the first line only. However long, a paste is one step for u.
+//
+// s must hold no control characters but "\n": the interface cleans what
+// the terminal sends.
+func (b *Buffer) Paste(s string) {
+	switch b.mode {
+	case Command:
+		first, _, _ := strings.Cut(s, "\n")
+		b.cmdline += first
+		return
+	case Normal:
+		b.pend = pending{} // a half-typed "d" must not take the key after the paste
+		b.startInsert("a")
+		defer func() {
+			b.insertKey("esc") // back on the last character pasted
+			b.changing = false // the paste was one command: the next edit is a new step
+		}()
+	}
+	for i, part := range strings.Split(s, "\n") {
+		if i > 0 {
+			b.split()
+		}
+		if part != "" {
+			b.typeText(part)
+		}
+	}
 }
