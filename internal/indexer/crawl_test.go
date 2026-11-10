@@ -347,3 +347,26 @@ func BenchmarkCrawl(b *testing.B) {
 	}
 	b.ReportMetric(float64(n), "entries/op")
 }
+
+// BenchmarkCrawlDir crawls a real folder, named by FNDR_BENCH_DIR, and is
+// skipped without it. BenchmarkCrawl's tree is regular and wide, a hundred
+// files to a folder; a real home has eight, and much of the time goes on
+// opening folders, which only a real tree shows. Compare runs with
+// benchstat; a whole home takes seconds a run, so use -benchtime 1x:
+//
+//	FNDR_BENCH_DIR=$HOME go test -run '^$' -bench CrawlDir -benchtime 1x -count 5 ./internal/indexer
+func BenchmarkCrawlDir(b *testing.B) {
+	root := os.Getenv("FNDR_BENCH_DIR")
+	if root == "" {
+		b.Skip("FNDR_BENCH_DIR is not set")
+	}
+	var n int
+	for b.Loop() {
+		entries, _, err := crawlAll(b, root)
+		if err != nil {
+			b.Fatal(err)
+		}
+		n = len(entries)
+	}
+	b.ReportMetric(float64(n), "entries/op")
+}
