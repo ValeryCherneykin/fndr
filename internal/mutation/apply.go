@@ -138,8 +138,7 @@ func renameAll(dir string, ops []Op) (done int, err error) {
 	for i, op := range ops {
 		temps[i] = filepath.Join(dir, ".fndr-rename-"+strconv.Itoa(os.Getpid())+"-"+strconv.Itoa(i))
 		if err := noReplace(filepath.Join(dir, op.From), temps[i]); err != nil {
-			undo(dir, ops[:i], temps)
-			return 0, fmt.Errorf("rename %q: %w", op.From, err)
+			return 0, withUndo(fmt.Errorf("rename %q: %w", op.From, err), undo(dir, ops[:i], temps))
 		}
 	}
 
@@ -150,20 +149,35 @@ func renameAll(dir string, ops []Op) (done int, err error) {
 			err = noReplace(temps[i], to)
 		}
 		if err != nil {
-			undo(dir, ops[i:], temps[i:])
-			return i, fmt.Errorf("rename %q to %q: %w", op.From, op.To, err)
+			return i, withUndo(fmt.Errorf("rename %q to %q: %w", op.From, op.To, err), undo(dir, ops[i:], temps[i:]))
 		}
 	}
 	return len(ops), nil
 }
 
-// undo moves items from their temporary names back to their old ones.
-// It is best effort: it runs after a failure, and its own errors cannot be
-// reported better than the first one.
-func undo(dir string, ops []Op, temps []string) {
+// undo moves items from their temporary names back to their old ones. An
+// item it cannot move back stays where it is, and the error names it: the
+// temporary name is hidden, and a file the user cannot see is a file lost.
+func undo(dir string, ops []Op, temps []string) error {
+	var left []string
 	for i, op := range ops {
-		_ = noReplace(temps[i], filepath.Join(dir, op.From)) //nolint:errcheck // see above
+		if noReplace(temps[i], filepath.Join(dir, op.From)) != nil {
+			left = append(left, fmt.Sprintf("%q is left as %q", op.From, filepath.Base(temps[i])))
+		}
 	}
+	if len(left) == 0 {
+		return nil
+	}
+	// One line, unlike errors.Join: it is read in a status bar.
+	return errors.New(strings.Join(left, ", "))
+}
+
+// withUndo adds to err what undo could not put back, if anything.
+func withUndo(err, undoErr error) error {
+	if undoErr == nil {
+		return err
+	}
+	return fmt.Errorf("%w; %w", err, undoErr)
 }
 
 // noReplace renames from to to, refusing if to exists. os.Rename alone

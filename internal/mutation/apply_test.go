@@ -236,3 +236,19 @@ func BenchmarkCheck(b *testing.B) {
 		}
 	}
 }
+
+// TestUndoNamesWhatItLeaves: an item that cannot go back to its old name
+// (something took it meanwhile) stays under its temporary one, which is
+// hidden, so the error must say where it is: a file the user cannot see is
+// a file lost.
+func TestUndoNamesWhatItLeaves(t *testing.T) {
+	dir := tree(t, ".fndr-rename-1-0", ".fndr-rename-1-1", "b")
+	temps := []string{filepath.Join(dir, ".fndr-rename-1-0"), filepath.Join(dir, ".fndr-rename-1-1")}
+	err := undo(dir, []Op{{From: "a"}, {From: "b"}}, temps) // b is taken
+	if err == nil || !strings.Contains(err.Error(), `"b" is left as ".fndr-rename-1-1"`) {
+		t.Errorf("err %v; want it to name where b is", err)
+	}
+	if got := ls(t, dir); !slices.Equal(got, []string{".fndr-rename-1-1", "a", "b"}) {
+		t.Errorf("folder holds %q: want a back, b's temporary name kept", got)
+	}
+}
