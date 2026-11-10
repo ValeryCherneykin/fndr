@@ -78,8 +78,10 @@ type Plan []Op
 // Diff returns the plan that turns items into lines.
 func Diff(items []Item, lines []Line) (Plan, error) {
 	byID := make(map[int]string, len(items))
+	shown := make(map[int]string, len(items)) // the line as the buffer was filled
 	for _, it := range items {
 		byID[it.ID] = strings.TrimSuffix(it.Name, "/")
+		shown[it.ID] = it.Name
 	}
 
 	var renames, creates Plan
@@ -87,6 +89,19 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 	taken := map[string]int{} // final name → the line that claims it
 	for i, l := range lines {
 		n := i + 1
+		if name, ok := shown[l.ID]; ok && l.Text == name && !seen[l.ID] {
+			// Untouched: the entry stays as it is, whatever its name. What
+			// follows cleans what the user typed, and would rename "notes "
+			// to "notes", or macOS's "Icon\r" (a folder's custom icon) to
+			// "Icon", or read a file named " " as a blank line, to delete.
+			seen[l.ID] = true
+			old := byID[l.ID]
+			if prev, dup := taken[old]; dup {
+				return nil, &LineError{Line: n, Err: fmt.Errorf("%w: %q, as on line %d", ErrConflict, old, prev)}
+			}
+			taken[old] = n
+			continue
+		}
 		text := strings.TrimSpace(l.Text)
 		if text == "" {
 			continue // a blank line is just spacing, as in any editor

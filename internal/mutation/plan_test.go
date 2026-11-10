@@ -2,7 +2,9 @@ package mutation
 
 import (
 	"errors"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -86,4 +88,59 @@ func TestDiffRefuses(t *testing.T) {
 			t.Errorf("%s: %v, want %v on line %d", tt.name, err, tt.want, tt.line)
 		}
 	}
+}
+
+// TestDiffOddNamesStayPut: a line left as it was filled is no change,
+// whatever the name. Trimming is for what the user types: a name on disk
+// with spaces at its ends, or macOS's "Icon\r" (a folder's custom icon),
+// must not be renamed, nor " " trashed as a blank line, because another
+// line was edited.
+func TestDiffOddNamesStayPut(t *testing.T) {
+	items := []Item{{1, "Icon\r"}, {2, "notes "}, {3, " "}, {4, " lead/"}, {5, "ok"}}
+	lines := []Line{{1, "Icon\r"}, {2, "notes "}, {3, " "}, {4, " lead/"}, {5, "ok2"}}
+	p, err := Diff(items, lines)
+	want := Plan{{Kind: OpRename, From: "ok", To: "ok2"}}
+	if err != nil || !slices.Equal(p, want) {
+		t.Errorf("plan %v, err %v; want only %v", p, err, want)
+	}
+	// Typed onto, such a name is cleaned like any other.
+	p, err = Diff(items[1:2], []Line{{2, "notes 2 "}})
+	if want := (Plan{{Kind: OpRename, From: "notes ", To: "notes 2"}}); err != nil || !slices.Equal(p, want) {
+		t.Errorf("plan %v, err %v; want %v", p, err, want)
+	}
+	// And a typed name may not take an untouched one.
+	if _, err = Diff(items[4:], []Line{{5, "ok"}, {0, "ok"}}); !errors.Is(err, ErrConflict) {
+		t.Errorf("err %v, want ErrConflict", err)
+	}
+}
+
+// FuzzDiff: for any names on disk and anything typed, a buffer left as
+// it was filled is no change, and editing one line never touches the
+// other, nor names anything outside the folder.
+func FuzzDiff(f *testing.F) {
+	f.Add("a", "b/", "c")
+	f.Add("Icon\r", "notes ", " ")
+	f.Add(" ", "..", "../x")
+	f.Fuzz(func(t *testing.T, a, b, typed string) {
+		if a == b || strings.TrimSuffix(a, "/") == strings.TrimSuffix(b, "/") || a == "" || b == "" {
+			return // names in one folder are unique and never empty
+		}
+		items := []Item{{1, a}, {2, b}}
+		p, err := Diff(items, []Line{{1, a}, {2, b}})
+		if err != nil || len(p) != 0 {
+			t.Fatalf("untouched: plan %v, err %v", p, err)
+		}
+		p, err = Diff(items, []Line{{1, a}, {2, typed}})
+		if err != nil {
+			return
+		}
+		for _, op := range p {
+			if op.From == strings.TrimSuffix(a, "/") {
+				t.Fatalf("editing line 2 changed line 1: %v", p)
+			}
+			if op.To != "" && !filepath.IsLocal(filepath.Clean(op.To)) {
+				t.Fatalf("%q leaves the folder: %v", op.To, p)
+			}
+		}
+	})
 }
