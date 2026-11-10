@@ -136,7 +136,7 @@ func TestRefreshKeepsPickedRow(t *testing.T) {
 	m := testModel(t, "/r/a/notes.md", "/r/b/notes-old.md")
 	typeText(m, "notes")
 	best := m.selectedPath()
-	m.ix.Add([]indexer.Entry{indexer.NewEntry("/r/notes", 0, 0, false)})
+	m.local.ix.Add([]indexer.Entry{indexer.NewEntry("/r/notes", 0, 0, false)})
 	send(m, m.search()()) // what the crawl's next batch does
 	if got := m.selectedPath(); got == best {
 		t.Errorf("untouched selection stayed on %s; want the new best match", got)
@@ -144,7 +144,7 @@ func TestRefreshKeepsPickedRow(t *testing.T) {
 
 	key(m, tea.KeyDown, 0)
 	picked := m.selectedPath()
-	m.ix.Add([]indexer.Entry{indexer.NewEntry("/r/c/notes", 0, 0, false)})
+	m.local.ix.Add([]indexer.Entry{indexer.NewEntry("/r/c/notes", 0, 0, false)})
 	send(m, m.search()())
 	if got := m.selectedPath(); got != picked {
 		t.Errorf("selection slid from %s to %s under the user", picked, got)
@@ -273,8 +273,8 @@ func TestStaleSearchIsDropped(t *testing.T) {
 // running: a file indexed after the search started must still appear.
 func TestIndexGrowthRefreshesResults(t *testing.T) {
 	m := testModel(t, "/r/a.go")
-	m.crawling = true
-	m.crawl = finishedStream(indexer.Stats{Entries: 2, Skipped: 1})
+	m.local.crawling = true
+	m.local.stream = finishedStream(indexer.Stats{Entries: 2, Skipped: 1})
 	typeText(m, "b")
 	if len(m.results) != 0 {
 		t.Fatalf("results = %q before b.go is indexed", m.resultPaths())
@@ -284,8 +284,8 @@ func TestIndexGrowthRefreshesResults(t *testing.T) {
 	if got := m.resultPaths(); len(got) != 1 || got[0] != "/r/b.go" {
 		t.Errorf("results = %q after indexing b.go, want it found", got)
 	}
-	if m.crawling || m.skipped != 1 {
-		t.Errorf("crawling=%v skipped=%d, want the crawl reported finished with 1 skipped", m.crawling, m.skipped)
+	if m.local.crawling || m.local.skipped != 1 {
+		t.Errorf("crawling=%v skipped=%d, want the crawl reported finished with 1 skipped", m.local.crawling, m.local.skipped)
 	}
 }
 
@@ -310,7 +310,7 @@ func TestViewFillsScreenExactly(t *testing.T) {
 		"results":       func(m *Model) { typeText(m, "go") },
 		"no matches":    func(m *Model) { typeText(m, "zzz") },
 		"long query":    func(m *Model) { typeText(m, strings.Repeat("g", 300)) },
-		"while crawled": func(m *Model) { m.crawling = true; m.skipped = 3 },
+		"while crawled": func(m *Model) { m.local.crawling = true; m.local.skipped = 3 },
 		"long notice":   func(m *Model) { m.setNotice(strings.Repeat("cannot open ", 30), true) },
 	}
 	for name, setup := range states {
@@ -334,7 +334,7 @@ func TestViewFillsScreenExactly(t *testing.T) {
 
 func TestStatusBarIsHonest(t *testing.T) {
 	m := testModel(t, "/r/a.go", "/r/b.go")
-	m.skipped = 2
+	m.local.skipped = 2
 	typeText(m, "a")
 
 	status := ansi.Strip(m.viewStatus())

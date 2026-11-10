@@ -130,7 +130,7 @@ func renameEntry(dir string, op mutation.Op, prune *indexer.Prune) tea.Cmd {
 // and the entry is selected, so it is in sight whatever the old query was:
 // a renamed file must never vanish behind a filter.
 func (m *Model) renamed(msg *renamedMsg) tea.Cmd {
-	m.ix.Update(msg.remove, msg.add)
+	m.local.ix.Update(msg.remove, msg.add)
 	if msg.err != nil {
 		m.rename.applying = false // stay: the path is there to fix
 		m.setNotice(msg.err.Error(), true)

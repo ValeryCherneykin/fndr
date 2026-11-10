@@ -27,6 +27,24 @@ type (
 	}
 )
 
+// scope is a tree to search: the index of everything below root, and the
+// crawl that fills it. LOCAL search is the scope of the folder fndr is in,
+// narrowed to cwd.
+type scope struct {
+	root string
+	ix   *indexer.Index
+
+	// Every crawl gets a new gen, from one counter for the whole model, and
+	// a message of the crawl names it: a batch of a crawl replaced since,
+	// or of another scope's, cannot leak into this index.
+	gen      int
+	stop     context.CancelFunc
+	stream   *crawlStream
+	crawling bool
+	skipped  int   // paths the crawl could not read
+	err      error // why the crawl failed, if it did
+}
+
 // crawlStream connects the crawl goroutine to the UI. Batches are pulled one
 // at a time by a command, the standard Bubble Tea way to consume a channel:
 // each batchMsg schedules the read of the next one.
@@ -36,17 +54,26 @@ type crawlStream struct {
 	done    chan crawlDoneMsg
 }
 
-// startCrawl stops any running crawl and starts one over a fresh index
-// rooted at m.root.
-func (m *Model) startCrawl() tea.Cmd {
-	if m.crawlStop != nil {
-		m.crawlStop()
+// startCrawl stops any crawl running for s and starts one filling s.ix,
+// which the caller has made fresh.
+func (m *Model) startCrawl(s *scope) tea.Cmd {
+	if s.stop != nil {
+		s.stop()
 	}
 	m.crawlGen++
 	ctx, stop := context.WithCancel(m.ctx)
-	m.crawlStop = stop
-	m.crawling, m.skipped, m.crawlErr = true, 0, nil
-	return runCrawl(ctx, m.crawlGen, m.root, m.prune)
+	s.gen, s.stop, s.stream = m.crawlGen, stop, nil
+	s.crawling, s.skipped, s.err = true, 0, nil
+	return runCrawl(ctx, s.gen, s.root, m.prune)
+}
+
+// crawled returns the scope whose current crawl is gen, or nil if that
+// crawl has been replaced.
+func (m *Model) crawled(gen int) *scope {
+	if m.local.gen == gen {
+		return m.local
+	}
+	return nil
 }
 
 // runCrawl launches indexer.Crawl in its own goroutine. A small buffer lets
@@ -72,20 +99,22 @@ func runCrawl(ctx context.Context, gen int, root string, prune *indexer.Prune) t
 // crawlStarted starts pulling batches from a new crawl, unless another one
 // has replaced it before it started; that one's context is canceled.
 func (m *Model) crawlStarted(msg *crawlStartedMsg) tea.Cmd {
-	if msg.stream.gen != m.crawlGen {
+	s := m.crawled(msg.stream.gen)
+	if s == nil {
 		return nil
 	}
-	m.crawl = msg.stream
-	return m.crawl.next()
+	s.stream = msg.stream
+	return s.stream.next()
 }
 
 // batch adds a batch of the crawl to the index and asks for the next one.
 func (m *Model) batch(msg *batchMsg) tea.Cmd {
-	if msg.gen != m.crawlGen {
+	s := m.crawled(msg.gen)
+	if s == nil {
 		return nil
 	}
-	m.ix.Add(msg.entries)
-	cmd := m.crawl.next()
+	s.ix.Add(msg.entries)
+	cmd := s.stream.next()
 	// Refresh results as the index grows, but never queue searches: if one
 	// is running, its reply triggers the next (see searched).
 	if m.query != "" && !m.searching {
@@ -96,13 +125,14 @@ func (m *Model) batch(msg *batchMsg) tea.Cmd {
 
 // crawlDone records how the crawl ended and searches the complete index.
 func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
-	if msg.gen != m.crawlGen {
+	s := m.crawled(msg.gen)
+	if s == nil {
 		return nil
 	}
-	m.crawling = false
-	m.skipped = msg.stats.Skipped
+	s.crawling = false
+	s.skipped = msg.stats.Skipped
 	if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
-		m.crawlErr = msg.err
+		s.err = msg.err
 	}
 	if m.query != "" && !m.searching {
 		return m.search()

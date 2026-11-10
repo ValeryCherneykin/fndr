@@ -251,7 +251,7 @@ func exists(path string) bool {
 
 // indexed reports whether the index holds path.
 func (m *Model) indexed(path string) bool {
-	for _, e := range m.ix.Snapshot() {
+	for _, e := range m.local.ix.Snapshot() {
 		if e.Path == path {
 			return true
 		}

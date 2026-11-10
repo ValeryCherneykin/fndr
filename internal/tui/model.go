@@ -23,14 +23,15 @@ const promptWidth = 3
 // only reads it, which is what makes the interface testable without a
 // terminal: feed messages to Update, inspect the result.
 type Model struct {
-	root   string         // directory the index covers: where the current crawl started
 	start  string         // directory fndr started in, where _ goes back to in OIL
-	cwd    string         // directory shown and searched (LOCAL scope); always at or below root
+	cwd    string         // directory shown and searched (LOCAL); always at or below local.root
 	home   string         // $HOME, shown as "~"
 	prune  *indexer.Prune // what the crawl lists without going in
 	editor string         // editor command line; empty means $VISUAL, $EDITOR, then a fallback
 
-	ix *indexer.Index
+	// local is what LOCAL search runs on: the index of the folder fndr
+	// started in, or of wherever the user went that it does not cover.
+	local *scope
 
 	// hist is what fndr has learned about where the user goes: entered
 	// folders, opened files, jumps. nil when it could not be opened; fndr
@@ -45,15 +46,8 @@ type Model struct {
 	ctx  context.Context
 	stop context.CancelFunc
 
-	// The crawl is restarted when the user goes above root. Every crawl gets
-	// a new gen, and messages from an older one are dropped, so a batch that
-	// was already on its way cannot leak into the new index.
-	crawlGen  int
-	crawlStop context.CancelFunc
-	crawl     *crawlStream
-	crawling  bool
-	skipped   int
-	crawlErr  error
+	// crawlGen numbers the crawls of every scope (see scope.gen).
+	crawlGen int
 
 	// With an empty query the list shows cwd's contents (browse); otherwise
 	// search results. listing is nil until the directory has been read.
@@ -125,7 +119,7 @@ type Model struct {
 func New(root string) *Model {
 	home, _ := os.UserHomeDir() // best effort: without it paths just are not shortened
 	m := newModel(root, home, &indexer.Index{})
-	m.crawling = true // Init starts it
+	m.local.crawling = true // Init starts it
 	m.graphics, m.tmux = detectGraphics(os.Getenv)
 
 	hist, err := openHistory()
@@ -140,7 +134,11 @@ func New(root string) *Model {
 // so tests can control exactly what is indexed.
 func newModel(root, home string, ix *indexer.Index) *Model {
 	ctx, stop := context.WithCancel(context.Background())
-	return &Model{root: root, cwd: root, start: root, home: home, prune: indexer.DefaultPrune(home), ix: ix, ctx: ctx, stop: stop}
+	return &Model{
+		cwd: root, start: root, home: home, prune: indexer.DefaultPrune(home),
+		local: &scope{root: root, ix: ix},
+		ctx:   ctx, stop: stop,
+	}
 }
 
 // Init reads the starting directory and starts the crawl.
@@ -149,10 +147,10 @@ func (m *Model) Init() tea.Cmd {
 	if m.graphics && m.tmux {
 		passthrough = allowPassthrough
 	}
-	if !m.crawling {
+	if !m.local.crawling {
 		return tea.Batch(m.load(m.cwd), passthrough)
 	}
-	return tea.Batch(m.load(m.cwd), m.startCrawl(), passthrough)
+	return tea.Batch(m.load(m.cwd), m.startCrawl(m.local), passthrough)
 }
 
 // Update applies one event to the model. After every event the preview pane

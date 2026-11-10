@@ -159,16 +159,16 @@ func TestUpAboveRootRecrawls(t *testing.T) {
 	oldGen := m.crawlGen
 
 	key(m, tea.KeyBackspace, 0)
-	if m.root != root || m.cwd != root {
-		t.Fatalf("root=%q cwd=%q, want both %q", m.root, m.cwd, root)
+	if m.local.root != root || m.cwd != root {
+		t.Fatalf("root=%q cwd=%q, want both %q", m.local.root, m.cwd, root)
 	}
-	if m.crawling || m.ix.Len() != 5 { // README.md docs src src/main.go src/util.go; .git is skipped
-		t.Errorf("crawling=%v indexed=%d, want the new crawl finished with 5 entries", m.crawling, m.ix.Len())
+	if m.local.crawling || m.local.ix.Len() != 5 { // README.md docs src src/main.go src/util.go; .git is skipped
+		t.Errorf("crawling=%v indexed=%d, want the new crawl finished with 5 entries", m.local.crawling, m.local.ix.Len())
 	}
 
 	send(m, batchMsg{gen: oldGen, entries: []indexer.Entry{indexer.NewEntry("/stale", 0, 0, false)}})
-	if m.ix.Len() != 5 {
-		t.Errorf("a batch from the old crawl changed the index: %d entries", m.ix.Len())
+	if m.local.ix.Len() != 5 {
+		t.Errorf("a batch from the old crawl changed the index: %d entries", m.local.ix.Len())
 	}
 }
 
@@ -178,7 +178,7 @@ func TestActivateFileOpens(t *testing.T) {
 	if cmd := m.activate(); cmd == nil {
 		t.Error("enter on a file returned no command")
 	}
-	if m.cwd != m.root {
+	if m.cwd != m.local.root {
 		t.Error("enter on a file changed the folder")
 	}
 }
@@ -241,8 +241,8 @@ func TestIntoPrunedFolderRecrawls(t *testing.T) {
 	if err := os.WriteFile(ci, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	m.ix = &indexer.Index{} // index the tree again, the way fndr does: pruned
-	run(m, m.startCrawl())
+	m.local.ix = &indexer.Index{} // index the tree again, the way fndr does: pruned
+	run(m, m.startCrawl(m.local))
 	if !m.indexed(filepath.Join(root, ".github")) || m.indexed(ci) {
 		t.Fatal("want .github listed and not entered: nothing to test")
 	}

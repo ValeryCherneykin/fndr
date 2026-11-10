@@ -108,17 +108,18 @@ func (m *Model) viewStatus() string {
 	avail := m.width - ansi.StringWidth(mode) - 2
 
 	var right []string
-	if m.crawlErr != nil {
-		right = append(right, stBarErr.Render(safeText(m.crawlErr.Error())))
+	s := m.local
+	if s.err != nil {
+		right = append(right, stBarErr.Render(safeText(s.err.Error())))
 	}
-	if m.skipped > 0 {
-		right = append(right, stBarWarn.Render(fmt.Sprintf("%d unreadable", m.skipped)))
+	if s.skipped > 0 {
+		right = append(right, stBarWarn.Render(fmt.Sprintf("%d unreadable", s.skipped)))
 	}
-	count := humanCount(m.ix.Len())
+	count := humanCount(s.ix.Len())
 	if m.query != "" {
 		count = humanCount(m.total) + "/" + count
 	}
-	if m.crawling {
+	if s.crawling {
 		count = "indexing " + count
 	}
 	if m.rename != nil {

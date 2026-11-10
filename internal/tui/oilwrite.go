@@ -67,7 +67,7 @@ func (m *Model) confirmKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "y":
 		st.applying = true
-		return applyPlan(st.dir, st.plan, st.quitAfter, m.ix.Snapshot(), m.prune)
+		return applyPlan(st.dir, st.plan, st.quitAfter, m.local.ix.Snapshot(), m.prune)
 	case "n", "esc", "q":
 		st.plan = nil
 	}
@@ -164,7 +164,7 @@ func tree(path string, prune *indexer.Prune) []indexer.Entry {
 // oilWritten takes in a plan carried out: the index learns the changes,
 // the status bar says what happened, and the folder is read again.
 func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
-	m.ix.Update(msg.remove, msg.add)
+	m.local.ix.Update(msg.remove, msg.add)
 	st, reveal := m.oil, revealName(msg.done)
 	if msg.err != nil {
 		m.setNotice(fmt.Sprintf("%d of %d done: %v", len(msg.done), len(st.plan), msg.err), true)

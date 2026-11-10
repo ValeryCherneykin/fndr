@@ -156,9 +156,9 @@ func (m *Model) chdir(dir, reveal string) tea.Cmd {
 	m.search()              // cancels any search in flight and shows the (empty) listing
 
 	cmds := []tea.Cmd{m.load(dir)}
-	if !within(dir, m.root) || m.prunedOnTheWay(dir) {
-		m.root, m.ix = dir, &indexer.Index{}
-		cmds = append(cmds, m.startCrawl())
+	if !within(dir, m.local.root) || m.prunedOnTheWay(dir) {
+		m.local.root, m.local.ix = dir, &indexer.Index{}
+		cmds = append(cmds, m.startCrawl(m.local))
 	}
 	return tea.Batch(cmds...)
 }
@@ -166,11 +166,11 @@ func (m *Model) chdir(dir, reveal string) tea.Cmd {
 // prunedOnTheWay reports whether the way from root down to dir, which lies
 // below it, goes through a folder the crawl did not enter.
 func (m *Model) prunedOnTheWay(dir string) bool {
-	rel, err := filepath.Rel(m.root, dir)
+	rel, err := filepath.Rel(m.local.root, dir)
 	if err != nil || rel == "." {
 		return false
 	}
-	p := m.root
+	p := m.local.root
 	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
 		p = filepath.Join(p, part)
 		if m.prune.Prunes(p, part) {
