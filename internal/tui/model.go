@@ -187,7 +187,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// included, become one space; other control characters, such as
 		// the ESC of an escape sequence, are dropped: the line is printed.
 		text := strings.Join(strings.Fields(dropControls(msg.Content)), " ")
-		cmd := m.insert(text)
+		l := m.queryLine()
+		l.insert(text)
+		cmd := m.setQueryLine(l)
 		return m, cmd
 
 	case crawlStartedMsg:

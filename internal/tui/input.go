@@ -7,51 +7,67 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// The query line is a small line editor. m.qpos is the text cursor: a byte
-// offset into m.query, always on a rune boundary, so a Cyrillic or CJK
-// character is stepped over and erased whole, never split in half.
+// textLine is a one-line editor: the query, and the path ctrl+r edits. pos
+// is the text cursor, a byte offset into text, always on a rune boundary,
+// so a Cyrillic or CJK character is stepped over and erased whole, never
+// split in half.
 //
-// Every edit goes through edit, which puts the cursor between the text
-// before and after it, so no edit can leave the cursor out of place.
+// It is a plain value that knows nothing of searching: the query runs a
+// search after each edit, the rename line does not, and both edit the same
+// way because they share this code.
+type textLine struct {
+	text string
+	pos  int
+}
 
-// edit sets the query to before+after with the cursor between them.
-func (m *Model) edit(before, after string) tea.Cmd {
-	cmd := m.setQuery(before + after)
-	m.qpos = len(before)
-	return cmd
+// key applies an editing key and reports whether k was one: the arrows
+// and their held-ctrl pair (h and l, as in Vim), backspace, the shell's
+// erase chords (ctrl+w the word before the cursor, ctrl+u everything
+// before it), and printable text. Ctrl and Alt chords are never text.
+func (l *textLine) key(msg tea.KeyPressMsg) bool {
+	before, after := l.text[:l.pos], l.text[l.pos:]
+	switch msg.String() {
+	case "left", "ctrl+h":
+		_, size := utf8.DecodeLastRuneInString(before)
+		l.pos -= size // size is 0 at the start of the line
+	case "right", "ctrl+l":
+		_, size := utf8.DecodeRuneInString(after)
+		l.pos += size // size is 0 at the end of the line
+	case "backspace":
+		_, size := utf8.DecodeLastRuneInString(before)
+		l.set(before[:len(before)-size], after)
+	case "ctrl+w":
+		l.set(deleteLastWord(before), after)
+	case "ctrl+u":
+		l.set("", after)
+	default:
+		if msg.Text == "" || msg.Mod&(tea.ModCtrl|tea.ModAlt) != 0 {
+			return false
+		}
+		l.insert(msg.Text)
+	}
+	return true
 }
 
 // insert types s at the cursor.
-func (m *Model) insert(s string) tea.Cmd {
-	return m.edit(m.query[:m.qpos]+s, m.query[m.qpos:])
+func (l *textLine) insert(s string) {
+	l.set(l.text[:l.pos]+s, l.text[l.pos:])
 }
 
-// backspace erases the character before the cursor.
-func (m *Model) backspace() tea.Cmd {
-	_, size := utf8.DecodeLastRuneInString(m.query[:m.qpos])
-	return m.edit(m.query[:m.qpos-size], m.query[m.qpos:])
+// set makes the line before+after with the cursor between them. Every
+// edit goes through it, so no edit can leave the cursor out of place.
+func (l *textLine) set(before, after string) {
+	l.text, l.pos = before+after, len(before)
 }
 
-// editKey applies the shell's erase chords: ctrl+w the word before the
-// cursor, ctrl+u everything before it.
-func (m *Model) editKey(k string) tea.Cmd {
-	before := ""
-	if k == "ctrl+w" {
-		before = deleteLastWord(m.query[:m.qpos])
-	}
-	return m.edit(before, m.query[m.qpos:])
-}
+// queryLine is the query as a line to edit.
+func (m *Model) queryLine() textLine { return textLine{m.query, m.qpos} }
 
-// cursorLeft moves the cursor one character left, staying put at the start.
-func (m *Model) cursorLeft() {
-	_, size := utf8.DecodeLastRuneInString(m.query[:m.qpos])
-	m.qpos -= size // size is 0 at the start of the line
-}
-
-// cursorRight moves the cursor one character right, staying put at the end.
-func (m *Model) cursorRight() {
-	_, size := utf8.DecodeRuneInString(m.query[m.qpos:])
-	m.qpos += size // size is 0 at the end of the line
+// setQueryLine makes l the query, searching if its text changed.
+func (m *Model) setQueryLine(l textLine) tea.Cmd {
+	cmd := m.setQuery(l.text)
+	m.qpos = l.pos
+	return cmd
 }
 
 // deleteLastWord implements ctrl+w as in a shell: drop trailing spaces, then

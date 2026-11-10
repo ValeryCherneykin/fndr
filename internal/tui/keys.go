@@ -42,14 +42,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+o":
 		return m, loadOil(m.cwd, false, "")
 
-	// Arrows left and right belong to the text, as in any input field; the
-	// held-ctrl pair is the same with hands on the home row, h and l as in
-	// Vim. Folders are entered with Enter and left with "-" or backspace.
-	case "left", "ctrl+h":
-		m.cursorLeft()
-	case "right", "ctrl+l":
-		m.cursorRight()
-
 	case "up", "ctrl+p":
 		m.move(-1)
 	case "down", "ctrl+n":
@@ -63,34 +55,22 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "end":
 		m.move(len(m.results))
 
-	case "backspace":
-		if m.query == "" {
-			// Nothing left to erase: backspace steps back out of the folder.
-			cmd := m.up()
-			return m, cmd
-		}
-		cmd := m.backspace()
-		return m, cmd
-	case "ctrl+w", "ctrl+u":
-		cmd := m.editKey(msg.String())
-		return m, cmd
-
-	case "-":
-		// As in Oil.nvim: "-" goes up a folder, but only with nothing typed;
-		// in a query it is just a character ("vless-tun").
+	case "backspace", "-":
+		// With nothing typed, both step back out of the folder: backspace
+		// has nothing left to erase, and "-" goes up as in Oil.nvim. In a
+		// query they edit it ("vless-tun").
 		if m.query == "" {
 			cmd := m.up()
 			return m, cmd
 		}
-		cmd := m.insert("-")
-		return m, cmd
+	}
 
-	default:
-		// Printable input. Ctrl and Alt chords are commands, never text.
-		if msg.Text != "" && msg.Mod&(tea.ModCtrl|tea.ModAlt) == 0 {
-			cmd := m.insert(msg.Text)
-			return m, cmd
-		}
+	// The rest edits the query. The arrows left and right belong to the
+	// text, as in any input field; folders are entered with Enter and left
+	// with "-" or backspace.
+	if l := m.queryLine(); l.key(msg) {
+		cmd := m.setQueryLine(l)
+		return m, cmd
 	}
 	return m, nil
 }
