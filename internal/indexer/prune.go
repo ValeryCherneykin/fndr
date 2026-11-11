@@ -1,10 +1,18 @@
 package indexer
 
 import (
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
+
+// pruneVersion is bumped whenever the rules by name change (junkNames,
+// bundleExts, how .gitignore is read): an index saved under the old ones
+// may lack what they no longer leave out.
+const pruneVersion = 1
 
 // Prune says which folders a crawl lists but does not go into. On the
 // author's home, caches, package stores and app internals were 80% of the
@@ -68,6 +76,15 @@ func DefaultPrune(home string) *Prune {
 		p.paths[filepath.Clean(mc)] = true
 	}
 	return p
+}
+
+// Rules describes what p leaves out, so a saved index can tell whether it
+// was crawled under the rules of now (see Saved.Rules).
+func (p *Prune) Rules() string {
+	if p == nil {
+		return "none"
+	}
+	return fmt.Sprintf("v%d gitignore=%t %q", pruneVersion, p.gitignore, slices.Sorted(maps.Keys(p.paths)))
 }
 
 // Reaches reports whether a crawl from root goes into dir, at or below it:
