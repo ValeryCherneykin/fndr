@@ -3,6 +3,8 @@ package mutation
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -145,6 +147,20 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 			renames = append(renames, op)
 		}
 	}
+
+	// A new folder that another name of the plan goes through ("a/" with
+	// "a/b.txt", or a rename to "a/x") is made on the way to that name.
+	// Created again, it would be found there and stop Apply halfway, or
+	// not, depending on the order of the lines.
+	through := map[string]bool{}
+	for _, op := range slices.Concat(renames, creates) {
+		for d := filepath.Dir(filepath.Clean(op.To)); d != "."; d = filepath.Dir(d) {
+			through[d] = true
+		}
+	}
+	creates = slices.DeleteFunc(creates, func(op Op) bool {
+		return strings.HasSuffix(op.To, "/") && through[filepath.Clean(op.To)]
+	})
 
 	// Whatever has no line left is deleted, in the folder's order.
 	var deletes Plan

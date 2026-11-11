@@ -46,6 +46,15 @@ func TestDiff(t *testing.T) {
 			Plan{{Kind: OpDelete, From: "main.go"}, {Kind: OpRename, From: "README.md", To: "main.go"}}},
 		{"a swap is allowed: Apply does it in two phases", []Line{{1, "src/"}, {2, "README.md"}, {3, "main.go"}},
 			Plan{{Kind: OpRename, From: "main.go", To: "README.md"}, {Kind: OpRename, From: "README.md", To: "main.go"}}},
+		// A folder another line goes through is made on the way: created as
+		// well, it would be found there and stop Apply halfway, or not,
+		// depending on which line came first.
+		{"a folder made on the way, after", append(untouched(), Line{0, "docs/a.md"}, Line{0, "docs/"}),
+			Plan{{Kind: OpCreate, To: "docs/a.md"}}},
+		{"a folder made on the way, before", append(untouched(), Line{0, "docs/"}, Line{0, "docs/a/b.md"}),
+			Plan{{Kind: OpCreate, To: "docs/a/b.md"}}},
+		{"a folder a rename goes into", []Line{{1, "src/"}, {2, "cmd/main.go"}, {3, "README.md"}, {0, "cmd/"}},
+			Plan{{Kind: OpRename, From: "main.go", To: "cmd/main.go"}}},
 		{"order: delete, rename, create", []Line{{0, "new.txt"}, {2, "app.go"}, {3, "README.md"}},
 			Plan{
 				{Kind: OpDelete, From: "src"},
