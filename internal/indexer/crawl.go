@@ -315,11 +315,13 @@ func (w *walker) send(batch []Entry) bool {
 	}
 }
 
-// hasFile reports whether des, a folder's listing, holds a file named name.
+// hasFile reports whether des, a folder's listing, holds a regular file
+// named name: not a link, a pipe or a device (see loadGitignore). The
+// listing knows the type, so asking costs no syscall.
 func hasFile(des []fs.DirEntry, name string) bool {
 	for _, d := range des {
 		if d.Name() == name {
-			return !d.IsDir()
+			return d.Type().IsRegular()
 		}
 	}
 	return false

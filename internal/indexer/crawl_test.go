@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"testing"
 	"testing/synctest"
+	"time"
 )
 
 // crawlAll runs Crawl the way real callers do, in its own goroutine, and
@@ -472,6 +474,43 @@ func TestCrawlGitignore(t *testing.T) {
 		if _, ok := got[not]; ok {
 			t.Errorf("%s was crawled: its folder is ignored", not)
 		}
+	}
+}
+
+// TestCrawlGitignoreOnlyAFile: a .gitignore that is a named pipe or a link
+// is not read. Opening the pipe used to wait for a writer forever: the
+// crawl never ended, and canceling it did not help.
+func TestCrawlGitignoreOnlyAFile(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pipe", "bin", "x"), "")
+	if err := syscall.Mkfifo(filepath.Join(root, "pipe", ".gitignore"), 0o600); err != nil {
+		t.Skip("no named pipes here:", err)
+	}
+	writeFile(t, filepath.Join(root, "rules"), "bin/\n")
+	writeFile(t, filepath.Join(root, "link", "bin", "x"), "")
+	if err := os.Symlink(filepath.Join(root, "rules"), filepath.Join(root, "link", ".gitignore")); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan map[string]Entry)
+	go func() {
+		entries, _, err := crawlPruned(t, root, DefaultPrune(""))
+		if err != nil {
+			t.Error(err)
+		}
+		// Reaches reads .gitignore files on its own: it must not hang either.
+		DefaultPrune("").Reaches(root, filepath.Join(root, "pipe", "bin"))
+		done <- byRel(t, root, entries)
+	}()
+	select {
+	case got := <-done:
+		for _, want := range []string{"pipe/bin/x", "link/bin/x"} {
+			if _, ok := got[want]; !ok {
+				t.Errorf("%s is missing: a .gitignore that is not a file was read", want)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still crawling after 5s: stuck opening the pipe")
 	}
 }
 

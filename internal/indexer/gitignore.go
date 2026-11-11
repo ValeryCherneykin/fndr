@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 // A project's .gitignore already names what its tools make: bin/, dist/,
@@ -46,12 +47,27 @@ type ignorePattern struct {
 
 // loadGitignore reads dir's .gitignore, or returns nil if it has none or
 // it cannot be read: a broken ignore file must not stop a crawl.
+//
+// Only a regular file is read. Opening a named pipe waits for a writer,
+// forever, out of reach of ctx: the worker, and so the crawl, would never
+// end. A link could lead to /dev/tty and read the user's keys. Git, too,
+// does not follow a .gitignore that is a link.
 func loadGitignore(dir string) *gitignore {
-	f, err := os.Open(filepath.Join(dir, ".gitignore")) //nolint:gosec // reading the user's own tree is the point
+	name := filepath.Join(dir, ".gitignore")
+	if info, err := os.Lstat(name); err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	// The file may be swapped for a pipe between the Lstat and the open:
+	// O_NONBLOCK makes opening a pipe return at once, and the Stat below
+	// turns it away.
+	f, err := os.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0) //nolint:gosec // reading the user's own tree is the point
 	if err != nil {
 		return nil
 	}
 	defer f.Close() //nolint:errcheck // read-only: Close has nothing to report
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
 	data, err := io.ReadAll(io.LimitReader(f, maxGitignore))
 	if err != nil {
 		return nil
