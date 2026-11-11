@@ -121,9 +121,16 @@ func parseTerm(p string) (term, string, error) {
 // parseSize reads 1mb, 1.5MB, 300k, 42: a number and a unit in powers of
 // 1000, bytes if none.
 func parseSize(s string) (int64, error) {
-	num := strings.TrimRight(s, "kmgtb")
+	// The number is the digits and dots it starts with, the unit the
+	// rest: in 1xb the unit is wrong, not the number. Only digits and one
+	// dot: ParseFloat alone would also take nan, inf, 1e9, 0x1p4.
+	i := len(s) - len(strings.TrimLeft(s, "0123456789."))
+	num, unit := s[:i], s[i:]
+	if num == "" || num == "." || strings.Count(num, ".") > 1 {
+		return 0, errors.New("not a size")
+	}
 	mult := 1.0
-	switch strings.TrimSuffix(s[len(num):], "b") {
+	switch strings.TrimSuffix(unit, "b") {
 	case "":
 	case "k":
 		mult = 1e3
@@ -135,10 +142,6 @@ func parseSize(s string) (int64, error) {
 		mult = 1e12
 	default:
 		return 0, errors.New("unit is one of B, KB, MB, GB, TB")
-	}
-	// Digits and one dot: ParseFloat would also take nan, inf, 1e9, 0x1p4.
-	if num == "" || strings.Trim(num, "0123456789.") != "" || strings.Count(num, ".") > 1 || num == "." {
-		return 0, errors.New("not a size")
 	}
 	f, err := strconv.ParseFloat(num, 64)
 	if err != nil || f*mult > 1<<62 {
