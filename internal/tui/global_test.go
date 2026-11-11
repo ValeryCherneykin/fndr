@@ -2,8 +2,10 @@ package tui
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -116,4 +118,52 @@ func indexed(ix *indexer.Index, path string) bool {
 		}
 	}
 	return false
+}
+
+// TestGlobalEmptyShowsHomeHabits: Tab on an empty query shows the places
+// below the home the user goes to most, marked as habits, rather than the
+// folder: GLOBAL is for getting there from anywhere. Places gone from the
+// disk, or outside the home, are not offered.
+func TestGlobalEmptyShowsHomeHabits(t *testing.T) {
+	m, home := globalModel(t)
+	withHistory(t, m)
+	now := time.Now()
+	docs, readme := filepath.Join(home, "docs"), filepath.Join(home, "README.md")
+	m.hist.Visit(docs, now)
+	m.hist.Visit(docs, now)
+	m.hist.Visit(readme, now)
+	m.hist.Visit(filepath.Join(home, "gone"), now)
+	m.hist.Visit(t.TempDir(), now) // not below the home
+
+	key(m, tea.KeyTab, 0)
+	if got, want := m.resultPaths(), []string{docs, readme}; !slices.Equal(got, want) {
+		t.Fatalf("GLOBAL, empty query: %q, want %q", got, want)
+	}
+	if !strings.Contains(ansi.Strip(m.View().Content), "docs") {
+		t.Error("the habits are not on screen")
+	}
+
+	typeText(m, "util")
+	key(m, tea.KeyBackspace, 0)
+	key(m, tea.KeyBackspace, 0)
+	key(m, tea.KeyBackspace, 0)
+	key(m, tea.KeyBackspace, 0)
+	if got := m.resultPaths(); len(got) != 2 || got[0] != docs {
+		t.Errorf("query typed and erased: %q, want the habits back", got)
+	}
+
+	key(m, tea.KeyTab, 0)
+	if got := m.resultPaths(); slices.Contains(got, docs) {
+		t.Errorf("back in LOCAL: %q, want src's own listing", got)
+	}
+}
+
+// TestGlobalEmptyWithoutHabits: nothing learned yet, GLOBAL says what to
+// do instead of showing an empty list, or the folder under a GLOBAL label.
+func TestGlobalEmptyWithoutHabits(t *testing.T) {
+	m, _ := globalModel(t)
+	key(m, tea.KeyTab, 0)
+	if len(m.results) != 0 || !strings.Contains(ansi.Strip(m.View().Content), "type to search the whole home") {
+		t.Errorf("GLOBAL with no history: %q and no hint", m.resultPaths())
+	}
 }

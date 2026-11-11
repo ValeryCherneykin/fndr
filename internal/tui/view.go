@@ -58,6 +58,10 @@ func (m *Model) viewList(b *strings.Builder) {
 
 	var hint string
 	switch {
+	case m.query == "" && m.globalOn:
+		if m.homeHabits != nil && len(m.homeHabits) == 0 {
+			hint = "type to search the whole home"
+		}
 	case m.query == "" && m.listErr != nil:
 		hint = "cannot read this folder: " + safeText(m.listErr.Error())
 	case m.query == "" && m.listing != nil && len(m.listing) == 0:
@@ -80,7 +84,7 @@ func (m *Model) viewList(b *strings.Builder) {
 
 	for i := range h {
 		if r := m.offset + i; r < len(m.results) {
-			habit := m.query == "" && r < m.habits
+			habit := m.query == "" && (m.globalOn || r < m.habits) // GLOBAL's empty query is all habits
 			b.WriteString(renderRow(&m.results[r], m.under(), w, r == m.cursor, habit, m.accent()))
 		} else {
 			b.WriteString(strings.Repeat(" ", w))

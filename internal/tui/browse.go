@@ -39,14 +39,21 @@ const habitsShown = 5
 func loadListing(dir string, habits []string) tea.Cmd {
 	return func() tea.Msg {
 		es, err := indexer.List(dir)
-		msg := listMsg{dir: dir, entries: es, err: err}
-		for _, p := range habits {
-			if info, err := os.Stat(p); err == nil {
-				msg.habits = append(msg.habits, indexer.NewEntry(p, info.Size(), info.ModTime().UnixNano(), info.IsDir()))
-			}
-		}
-		return msg
+		return listMsg{dir: dir, entries: es, err: err, habits: existing(habits)}
 	}
+}
+
+// existing returns the entries of paths that are still on the disk, in
+// order: a place deleted or moved since is simply not offered. It takes
+// the disk, so it runs in commands, not in Update.
+func existing(paths []string) []indexer.Entry {
+	var es []indexer.Entry
+	for _, p := range paths {
+		if info, err := os.Stat(p); err == nil {
+			es = append(es, indexer.NewEntry(p, info.Size(), info.ModTime().UnixNano(), info.IsDir()))
+		}
+	}
+	return es
 }
 
 // load reads dir with the habits below it.
@@ -83,8 +90,12 @@ func (m *Model) listed(msg *listMsg) {
 // showListing puts the listing on screen, selecting the folder just come
 // up from, if any: going back out lands where you went in, as in Finder.
 func (m *Model) showListing() {
-	m.results, m.total = m.listing, len(m.listing)
 	m.cursor, m.offset, m.picked = 0, 0, ""
+	if m.globalOn {
+		m.results, m.total = m.homeHabits, len(m.homeHabits)
+		return
+	}
+	m.results, m.total = m.listing, len(m.listing)
 	if m.listing == nil {
 		return // not read yet; keep reveal for when it is
 	}

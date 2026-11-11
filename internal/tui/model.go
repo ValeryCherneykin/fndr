@@ -38,6 +38,10 @@ type Model struct {
 	global   *scope
 	globalOn bool
 
+	// homeHabits is what GLOBAL shows on an empty query: the places below
+	// the home the user goes to most. nil until read.
+	homeHabits []indexer.Result
+
 	// hist is what fndr has learned about where the user goes: entered
 	// folders, opened files, jumps. nil when it could not be opened; fndr
 	// then works as before and just does not learn. boosts is its snapshot
@@ -230,6 +234,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case listMsg:
 		m.listed(&msg)
+		return m, nil
+
+	case homeHabitsMsg:
+		m.homeHabitsLoaded(&msg)
 		return m, nil
 
 	case openMsg:

@@ -65,6 +65,13 @@ func Build(path string, maxLines int) (Preview, error) {
 		return p, err
 	}
 
+	if !info.Mode().IsRegular() {
+		// A pipe, socket or device: reading it could wait forever, or read
+		// the keys meant for fndr (/dev/tty). What it is says enough.
+		p.Type = special(info.Mode())
+		return p, nil
+	}
+
 	head, err := readHead(path)
 	if err != nil {
 		return Preview{}, fmt.Errorf("preview: %w", err)
@@ -84,9 +91,22 @@ func Build(path string, maxLines int) (Preview, error) {
 	return p, nil
 }
 
+// special names a file that is not a regular one, for its card.
+func special(mode os.FileMode) string {
+	switch {
+	case mode&os.ModeNamedPipe != 0:
+		return "named pipe"
+	case mode&os.ModeSocket != 0:
+		return "socket"
+	case mode&os.ModeDevice != 0:
+		return "device"
+	}
+	return "special file"
+}
+
 // readHead reads up to readLen bytes from the start of path.
 func readHead(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := opener.OpenFile(path) // a file swapped for a pipe since the Stat is refused, not waited on
 	if err != nil {
 		return nil, err
 	}

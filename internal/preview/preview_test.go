@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func write(t *testing.T, path, content string) {
@@ -105,5 +107,28 @@ func TestTypeName(t *testing.T) {
 		if got := typeName([]byte(head)); got != want {
 			t.Errorf("typeName(%q) = %q, want %q", head, got, want)
 		}
+	}
+}
+
+// TestBuildSpecialFile: a named pipe gets a card saying what it is, at
+// once. Read like a file, it kept the preview waiting forever; a device
+// such as /dev/tty would have read the keys meant for fndr.
+func TestBuildSpecialFile(t *testing.T) {
+	pipe := filepath.Join(t.TempDir(), "pipe")
+	if err := syscall.Mkfifo(pipe, 0o600); err != nil {
+		t.Skip("no named pipes here:", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p, err := Build(pipe, 10)
+		if err != nil || p.Kind != Card || p.Type != "named pipe" {
+			t.Errorf("Build(pipe) = kind %v, type %q, err %v; want a named pipe card", p.Kind, p.Type, err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("still reading the pipe after 5s")
 	}
 }

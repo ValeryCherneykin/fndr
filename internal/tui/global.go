@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
@@ -14,6 +16,36 @@ import (
 // The home is crawled the first time GLOBAL is asked for, not at start:
 // whoever never presses Tab never pays for it. On the author's home that
 // crawl is about 0.6 s, in the background, results arriving as it goes.
+
+// With an empty query GLOBAL shows the places below the home the user
+// goes to most, as LOCAL shows the folder: what GLOBAL is for is getting
+// to them from anywhere. homeHabitsShown is a screenful.
+const homeHabitsShown = 50
+
+// homeHabitsMsg carries the places to show, those still on the disk.
+type homeHabitsMsg struct{ entries []indexer.Entry }
+
+// loadHomeHabits reads the habits again, as they are now: each Tab shows
+// where the user has gone since.
+func (m *Model) loadHomeHabits() tea.Cmd {
+	var paths []string
+	if m.hist != nil {
+		paths = m.hist.Top(m.home, homeHabitsShown, time.Now())
+	}
+	return func() tea.Msg { return homeHabitsMsg{entries: existing(paths)} }
+}
+
+// homeHabitsLoaded stores the habits, and shows them if GLOBAL's empty
+// query is still what is on screen.
+func (m *Model) homeHabitsLoaded(msg *homeHabitsMsg) {
+	m.homeHabits = make([]indexer.Result, 0, len(msg.entries)) // empty, not nil: read, and nothing there
+	for _, e := range msg.entries {
+		m.homeHabits = append(m.homeHabits, indexer.Result{Entry: e})
+	}
+	if m.globalOn && m.query == "" {
+		m.showListing()
+	}
+}
 
 // current is the scope search runs on now.
 func (m *Model) current() *scope {
@@ -43,7 +75,7 @@ func (m *Model) accent() *accent {
 // toggleGlobal switches between LOCAL and GLOBAL and searches the same
 // query again, from the top of the list.
 func (m *Model) toggleGlobal() tea.Cmd {
-	var crawl tea.Cmd
+	var crawl, habits tea.Cmd
 	switch {
 	case m.globalOn:
 		m.globalOn = false
@@ -56,9 +88,10 @@ func (m *Model) toggleGlobal() tea.Cmd {
 			m.global = &scope{root: m.home, ix: &indexer.Index{}}
 			crawl = m.startCrawl(m.global)
 		}
+		habits = m.loadHomeHabits()
 	}
 	m.cursor, m.offset, m.picked = 0, 0, ""
-	return tea.Batch(crawl, m.search())
+	return tea.Batch(crawl, habits, m.search())
 }
 
 // updateIndexes tells every scope about entries changed on the disk, so

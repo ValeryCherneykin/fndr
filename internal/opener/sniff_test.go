@@ -1,10 +1,13 @@
 package opener
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestLooksLikeText(t *testing.T) {
@@ -84,5 +87,42 @@ func TestLooksLikeProgram(t *testing.T) {
 		if got := looksLikeProgram([]byte(tt.head)); got != tt.want {
 			t.Errorf("looksLikeProgram(%q) = %v, want %v", tt.head, got, tt.want)
 		}
+	}
+}
+
+// TestOpenFileOnlyFiles: a named pipe is refused at once. Opened the usual
+// way it waits for a writer forever, and Enter on one did nothing but
+// leave a goroutine stuck. A link to a file is a file.
+func TestOpenFileOnlyFiles(t *testing.T) {
+	dir := t.TempDir()
+	pipe := filepath.Join(dir, "pipe")
+	if err := syscall.Mkfifo(pipe, 0o600); err != nil {
+		t.Skip("no named pipes here:", err)
+	}
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, []byte("hi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(file, link); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := Classify(pipe); !errors.Is(err, ErrNotFile) {
+			t.Errorf("Classify(pipe): %v, want ErrNotFile", err)
+		}
+		for _, ok := range []string{file, link} {
+			if kind, err := Classify(ok); err != nil || kind != Text {
+				t.Errorf("Classify(%s) = %v, %v; want Text", filepath.Base(ok), kind, err)
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("still opening the pipe after 5s")
 	}
 }

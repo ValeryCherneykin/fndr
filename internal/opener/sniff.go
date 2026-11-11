@@ -5,8 +5,36 @@ import (
 	"errors"
 	"io"
 	"os"
+	"syscall"
 	"unicode/utf8"
 )
+
+// ErrNotFile means the path is not a regular file: a named pipe, a socket
+// or a device. There is nothing in it to open as a document, and reading
+// one can wait forever (a pipe with no writer) or take the user's keys
+// (/dev/tty).
+var ErrNotFile = errors.New("not a regular file")
+
+// OpenFile opens path for reading if it is a regular file, or a link to
+// one. Anything else is ErrNotFile, found out without waiting: opening a
+// pipe would block until something writes to it, so it is opened
+// non-blocking and its type checked on the open file, which is also what
+// a path swapped for a pipe between a check and the open cannot dodge.
+func OpenFile(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) //nolint:gosec // opening the file the user picked is the point
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err == nil && !info.Mode().IsRegular() {
+		err = ErrNotFile // bare: callers name the file, and a path here pushes the reason off the status bar
+	}
+	if err != nil {
+		f.Close() //nolint:errcheck,gosec // read-only, and already failing
+		return nil, err
+	}
+	return f, nil
+}
 
 // sniffLen is how much of a file is read to tell text from binary. The same
 // heuristic git and grep use; 8 KiB is enough to meet a NUL byte in any
@@ -34,7 +62,7 @@ const (
 // and every extension nobody listed, and they lie. Neither is the
 // executable bit: files on FAT and exFAT drives all have it.
 func Classify(path string) (Kind, error) {
-	f, err := os.Open(path)
+	f, err := OpenFile(path)
 	if err != nil {
 		return Other, err
 	}

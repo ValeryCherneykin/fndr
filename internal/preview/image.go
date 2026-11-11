@@ -6,12 +6,13 @@ import (
 	"image"
 	"image/draw"
 	"io"
-	"os"
 
 	// Registered with image.Decode: the formats the standard library reads.
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+
+	"github.com/ValeryCherneykin/fndr/internal/opener"
 )
 
 // decodable are the fileTypes names LoadImage can decode.
@@ -42,7 +43,7 @@ func LoadImage(path string, maxSide int) (image.Image, error) {
 // decode reads the picture's size from its header first, a few bytes, and
 // decodes the pixels only if they fit in maxPixels.
 func decode(path string) (image.Image, error) {
-	f, err := os.Open(path)
+	f, err := opener.OpenFile(path)
 	if err != nil {
 		return nil, err
 	}
