@@ -232,11 +232,11 @@ noticeably slower is treated as a bug.
 - [x] **fndr learns you** — frecency for files *and* folders you visit
 - [x] Syntax highlighting and pictures in the preview
 - [x] **Search the whole home** with `Tab`, junk left out
-- [ ] **Instant start** — an on-disk index, caught up in the background
-  (FSEvents on macOS)
 - [x] Oil-style editing: rename, trash and create by editing a buffer with
   Vim keys; rename or move any search result
 - [ ] Stackable filters: `main .go >1mb @today`
+- [ ] **Instant start** — an on-disk index, caught up in the background
+  by checking which folders changed
 - [ ] Config: rebind any key, choose your editor
 - [ ] bash and fish integration
 
