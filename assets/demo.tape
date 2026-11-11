@@ -18,8 +18,9 @@ Set Theme { "name": "fndr-noir", "background": "#09090b", "foreground": "#d4d4d8
 
 # Set up off camera:
 #   - the shell function, so Ctrl+E can change directory;
-#   - a fresh, empty history (it lives in $HOME): the demo must not show,
-#     or depend on, the habits of whoever records it;
+#   - a fresh, empty history and index (they live in $HOME, unless the
+#     XDG variables move them out): the demo must not show, or depend on,
+#     the habits or files of whoever records it, nor overwrite them;
 #   - no hints of the recording machine's terminal: VHS cannot draw kitty
 #     graphics, and fndr would otherwise trust the inherited variables;
 #   - a fresh clone in a throwaway $HOME: the demo shows exactly what is on
@@ -27,7 +28,7 @@ Set Theme { "name": "fndr-noir", "background": "#09090b", "foreground": "#d4d4d8
 #     output, .DS_Store), and paths read "~/dev/fndr" for anyone;
 #   - a prompt that shows paths from "~", so no user name is ever on screen.
 Hide
-Type `unset GHOSTTY_RESOURCES_DIR KITTY_WINDOW_ID TMUX TERM_PROGRAM XDG_STATE_HOME; export PATH="$HOME/go/bin:$PATH"; D="$(cd "$(mktemp -d)" && pwd -P)"; git clone -q "$PWD" "$D/dev/fndr"; export HOME="$D"; cd ~/dev/fndr; PS1='%F{cyan}%~%f ❯ '; eval "$(fndr init zsh)"; clear`
+Type `unset GHOSTTY_RESOURCES_DIR KITTY_WINDOW_ID TMUX TERM_PROGRAM XDG_STATE_HOME XDG_CACHE_HOME; export PATH="$HOME/go/bin:$PATH"; D="$(cd "$(mktemp -d)" && pwd -P)"; git clone -q "$PWD" "$D/dev/fndr"; export HOME="$D"; cd ~/dev/fndr; PS1='%F{cyan}%~%f ❯ '; eval "$(fndr init zsh)"; clear`
 Enter
 Sleep 1s
 Show
@@ -54,7 +55,7 @@ Sleep 1.5s
 # 3. Go in, walk down to tui, go in, and jump: the shell lands there.
 Enter
 Sleep 1.2s
-Down 6
+Down 8
 Sleep 1.5s
 Enter
 Sleep 1.5s
@@ -63,7 +64,9 @@ Sleep 1.2s
 
 # 3b. Search starts in the folder you are in: README.md is above tui, so
 #     LOCAL finds nothing. Tab searches the whole home (GLOBAL, in violet)
-#     with the same query. Esc steps back: the query, GLOBAL, fndr.
+#     with the same query. With the query cleared, GLOBAL shows the places
+#     you go most: internal and tui, just visited. Esc steps back: GLOBAL,
+#     then fndr.
 Type "fndr"
 Enter
 Sleep 1s
@@ -71,8 +74,8 @@ Type "readme"
 Sleep 1.5s
 Tab
 Sleep 2.5s
-Escape
-Sleep 400ms
+Ctrl+U
+Sleep 2.5s
 Escape
 Sleep 400ms
 Escape

@@ -49,7 +49,10 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
   camelCase humps and path separators win. Matched letters are highlighted.
 - **Your whole home, one key away.** Search starts in the folder you are
   in; `Tab` widens it to everything under `~`, with the same query, and
-  back. The home is indexed the first time you ask, in the background.
+  back. With nothing typed, `Tab` shows the places you go most.
+- **Instant start.** The index of your home is kept between runs, so
+  search works the moment fndr opens. What changed while it was closed
+  is caught up in the background, reading only the folders that changed.
 - **Only what you would look for.** Caches, package stores, `node_modules`,
   hidden folders, app bundles and the folders a project's `.gitignore`
   names (`bin/`, `dist/`, `target/`) are listed, so you can find them by
@@ -191,6 +194,11 @@ noticeably slower is treated as a bug.
 - **Read folders in parallel.** A crawl is mostly waiting on the disk,
   one `lstat` per file; eight workers keep it busy where one would ask for
   a file at a time. The same home: 0.6 s down to 0.19 s.
+- **Start from where you left off.** The index is saved after every crawl
+  (sorted, front coded, about 2.5 MB for 88 thousand files) and read back
+  in about 10 ms. Then a folder whose modification time is the one saved
+  holds the same names, so only folders that changed are read again: the
+  catch-up takes 47 ms where a crawl took 230.
 - **Never block the UI.** Crawling, searching and previews all run off the UI
   goroutine. A newer keystroke cancels the older search; stale replies are
   dropped by sequence number.
@@ -222,6 +230,11 @@ noticeably slower is treated as a bug.
   under a file lock instead of the last one to exit erasing the others.
 - **Never silent.** Whatever happens (opened, refused, failed) is said in the
   status bar.
+- **Your file names stay yours.** fndr sends nothing anywhere, ever. It
+  keeps two files, readable by you only: the index of your home, which
+  lists every file name in it (`~/.cache/fndr/index`), and the places you
+  go (`~/.local/state/fndr/frecency`). Delete either at any time: the index
+  is rebuilt by the next crawl, the habits are learned again.
 
 ---
 
@@ -234,7 +247,7 @@ noticeably slower is treated as a bug.
 - [x] **Search the whole home** with `Tab`, junk left out
 - [x] Oil-style editing: rename, trash and create by editing a buffer with
   Vim keys; rename or move any search result
-- [ ] **Instant start** — an on-disk index, caught up in the background
+- [x] **Instant start** — an on-disk index, caught up in the background
   by checking which folders changed
 - [ ] Stackable filters: `main .go >1mb @today`
 - [ ] Config: rebind any key, choose your editor
