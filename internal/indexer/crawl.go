@@ -28,6 +28,10 @@ type Stats struct {
 	// Whatever was below them is missing from the index, so the UI should
 	// report this number instead of failing silently.
 	Skipped int
+
+	// Reused is the number of folders Refresh did not read again: unchanged
+	// since the crawl it refreshes, their entries came from it.
+	Reused int
 }
 
 // Crawl walks the tree below root and sends every file and directory it finds
@@ -65,7 +69,7 @@ type Stats struct {
 // On cancellation Crawl returns ctx.Err(), and Stats covers what was sent up
 // to that point.
 func Crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry) (Stats, error) {
-	return crawl(ctx, root, prune, out, crawlWorkers())
+	return crawl(ctx, root, prune, out, crawlWorkers(), nil)
 }
 
 // crawlWorkers is how many folders are read at once. The work is mostly
@@ -77,7 +81,9 @@ func crawlWorkers() int {
 	return min(max(runtime.GOMAXPROCS(0), 4), 8)
 }
 
-func crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry, workers int) (Stats, error) {
+// crawl is Crawl, or with saved, the entries of an earlier crawl of root
+// sorted by path, Refresh.
+func crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry, workers int, saved []Entry) (Stats, error) {
 	// Entries must hold absolute, cleaned paths (see Entry.Path); Abs gives
 	// both.
 	root, err := filepath.Abs(root)
@@ -99,7 +105,8 @@ func crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry, w
 
 	w := &walker{ctx: ctx, root: root, prune: prune, out: out}
 	w.cond = sync.NewCond(&w.mu)
-	w.stack = []dirJob{{dir: root}}
+	// The root itself is always read: nothing records its time (see dirJob).
+	w.stack = []dirJob{{dir: root, saved: saved}}
 
 	// Workers wait on the condition variable, which knows nothing of ctx.
 	// AfterFunc stops the walk the moment ctx is done, waking them all.
@@ -111,7 +118,7 @@ func crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry, w
 	}
 	wg.Wait()
 
-	stats := Stats{Entries: int(w.entries.Load()), Skipped: int(w.skipped.Load())}
+	stats := Stats{Entries: int(w.entries.Load()), Skipped: int(w.skipped.Load()), Reused: int(w.reused.Load())}
 	if w.err != nil {
 		return stats, w.err
 	}
@@ -139,6 +146,13 @@ func crawl(ctx context.Context, root string, prune *Prune, out chan<- []Entry, w
 type dirJob struct {
 	dir     string
 	ignores ignoreStack // the .gitignore files above dir
+
+	// For Refresh (refresh.go): what an earlier crawl found below dir,
+	// sorted, and whether it entered dir at all, with dir's modification
+	// time then and now. mod is read when the parent is, before dir is.
+	saved         []Entry
+	known         bool
+	savedMod, mod int64
 }
 
 // walker is the state of one crawl, shared by its workers.
@@ -155,7 +169,7 @@ type walker struct {
 	done  bool // nothing left to read, or the walk was stopped
 	err   error
 
-	entries, skipped atomic.Int64
+	entries, skipped, reused atomic.Int64
 }
 
 // next takes a folder to read, waiting while there is none. It returns
@@ -223,7 +237,7 @@ func (w *walker) work() {
 		if !ok {
 			break
 		}
-		subdirs, ok := w.read(j, &batch)
+		subdirs, ok := w.read(&j, &batch)
 		if !ok {
 			return // canceled: the walk is stopped, and the batch is not wanted
 		}
@@ -235,7 +249,10 @@ func (w *walker) work() {
 // read reads one folder: its entries go into batch, sent whenever it is
 // full, and its subfolders to enter are returned. It reports false if the
 // walk was canceled.
-func (w *walker) read(j dirJob, batch *[]Entry) ([]dirJob, bool) {
+func (w *walker) read(j *dirJob, batch *[]Entry) ([]dirJob, bool) {
+	if w.unchanged(j) {
+		return w.reuse(j, batch)
+	}
 	des, err := os.ReadDir(j.dir)
 	if err != nil {
 		if j.dir == w.root {
@@ -250,8 +267,12 @@ func (w *walker) read(j dirJob, batch *[]Entry) ([]dirJob, bool) {
 	// The listing tells whether the folder has a .gitignore, so a folder
 	// without one costs nothing: no file is opened to find out.
 	ignores := j.ignores
-	if w.prune != nil && w.prune.gitignore && hasFile(des, ".gitignore") {
+	hasIgnores := hasFile(des, ".gitignore")
+	if w.prune != nil && w.prune.gitignore && hasIgnores {
 		ignores = ignores.with(loadGitignore(j.dir))
+	}
+	if w.ignoresChanged(j, hasIgnores) {
+		j.saved = nil // below here, a plain crawl (see ignoresChanged)
 	}
 
 	var subdirs []dirJob
@@ -285,7 +306,7 @@ func (w *walker) read(j dirJob, batch *[]Entry) ([]dirJob, bool) {
 		}
 		// A pruned folder is listed, as above, and not entered.
 		if d.IsDir() && !w.prune.Prunes(path, d.Name()) && !ignores.ignores(path) {
-			subdirs = append(subdirs, dirJob{dir: path, ignores: ignores})
+			subdirs = append(subdirs, subJob(j, path, info.ModTime().UnixNano(), ignores))
 		}
 	}
 	return subdirs, true

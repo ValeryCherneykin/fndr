@@ -549,7 +549,7 @@ func crawlWith(tb testing.TB, root string, workers int) []Entry {
 	var err error
 	go func() {
 		defer close(out)
-		_, err = crawl(context.Background(), root, nil, out, workers)
+		_, err = crawl(context.Background(), root, nil, out, workers, nil)
 	}()
 	var all []Entry
 	for batch := range out {
@@ -638,7 +638,7 @@ func BenchmarkCrawlWorkers(b *testing.B) {
 					for range out {
 					}
 				}()
-				_, err := crawl(context.Background(), root, prune, out, workers)
+				_, err := crawl(context.Background(), root, prune, out, workers, nil)
 				close(out)
 				if err != nil {
 					b.Fatal(err)

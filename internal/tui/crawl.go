@@ -53,6 +53,13 @@ type scope struct {
 	// crawl may have read a folder before it changed.
 	next    *indexer.Index
 	changes []change
+
+	// seed is the saved index ix started from, sorted, while it is what
+	// ix holds: the crawl then only catches up with it (indexer.Refresh),
+	// reading the folders that changed. Only the home's: the saved index
+	// is a crawl of the home, and a crawl from another root sees other
+	// .gitignore files above it, so would not agree with it.
+	seed []indexer.Entry
 }
 
 // crawlStream connects the crawl goroutine to the UI. Batches are pulled one
@@ -78,7 +85,7 @@ func (m *Model) startCrawl(s *scope) tea.Cmd {
 	if s.ix.Len() > 0 {
 		s.next = &indexer.Index{}
 	}
-	return runCrawl(ctx, s.gen, s.root, m.prune)
+	return runCrawl(ctx, s.gen, s.root, m.prune, s.seed)
 }
 
 // crawled returns the scope whose current crawl is gen, or nil if that
@@ -96,7 +103,7 @@ func (m *Model) crawled(gen int) *scope {
 // the crawl run a few batches ahead of the UI instead of waiting on every
 // handoff. The goroutine always ends: Crawl returns when ctx is canceled, and
 // done has room for its one result even if nobody reads it.
-func runCrawl(ctx context.Context, gen int, root string, prune *indexer.Prune) tea.Cmd {
+func runCrawl(ctx context.Context, gen int, root string, prune *indexer.Prune, seed []indexer.Entry) tea.Cmd {
 	return func() tea.Msg {
 		s := &crawlStream{
 			gen:     gen,
@@ -104,7 +111,15 @@ func runCrawl(ctx context.Context, gen int, root string, prune *indexer.Prune) t
 			done:    make(chan crawlDoneMsg, 1),
 		}
 		go func() {
-			stats, err := indexer.Crawl(ctx, root, prune, s.batches)
+			var (
+				stats indexer.Stats
+				err   error
+			)
+			if seed != nil {
+				stats, err = indexer.Refresh(ctx, root, prune, seed, s.batches)
+			} else {
+				stats, err = indexer.Crawl(ctx, root, prune, s.batches)
+			}
 			close(s.batches)
 			s.done <- crawlDoneMsg{gen: gen, stats: stats, err: err}
 		}()
@@ -169,7 +184,7 @@ func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
 				}
 				s.next.Update(remove, c.add)
 			}
-			s.ix = s.next
+			s.ix, s.seed = s.next, nil // in crawl order now: no longer sorted
 		}
 		s.next, s.changes = nil, nil // a crawl cut short leaves the old index
 	}

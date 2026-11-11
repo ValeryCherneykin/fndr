@@ -57,6 +57,7 @@ func (m *Model) savedLoaded(msg *savedMsg) tea.Cmd {
 		m.global = &scope{root: m.home, ix: &indexer.Index{}}
 		if usable {
 			m.global.ix.Add(s.Entries)
+			m.global.seed = s.Entries
 		}
 		cmds = append(cmds, m.startCrawl(m.global))
 	}
