@@ -68,7 +68,10 @@ func find(sorted []Entry, path string) (Entry, bool) {
 // had one, not edited. Editing a .gitignore does not change its folder's
 // time, yet it decides which folders below are entered.
 func (w *walker) unchanged(j *dirJob) bool {
-	if !j.known || j.mod != j.savedMod {
+	// Nothing saved below it: an empty folder then, or one that could not
+	// be read. The second may be readable now, and making it so (chmod)
+	// does not change its time: read it. An empty listing costs little.
+	if !j.known || j.mod != j.savedMod || len(j.saved) == 0 {
 		return false
 	}
 	// The same time: no name came or went, so it has a .gitignore if it

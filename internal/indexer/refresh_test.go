@@ -44,7 +44,7 @@ func crawlSorted(tb testing.TB, root string, prune *Prune, saved []Entry) ([]Ent
 func names(es []Entry) []string {
 	out := make([]string, len(es))
 	for i, e := range es {
-		out[i] = fmt.Sprint(e.Path, e.IsDir)
+		out[i] = fmt.Sprintf("%s %t", e.Path, e.IsDir)
 	}
 	return out
 }
@@ -187,5 +187,29 @@ func TestRefreshSeesGitignoreEdits(t *testing.T) {
 	got, _ := crawlSorted(t, root, prune, saved)
 	if want, _ := crawlSorted(t, root, prune, nil); !slices.Equal(names(got), names(want)) {
 		t.Fatalf(".gitignore removed:\n got %v\nwant %v", names(got), names(want))
+	}
+}
+
+// TestRefreshUnreadableThenReadable: a folder the earlier crawl could not
+// read was saved with nothing below it. Made readable, its time does not
+// change (chmod touches another one): Refresh must read it all the same.
+func TestRefreshUnreadableThenReadable(t *testing.T) {
+	root := t.TempDir()
+	locked := filepath.Join(root, "locked")
+	writeFile(t, filepath.Join(locked, "secret.txt"), "x")
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) //nolint:errcheck,gosec // a folder must be searchable for TempDir to remove it
+	saved, _ := crawlSorted(t, root, nil, nil)
+	if len(saved) != 1 {
+		t.Skip("the folder was readable anyway (running as root?)")
+	}
+	if err := os.Chmod(locked, 0o700); err != nil { //nolint:gosec // a folder: x is what lets it be entered
+		t.Fatal(err)
+	}
+	got, _ := crawlSorted(t, root, nil, saved)
+	if want, _ := crawlSorted(t, root, nil, nil); !slices.Equal(names(got), names(want)) {
+		t.Errorf("made readable:\n got %v\nwant %v", names(got), names(want))
 	}
 }
