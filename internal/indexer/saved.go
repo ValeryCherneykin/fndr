@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // An index is saved to disk so the next start can search at once, while a
@@ -60,6 +61,9 @@ type Saved struct {
 	Rules string
 
 	// Entries are below Root, in no particular order: Save sorts a copy.
+	// Save leaves out any that are not below Root, and writes a path seen
+	// twice once: Load refuses both, and an index is better saved without
+	// a stray entry than not loadable at all.
 	Entries []Entry
 }
 
@@ -71,6 +75,7 @@ func Save(path string, s Saved) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("save index: %w", err)
 	}
+	removeStale(filepath.Dir(path))
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".index-*") // created 0600
 	if err != nil {
 		return fmt.Errorf("save index: %w", err)
@@ -90,6 +95,23 @@ func Save(path string, s Saved) error {
 	return nil
 }
 
+// staleAfter is how old a temporary file of Save must be to be another's
+// that never finished. A save takes milliseconds; one of another fndr
+// still writing is never anywhere near this old.
+const staleAfter = 10 * time.Minute
+
+// removeStale deletes the temporary files saves left in dir when their
+// program was killed mid-write (a closed window, kill -9): each holds
+// the name of every file in the tree, and nothing will ever use it.
+func removeStale(dir string) {
+	olds, _ := filepath.Glob(filepath.Join(dir, ".index-*")) //nolint:errcheck // the pattern is valid
+	for _, p := range olds {
+		if info, err := os.Lstat(p); err == nil && info.Mode().IsRegular() && time.Since(info.ModTime()) > staleAfter {
+			_ = os.Remove(p) //nolint:errcheck // a leftover; the next save tries again
+		}
+	}
+}
+
 // Load reads an index Save wrote. A file that is not one, whole and of
 // this version, is ErrBadSaved; a missing one is fs.ErrNotExist.
 func Load(path string) (Saved, error) {
@@ -106,12 +128,28 @@ func Load(path string) (Saved, error) {
 
 // encode lays s out as the file holds it (see above).
 func encode(s Saved) []byte {
-	entries := slices.Clone(s.Entries) // sorted for front coding; the caller's order stays
+	under := s.Root + string(filepath.Separator)
+	if s.Root == string(filepath.Separator) {
+		under = s.Root
+	}
+	entries := make([]Entry, 0, len(s.Entries)) // sorted for front coding; the caller's order stays
+	for i := range s.Entries {
+		if p := s.Entries[i].Path; len(p) > len(under) && strings.HasPrefix(p, under) {
+			entries = append(entries, s.Entries[i])
+		}
+	}
 	slices.SortFunc(entries, func(a, b Entry) int { return strings.Compare(a.Path, b.Path) })
+	entries = slices.CompactFunc(entries, func(a, b Entry) bool { return a.Path == b.Path })
+	return encodeSorted(s.Root, s.Rules, entries)
+}
+
+// encodeSorted writes entries as they are, trusted to be below root,
+// sorted and unique: encode makes them so.
+func encodeSorted(root, rules string, entries []Entry) []byte {
 
 	// Room for the paths whole is more than front coding needs: one
 	// allocation, never grown.
-	size := 64 + len(s.Root) + len(s.Rules)
+	size := 64 + len(root) + len(rules)
 	for i := range entries {
 		size += len(entries[i].Path) + 3*binary.MaxVarintLen64
 	}
@@ -119,8 +157,8 @@ func encode(s Saved) []byte {
 
 	b = append(b, savedMagic...)
 	b = binary.AppendUvarint(b, formatVersion)
-	b = appendString(b, s.Root)
-	b = appendString(b, s.Rules)
+	b = appendString(b, root)
+	b = appendString(b, rules)
 	b = binary.AppendUvarint(b, uint64(len(entries)))
 	prev := ""
 	for i := range entries {

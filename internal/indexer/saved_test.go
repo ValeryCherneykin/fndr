@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // savedEntries is a tree with what trips formats up: shared prefixes of
@@ -128,7 +129,8 @@ func TestLoadRefusesWhatSearchCannotTrust(t *testing.T) {
 		"an unclean root":  {Root: "/r/", Entries: nil},
 	}
 	for name, s := range tests {
-		if _, err := decode(encode(s)); !errors.Is(err, ErrBadSaved) {
+		// encodeSorted, not encode: encode would clean these up.
+		if _, err := decode(encodeSorted(s.Root, s.Rules, s.Entries)); !errors.Is(err, ErrBadSaved) {
 			t.Errorf("%s: err %v, want ErrBadSaved", name, err)
 		}
 	}
@@ -138,6 +140,26 @@ func TestLoadRefusesWhatSearchCannotTrust(t *testing.T) {
 	data[len(savedMagic)] = formatVersion + 1
 	if _, err := decode(resealed(data)); !errors.Is(err, ErrBadSaved) {
 		t.Errorf("another version: err %v, want ErrBadSaved", err)
+	}
+}
+
+// TestSaveCleansUp: what Load would refuse is not written: an entry
+// outside the root (an edit made elsewhere, in the index by mistake), or
+// a path twice. The rest of the index stays usable.
+func TestSaveCleansUp(t *testing.T) {
+	in := Saved{Root: "/r", Entries: []Entry{
+		NewEntry("/r/a", 0, 0, false),
+		NewEntry("/tmp/x", 0, 0, false),
+		NewEntry("/rx", 0, 0, false),
+		NewEntry("/r/a", 0, 0, false),
+		NewEntry("/r", 0, 0, true),
+	}}
+	out, err := decode(encode(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(out.Entries); !slices.Equal(got, []string{"/r/a false"}) {
+		t.Errorf("saved %v, want only /r/a, once", got)
 	}
 }
 
@@ -278,5 +300,31 @@ func TestUnder(t *testing.T) {
 		if got := paths(Under(sorted, dir)); !slices.Equal(got, want) {
 			t.Errorf("Under %s = %q, want %q", dir, got, want)
 		}
+	}
+}
+
+// TestSaveRemovesStaleTemporaries: a save cut off by a kill leaves its
+// temporary file, the name of every file in the tree in it. The next save
+// removes such leftovers, but not one another fndr is writing right now.
+func TestSaveRemovesStaleTemporaries(t *testing.T) {
+	dir := t.TempDir()
+	old, fresh := filepath.Join(dir, ".index-old"), filepath.Join(dir, ".index-fresh")
+	for _, p := range []string{old, fresh} {
+		if err := os.WriteFile(p, []byte("half"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	long := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(old, long, long); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(filepath.Join(dir, "index"), Saved{Root: "/r"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("a leftover an hour old is still there")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("the temporary file of a save under way was removed: %v", err)
 	}
 }

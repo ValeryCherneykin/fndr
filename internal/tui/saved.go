@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"errors"
+	"sync"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
@@ -73,11 +76,42 @@ func (m *Model) savedLoaded(msg *savedMsg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// indexSave is a save of the home's index on its way to the disk.
+//
+// The program can end while it runs: the user quits within the few dozen
+// milliseconds it takes after a crawl. Cut off there, it would leave its
+// temporary file behind, the name of every file in the home in it, and
+// no index. So once makes it run a single time, whoever calls write
+// first: the command it was handed to, or Close at the end, which waits
+// for one running and writes one whose command never ran.
+type indexSave struct {
+	once sync.Once
+	path string
+	s    indexer.Saved
+	err  error
+}
+
+func (w *indexSave) write() error {
+	w.once.Do(func() { w.err = indexer.Save(w.path, w.s) })
+	return w.err
+}
+
 // saveIndex writes the home's index as it is now. The snapshot never
 // changes, so the command may read it on its own goroutine.
 func (m *Model) saveIndex() tea.Cmd {
-	path, s := m.savedPath, indexer.Saved{Root: m.home, Rules: m.prune.Rules(), Entries: m.global.ix.Snapshot()}
-	return func() tea.Msg { return indexSavedMsg{err: indexer.Save(path, s)} }
+	w := &indexSave{path: m.savedPath, s: indexer.Saved{Root: m.home, Rules: m.prune.Rules(), Entries: m.global.ix.Snapshot()}}
+	m.indexSaves = append(m.indexSaves, w)
+	return func() tea.Msg { return indexSavedMsg{err: w.write()} }
+}
+
+// Close finishes what fndr writes in the background, for the end of the
+// program: the saves of the index handed out, and the history.
+func (m *Model) Close() error {
+	var errs []error
+	for _, w := range m.indexSaves {
+		errs = append(errs, w.write())
+	}
+	return errors.Join(append(errs, m.SaveHistory())...)
 }
 
 // indexSaved says if the save failed: the next start would crawl, and the

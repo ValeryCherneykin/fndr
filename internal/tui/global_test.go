@@ -167,3 +167,18 @@ func TestGlobalEmptyWithoutHabits(t *testing.T) {
 		t.Errorf("GLOBAL with no history: %q and no hint", m.resultPaths())
 	}
 }
+
+// TestEditOutsideHomeStaysLocal: a file made where the home's crawl does
+// not reach (OIL in /tmp) goes into LOCAL only. In GLOBAL it would be
+// found until the next start, and kept the home's index from being saved
+// in a form that start could read.
+func TestEditOutsideHomeStaysLocal(t *testing.T) {
+	m, root := browseModel(t, "")
+	m.home = t.TempDir() // somewhere else entirely
+	m.global = &scope{root: m.home, ix: &indexer.Index{}}
+	made := indexer.NewEntry(filepath.Join(root, "made.txt"), 0, 0, false)
+	m.updateIndexes(nil, []indexer.Entry{made})
+	if !indexed(m.local.ix, made.Path) || indexed(m.global.ix, made.Path) {
+		t.Errorf("LOCAL has it %v, GLOBAL has it %v; want only LOCAL", indexed(m.local.ix, made.Path), indexed(m.global.ix, made.Path))
+	}
+}

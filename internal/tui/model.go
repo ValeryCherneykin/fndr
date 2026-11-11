@@ -59,8 +59,10 @@ type Model struct {
 	crawlGen int
 
 	// savedPath is where the home's index is kept between runs (saved.go);
-	// empty, it is neither read nor written.
-	savedPath string
+	// empty, it is neither read nor written. indexSaves are the saves
+	// handed out, for Close to finish.
+	savedPath  string
+	indexSaves []*indexSave
 
 	// With an empty query the list shows cwd's contents (browse); otherwise
 	// search results. listing is nil until the directory has been read.

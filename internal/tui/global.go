@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -101,6 +102,10 @@ func (m *Model) updateIndexes(remove []string, add []indexer.Entry) {
 		if s == nil {
 			continue
 		}
+		// Only what is below the scope's root: an edit in OIL in /tmp has
+		// no place in the index of the home, and would keep it from being
+		// saved in a form the next start can read.
+		add := slices.DeleteFunc(slices.Clone(add), func(e indexer.Entry) bool { return !within(e.Path, s.root) })
 		s.ix.Update(remove, add)
 		if s.next != nil {
 			s.changes = append(s.changes, change{remove, add}) // see scope.next

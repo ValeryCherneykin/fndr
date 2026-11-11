@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -161,5 +162,30 @@ func TestRefreshCutShort(t *testing.T) {
 	saved, err := indexer.Load(m.savedPath)
 	if err != nil || len(saved.Entries) != 4 {
 		t.Errorf("the saved index changed: %d entries, %v", len(saved.Entries), err)
+	}
+}
+
+// TestCloseFinishesTheSave: quitting right after a crawl must not cut the
+// save of the index off: Close writes one whose command never ran (and
+// waits for one running), so no temporary file is left with every file
+// name of the home in it, and the next start is instant.
+func TestCloseFinishesTheSave(t *testing.T) {
+	m, home := savedModel(t)
+	if err := os.Remove(m.savedPath); err != nil {
+		t.Fatal(err)
+	}
+	m.global = &scope{root: home, ix: &indexer.Index{}}
+	m.global.ix.Add([]indexer.Entry{indexer.NewEntry(filepath.Join(home, "README.md"), 1, 1, false)})
+	_ = m.saveIndex() // handed out, never run: the program quit first
+
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := indexer.Load(m.savedPath); err != nil || len(s.Entries) != 1 {
+		t.Errorf("after Close: %d entries, %v; want the index saved", len(s.Entries), err)
+	}
+	left, _ := filepath.Glob(filepath.Join(filepath.Dir(m.savedPath), ".index-*")) //nolint:errcheck // valid pattern
+	if len(left) != 0 {
+		t.Errorf("left behind: %q", left)
 	}
 }
