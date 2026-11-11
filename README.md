@@ -234,9 +234,9 @@ noticeably slower is treated as a bug.
 - [x] **Search the whole home** with `Tab`, junk left out
 - [x] Oil-style editing: rename, trash and create by editing a buffer with
   Vim keys; rename or move any search result
-- [ ] Stackable filters: `main .go >1mb @today`
 - [ ] **Instant start** — an on-disk index, caught up in the background
   by checking which folders changed
+- [ ] Stackable filters: `main .go >1mb @today`
 - [ ] Config: rebind any key, choose your editor
 - [ ] bash and fish integration
 
