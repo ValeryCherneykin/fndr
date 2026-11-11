@@ -2,6 +2,7 @@ package frecency
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,7 +257,7 @@ func TestRename(t *testing.T) {
 		s.Visit(p, now)
 	}
 	s.Visit("/c", now)
-	s.Rename("/a/b", "/c") // onto a remembered path: the visits add up
+	s.Rename(Move{"/a/b", "/c"}) // onto a remembered path: the visits add up
 	for p, want := range map[string]float64{"/a/b": 0, "/a/b/x.go": 0, "/c": 4 * 4, "/c/x.go": 4, "/a/bc": 4} {
 		if got := s.Score(p, now); got != want {
 			t.Errorf("score of %s = %v, want %v", p, got, want)
@@ -272,7 +273,7 @@ func TestRenameReachesTheFile(t *testing.T) {
 	if err := s.Save(); err != nil {
 		t.Fatal(err)
 	}
-	s.Rename("/old", "/new")
+	s.Rename(Move{"/old", "/new"})
 	if !s.Pending() {
 		t.Fatal("a rename alone is nothing to save")
 	}
@@ -302,7 +303,7 @@ func TestRenameAcrossPanes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a.Rename("/old", "/new")
+	a.Rename(Move{"/old", "/new"})
 	if err := a.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +332,7 @@ func TestRenameSurvivesAFailedSave(t *testing.T) {
 	if err := s.Save(); err != nil {
 		t.Fatal(err)
 	}
-	s.Rename("/old", "/new")
+	s.Rename(Move{"/old", "/new"})
 
 	good := s.path
 	blocker := filepath.Join(t.TempDir(), "file")
@@ -352,5 +353,99 @@ func TestRenameSurvivesAFailedSave(t *testing.T) {
 	}
 	if r.Score("/old", now) != 0 || r.Score("/new", now) == 0 {
 		t.Errorf("old %v, new %v; want the rename written by the second save", r.Score("/old", now), r.Score("/new", now))
+	}
+}
+
+// visits reads the visits of each path, in memory and in the file, as
+// "memory/file".
+func visits(t *testing.T, s *Store, paths ...string) map[string]string {
+	t.Helper()
+	r, err := Open(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, p := range paths {
+		count := func(s *Store) float64 {
+			if e := s.entries[p]; e != nil {
+				return e.count
+			}
+			return 0
+		}
+		got[p] = fmt.Sprintf("%g/%g", count(s), count(r))
+	}
+	return got
+}
+
+// TestRenameThenNameReused: notes renamed to old, a new notes created and
+// opened. The new visit is the new notes': it used to follow the rename,
+// as the save replayed renames after adding the visits.
+func TestRenameThenNameReused(t *testing.T) {
+	s := open(t)
+	s.Visit("/notes", now)
+	s.Rename(Move{"/notes", "/old"})
+	s.Visit("/notes", now)
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"/notes": "1/1", "/old": "1/1"}
+	if got := visits(t, s, "/notes", "/old"); !maps.Equal(got, want) {
+		t.Errorf("visits (memory/file) %v, want %v", got, want)
+	}
+}
+
+// TestRenameSwap: a and b swapped in one plan keep their own habits. Taken
+// one after the other, a→b merged them and b→a moved both.
+func TestRenameSwap(t *testing.T) {
+	s := open(t)
+	s.Visit("/a", now)
+	s.Visit("/a", now)
+	s.Visit("/b", now)
+	s.Visit("/a/x", now) // and what is inside goes with the folder
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s.Rename(Move{"/a", "/b"}, Move{"/b", "/a"})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"/a": "1/1", "/b": "2/2", "/b/x": "1/1", "/a/x": "0/0"}
+	if got := visits(t, s, "/a", "/b", "/b/x", "/a/x"); !maps.Equal(got, want) {
+		t.Errorf("visits (memory/file) %v, want %v", got, want)
+	}
+}
+
+// TestRenameWhileSaving: a rename and a visit made while a save runs, in
+// the names of after it, end up where they belong once it lands, whether
+// it succeeds or fails.
+func TestRenameWhileSaving(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint("fail=", fail), func(t *testing.T) {
+			s := open(t)
+			s.Visit("/notes", now)
+			good := s.path
+			if fail {
+				blocker := filepath.Join(t.TempDir(), "file")
+				if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				s.path = filepath.Join(blocker, "frecency") // under a file: cannot be written
+			}
+			f := s.Flush()
+			s.Rename(Move{"/notes", "/old"})
+			s.Visit("/notes", now)
+			f.Write() //nolint:errcheck // Saved returns it
+			if err := s.Saved(f); (err != nil) != fail {
+				t.Fatalf("save error %v, want failing %v", err, fail)
+			}
+			s.path = good
+			if err := s.Save(); err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]string{"/notes": "1/1", "/old": "1/1"}
+			if got := visits(t, s, "/notes", "/old"); !maps.Equal(got, want) {
+				t.Errorf("visits (memory/file) %v, want %v", got, want)
+			}
+		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ValeryCherneykin/fndr/internal/frecency"
+	"github.com/ValeryCherneykin/fndr/internal/mutation"
 )
 
 func withHistory(t *testing.T, m *Model) string {
@@ -192,5 +193,24 @@ func TestRenameKeepsTheHabit(t *testing.T) {
 	}
 	if saved.Score(to, time.Now()) == 0 {
 		t.Error("the move was not saved")
+	}
+}
+
+// TestSwapKeepsBothHabits: a and b swapped with one :w are two renames
+// made at once, and handed to the history at once. One by one, a→b would
+// merge the two habits and b→a move them both.
+func TestSwapKeepsBothHabits(t *testing.T) {
+	m, root := renameModel(t)
+	withHistory(t, m)
+	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
+	now := time.Now()
+	m.hist.Visit(a, now)
+	m.hist.Visit(a, now)
+	m.hist.Visit(b, now)
+	before := map[string]float64{a: m.hist.Score(a, now), b: m.hist.Score(b, now)}
+
+	m.relearn(root, mutation.Plan{{Kind: mutation.OpRename, From: "a", To: "b"}, {Kind: mutation.OpRename, From: "b", To: "a"}})
+	if m.hist.Score(b, now) != before[a] || m.hist.Score(a, now) != before[b] {
+		t.Errorf("a %v, b %v; want them swapped from a %v, b %v", m.hist.Score(a, now), m.hist.Score(b, now), before[a], before[b])
 	}
 }

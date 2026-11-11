@@ -47,8 +47,8 @@ const (
 type Store struct {
 	path    string
 	entries map[string]*entry // what ranks: the file as last read, plus pending
-	pending map[string]*entry // visits of this session not yet in the file
-	moves   []move            // renames of this session not yet in the file
+	pending map[string]*entry // visits of this session not yet in the file, under the names of now
+	renames []renaming        // renames of this session not yet in the file, in order
 	flight  *Flush            // the save running, if any; see Flush
 }
 
@@ -133,42 +133,78 @@ func (s *Store) Visit(path string, now time.Time) {
 	addTo(s.pending, path, visit)
 }
 
-// Rename moves the habits of from, and of everything below it, to to: a
-// file or folder renamed or moved keeps its rank, and so does what is in a
-// folder. Where to already has habits, the visits add up.
+// Move is one rename: the path From, file or folder, is now To.
+type Move struct{ From, To string }
+
+// Rename moves the habits of every From, and of everything below it, to
+// its To: a file or folder renamed or moved keeps its rank, and so does
+// what is in a folder. Where a To already has habits, the visits add up.
+//
+// The moves happen at once, as the renames of one plan do on disk: a and b
+// swapped are a→b and b→a, and taken one after the other they would first
+// merge the two and then move both.
 //
 // A visit adds to a count, and adding can be replayed on whatever the file
-// holds by then. A rename is not an addition, so it is kept as a move and
-// replayed by the save on the file as read under the lock. Changing only
-// the store would not last: the save reads the file again, old names and
-// all, and the other fndr open at the time would never hear of it.
-func (s *Store) Rename(from, to string) {
-	if from == to || from == "" || to == "" || strings.ContainsAny(to, "\n\r") {
+// holds by then. A rename is not an addition, so it is kept and replayed by
+// the save on the file as read under the lock. Changing only the store
+// would not last: the save reads the file again, old names and all, and
+// the other fndr open at the time would never hear of it.
+func (s *Store) Rename(moves ...Move) {
+	var r renaming
+	for _, m := range moves {
+		if m.From == m.To || m.From == "" || m.To == "" || strings.ContainsAny(m.To, "\n\r") {
+			continue
+		}
+		r = append(r, m)
+	}
+	if len(r) == 0 {
 		return
 	}
-	m := move{from, to}
-	m.apply(s.entries) // ranks at once
-	m.apply(s.pending) // a visit made before the rename is saved under the new name
-	s.moves = append(s.moves, m)
+	r.apply(s.entries) // ranks at once
+	r.apply(s.pending) // pending holds the names of now: a visit before the rename is the new name's
+	s.renames = append(s.renames, r)
 }
 
-// move is a rename of a path and everything below it.
-type move struct{ from, to string }
+// renaming is the moves of one Rename, made at once.
+type renaming []Move
 
-// apply renames the paths of entries at or below m.from.
-func (m move) apply(entries map[string]*entry) {
-	prefix := m.from + string(filepath.Separator)
-	var hit []string // collected first: renaming into its own subtree, /a to /a/b, must move each path once
-	for p := range entries {
-		if p == m.from || strings.HasPrefix(p, prefix) {
-			hit = append(hit, p)
+// apply renames the paths of entries at or below each From.
+func (r renaming) apply(entries map[string]*entry) {
+	type hit struct {
+		path, to string
+		e        *entry
+	}
+	// Every path is looked up against the names before, all moved out, then
+	// all moved in: a swap, or a folder moved into itself (/a to /a/b),
+	// moves each path once.
+	var hits []hit
+	for p, e := range entries {
+		if to, ok := r.target(p); ok {
+			hits = append(hits, hit{p, to, e})
 		}
 	}
-	for _, p := range hit {
-		e := entries[p]
-		delete(entries, p)
-		addTo(entries, m.to+p[len(m.from):], e)
+	for _, h := range hits {
+		delete(entries, h.path)
 	}
+	for _, h := range hits {
+		addTo(entries, h.to, h.e)
+	}
+}
+
+// target is where path goes: below the longest From it is at or under.
+func (r renaming) target(path string) (string, bool) {
+	best := -1
+	for i, m := range r {
+		if path == m.From || strings.HasPrefix(path, m.From+string(filepath.Separator)) {
+			if best < 0 || len(m.From) > len(r[best].From) {
+				best = i
+			}
+		}
+	}
+	if best < 0 {
+		return "", false
+	}
+	return r[best].To + path[len(r[best].From):], true
 }
 
 // addTo counts visits of path into m.
@@ -312,7 +348,7 @@ func (s *Store) Len() int { return len(s.entries) }
 type Flush struct {
 	path    string
 	pending map[string]*entry
-	moves   []move
+	renames []renaming
 	result  map[string]*entry // the file as written, once Write succeeds
 	err     error             // what Write returned
 
@@ -330,8 +366,8 @@ func (s *Store) Flush() *Flush {
 	if !s.Pending() || s.flight != nil {
 		return nil
 	}
-	f := &Flush{path: s.path, pending: s.pending, moves: s.moves}
-	s.pending, s.moves, s.flight = map[string]*entry{}, nil, f
+	f := &Flush{path: s.path, pending: s.pending, renames: s.renames}
+	s.pending, s.renames, s.flight = map[string]*entry{}, nil, f
 	return f
 }
 
@@ -362,12 +398,14 @@ func (f *Flush) write() (map[string]*entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	merge(entries, f.pending)
-	// After the visits: one to a path since renamed, handed back by a save
-	// that failed, moves with the rest.
-	for _, m := range f.moves {
-		m.apply(entries)
+	// The file still has the names it was written with: brought up to the
+	// names of now first, it can take the visits, which have those names.
+	// The other way round, a visit to a name reused since (notes renamed to
+	// old, a new notes opened) would follow the rename away.
+	for _, r := range f.renames {
+		r.apply(entries)
 	}
+	merge(entries, f.pending)
 	return entries, write(f.path, entries)
 }
 
@@ -381,24 +419,30 @@ func (s *Store) Saved(f *Flush) error {
 	}
 	s.flight = nil
 	if f.err != nil {
+		// Its visits have the names of when it was flushed; renames made
+		// since bring them to the names of now, as pending must be.
+		for _, r := range s.renames {
+			r.apply(f.pending)
+		}
 		for p, e := range f.pending {
 			addTo(s.pending, p, e)
 		}
-		s.moves = append(f.moves, s.moves...) // in the order they were made
+		s.renames = append(f.renames, s.renames...) // in the order they were made
 		return f.err
 	}
+	// The file as written, renamed as since, plus the visits since.
 	s.entries = f.result
+	for _, r := range s.renames {
+		r.apply(s.entries)
+	}
 	for p, e := range s.pending {
 		addTo(s.entries, p, e)
-	}
-	for _, m := range s.moves { // made while the save ran: not in the file yet
-		m.apply(s.entries)
 	}
 	return nil
 }
 
 // Pending reports whether visits or renames are waiting for a save.
-func (s *Store) Pending() bool { return len(s.pending) > 0 || len(s.moves) > 0 }
+func (s *Store) Pending() bool { return len(s.pending) > 0 || len(s.renames) > 0 }
 
 // Save writes the pending visits and waits for it: for the end of the
 // program, and for tests. A save handed out earlier is finished first, so
