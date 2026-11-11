@@ -40,15 +40,17 @@ const (
 	kindCategory             // a family of extensions: image, code
 	kindDirs                 // folders only
 	kindFiles                // everything but folders
-	kindLarger               // a file larger than n bytes
-	kindSmaller              // a file smaller than n bytes
+	kindAny                  // a size alone: any file, the size decides
 )
 
+// term is one choice of a tag: what kind of entry, and, if op is set, a
+// size the entry must also have: .go>1mb is a .go file larger than 1 MB.
 type term struct {
 	kind kind
 	text string   // lower case: the piece of path, or the extension without its dot
 	cat  category // for kindCategory: every category of the tag, see Parse
-	n    int64    // bytes, for kindLarger and kindSmaller
+	op   byte     // '>' or '<' to compare the size with n; 0 for no size
+	n    int64    // bytes
 }
 
 // Parse reads a tag as typed after ctrl+t, case-insensitively. Each choice
@@ -60,6 +62,10 @@ type term struct {
 //     G(B), T(B) in powers of 1000, as sizes are shown;
 //   - an extension: .go, .tar.gz;
 //   - anything else: a piece of the path below the folder searched.
+//
+// Any of these but dirs can be followed by a size, which the entry must
+// also have: .go>1mb, image>5mb, code<1k. Folders have no size of their
+// own, so a size only ever matches files.
 func Parse(s string) (Tag, error) {
 	parts := strings.Split(s, "|")
 	t := Tag{terms: make([]term, 0, len(parts))}
@@ -76,7 +82,9 @@ func Parse(s string) (Tag, error) {
 		texts = append(texts, text)
 		// All categories of a tag go into one choice: the extension is
 		// then looked up once per entry, not once per category.
-		if i := slices.IndexFunc(t.terms, func(o term) bool { return o.kind == kindCategory }); i >= 0 && tm.kind == kindCategory {
+		if i := slices.IndexFunc(t.terms, func(o term) bool {
+			return o.kind == kindCategory && o.op == tm.op && o.n == tm.n
+		}); i >= 0 && tm.kind == kindCategory {
 			t.terms[i].cat |= tm.cat
 			continue
 		}
@@ -87,35 +95,45 @@ func Parse(s string) (Tag, error) {
 }
 
 // parseTerm reads one choice, already trimmed and in lower case, and
-// returns it with the text it is shown as.
+// returns it with the text it is shown as: what it is, then its size.
 func parseTerm(p string) (term, string, error) {
+	head, size := p, ""
+	if i := strings.IndexAny(p, "<>"); i >= 0 {
+		head, size = p[:i], p[i:]
+	}
+	tm, text := parseHead(head)
+	if size == "" {
+		return tm, text, nil
+	}
+	n, err := parseSize(size[1:])
+	if err != nil {
+		return term{}, "", fmt.Errorf("size %q: %w", size[1:], err)
+	}
+	switch {
+	case head == "" || head == "size": // >1mb, or size>1mb for those who read it
+		tm, text = term{kind: kindAny}, "size"
+	case tm.kind == kindDirs:
+		return term{}, "", errors.New("folders have no size to compare")
+	}
+	tm.op, tm.n = size[0], n
+	return tm, text + size, nil
+}
+
+// parseHead reads what a choice is about, before any size.
+func parseHead(p string) (tm term, text string) {
 	switch p {
 	case "dirs":
-		return term{kind: kindDirs}, p, nil
+		return term{kind: kindDirs}, p
 	case "files":
-		return term{kind: kindFiles}, p, nil
+		return term{kind: kindFiles}, p
 	}
 	if c, ok := categories[p]; ok {
-		return term{kind: kindCategory, cat: c}, p, nil
-	}
-	if size, ok := strings.CutPrefix(p, "size"); ok && size != "" && (size[0] == '>' || size[0] == '<') {
-		p = size // size>1mb is >1mb with a word for those who read it
-	}
-	if p[0] == '>' || p[0] == '<' {
-		n, err := parseSize(p[1:])
-		if err != nil {
-			return term{}, "", fmt.Errorf("size %q: %w", p[1:], err)
-		}
-		k := kindLarger
-		if p[0] == '<' {
-			k = kindSmaller
-		}
-		return term{kind: k, n: n}, "size" + p, nil
+		return term{kind: kindCategory, cat: c}, p
 	}
 	if ext, ok := strings.CutPrefix(p, "."); ok && ext != "" && !strings.Contains(ext, "/") {
-		return term{kind: kindExt, text: ext}, p, nil
+		return term{kind: kindExt, text: ext}, p
 	}
-	return term{kind: kindText, text: p}, p, nil
+	return term{kind: kindText, text: p}, p
 }
 
 // parseSize reads 1mb, 1.5MB, 300k, 42: a number and a unit in powers of
@@ -151,7 +169,7 @@ func parseSize(s string) (int64, error) {
 }
 
 // String returns the tag as it is drawn and compared: lower case, without
-// spaces around the choices, a size always with its word (size>1mb).
+// spaces around the choices, a size alone always with its word (size>1mb).
 func (t Tag) String() string { return t.text }
 
 // Match reports whether e matches one of t's choices. under is the folder
@@ -167,15 +185,14 @@ func (t Tag) Match(e indexer.Entry, under string) bool {
 }
 
 func (tm *term) match(e indexer.Entry, under string) bool {
+	if tm.op != 0 && (e.IsDir || tm.op == '>' && e.Size <= tm.n || tm.op == '<' && e.Size >= tm.n) {
+		return false // the size, first: one comparison rules most entries out
+	}
 	switch tm.kind {
 	case kindDirs:
 		return e.IsDir
-	case kindFiles:
+	case kindFiles, kindAny:
 		return !e.IsDir
-	case kindLarger:
-		return !e.IsDir && e.Size > tm.n
-	case kindSmaller:
-		return !e.IsDir && e.Size < tm.n
 	case kindExt:
 		name := e.Name()
 		return len(name) > len(tm.text)+1 && name[len(name)-len(tm.text)-1] == '.' &&

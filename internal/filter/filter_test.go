@@ -61,6 +61,14 @@ func TestMatch(t *testing.T) {
 		{".go|dirs", []indexer.Entry{mainGo, goDir, fakeGo}},
 		{" image | archive ", []indexer.Entry{photo, tarball}},
 		{"image|dirs|code", []indexer.Entry{mainGo, photo, goDir, fakeGo}}, // categories apart, one set
+		{".go>1k", []indexer.Entry{mainGo}},                                // the .go folder has no size
+		{".go>1mb", nil},
+		{"image>1mb", []indexer.Entry{photo}},
+		{"code<1k", nil},
+		{"doc<1k|image>1mb", []indexer.Entry{readme, photo}},
+		{"archive|image>10mb", []indexer.Entry{tarball}}, // a size on one category, not the other
+		{"go>1k", []indexer.Entry{mainGo, cargo}},        // no dot: a piece of path
+		{"files>10mb", []indexer.Entry{tarball}},
 	} {
 		tag, err := Parse(tc.tag)
 		if err != nil {
@@ -94,6 +102,8 @@ func TestParse(t *testing.T) {
 		{">1MB", "size>1mb"},
 		{"size<10k", "size<10k"},
 		{".go | DIRS", ".go|dirs"},
+		{".GO>1MB", ".go>1mb"},
+		{"size>1mb|code<1k", "size>1mb|code<1k"},
 		{"size", "size"}, // a word, not a size
 		{".", "."},       // a piece of path
 		{"./x", "./x"},   // not an extension
@@ -105,7 +115,7 @@ func TestParse(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"", " ", "|", ".go|", "|dirs", ">", "size>", ">1xb", ">mb", ">1..2mb",
-		">nan", ">inf", ">1e9", ">-1", ">+1", ">0x10", ">99999999tb"} {
+		">nan", ">inf", ">1e9", ">-1", ">+1", ">0x10", ">99999999tb", "dirs>1mb", ".go>", ".go>1xb", ".go>1mb<2mb"} {
 		if _, err := Parse(bad); err == nil {
 			t.Errorf("Parse(%q) accepted it", bad)
 		}
