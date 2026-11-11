@@ -189,3 +189,49 @@ func TestCloseFinishesTheSave(t *testing.T) {
 		t.Errorf("left behind: %q", left)
 	}
 }
+
+// TestChdirTakesFromGlobal: going where LOCAL has no index (up, or Enter
+// on a folder found in GLOBAL) searches GLOBAL's entries below it at once,
+// without "indexing", and the crawl that follows corrects them quietly.
+// Not while GLOBAL's first crawl runs: a part of the home is not a folder.
+func TestChdirTakesFromGlobal(t *testing.T) {
+	m, home := savedModel(t)
+	crawls := loaded(t, m)
+	gone := filepath.Join(home, "src", "gone.go")
+
+	cmd := m.up()
+	if m.local.root != home || count(m.local.ix, gone) != 1 || m.local.next == nil {
+		t.Fatalf("after up: root %q, gone.go %d, refreshing %v; want the home from GLOBAL",
+			m.local.root, count(m.local.ix, gone), m.local.next != nil)
+	}
+	if strings.Contains(m.status(), "indexing") {
+		t.Errorf("status %q: what is searched is whole", m.status())
+	}
+	run(m, tea.Batch(crawls, cmd))
+	if count(m.local.ix, gone) != 0 || count(m.local.ix, filepath.Join(home, "src", "util.go")) != 1 {
+		t.Errorf("after the crawl: LOCAL is not what is on the disk")
+	}
+
+	t.Run("not the folder itself", func(t *testing.T) {
+		m, home := savedModel(t)
+		loaded(t, m)
+		src := filepath.Join(home, "src")
+		m.local.root = filepath.Join(home, "elsewhere") // as if started there
+		m.chdir(src, "")
+		if count(m.local.ix, src) != 0 || count(m.local.ix, filepath.Join(src, "main.go")) != 1 {
+			t.Errorf("LOCAL in src: src %d, main.go %d; want 0, 1: a crawl never lists its root",
+				count(m.local.ix, src), count(m.local.ix, filepath.Join(src, "main.go")))
+		}
+	})
+
+	t.Run("first crawl", func(t *testing.T) {
+		m, home := savedModel(t)
+		m.global = &scope{root: home, ix: &indexer.Index{}}
+		m.startCrawl(m.global) // never run: a crawl under way, nothing whole yet
+		m.global.ix.Add([]indexer.Entry{indexer.NewEntry(filepath.Join(home, "README.md"), 1, 1, false)})
+		m.up()
+		if m.local.ix.Len() != 0 || m.local.next != nil {
+			t.Errorf("LOCAL took %d entries from a crawl under way", m.local.ix.Len())
+		}
+	})
+}

@@ -171,9 +171,37 @@ func (m *Model) chdir(dir, reveal string) tea.Cmd {
 	cmds := []tea.Cmd{m.load(dir)}
 	if !within(dir, m.local.root) || !m.prune.Reaches(m.local.root, dir) {
 		m.local.root, m.local.ix = dir, &indexer.Index{}
-		cmds = append(cmds, m.startCrawl(m.local))
+		m.local.ix.Add(m.fromGlobal(dir))
+		cmds = append(cmds, m.startCrawl(m.local)) // with entries, a quiet refresh
 	}
 	return tea.Batch(cmds...)
+}
+
+// fromGlobal returns what the home's index holds below dir, for LOCAL to
+// search at once instead of after a crawl of its own: GLOBAL search, then
+// Enter on a folder, lands there with the folder already searchable.
+//
+// Nothing if GLOBAL has no whole picture of dir: no index yet, its first
+// crawl still running (what it holds is a part), or dir is a folder its
+// crawl lists without entering (node_modules, .github).
+//
+// A pass over every entry, not a binary search: the index is in crawl
+// order, and after any edit would be even if a crawl sorted it. Measured
+// on a home of 88k, 54k of them below the folder: 2.3 ms, once per Enter,
+// against a crawl of the folder in the hundred milliseconds.
+func (m *Model) fromGlobal(dir string) []indexer.Entry {
+	g := m.global
+	if g == nil || g.err != nil || (g.crawling && g.next == nil) ||
+		!within(dir, g.root) || !m.prune.Reaches(g.root, dir) {
+		return nil
+	}
+	var below []indexer.Entry
+	for _, e := range g.ix.Snapshot() {
+		if len(e.Path) > len(dir) && within(e.Path, dir) {
+			below = append(below, e)
+		}
+	}
+	return below
 }
 
 // within reports whether path is dir or lies below it. Both are absolute
