@@ -3,6 +3,7 @@ package indexer
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestGitignoreMatchesFolders: a .gitignore's patterns, matched against
@@ -29,6 +30,13 @@ func TestGitignoreMatchesFolders(t *testing.T) {
 		{"docs/**/out", "docs/a/b/out", true},
 		{"docs/**/out", "x/docs/out", false},
 		{"out/**", "out/sub", true},
+		{"out/**", "out", false},
+		{"**/**/gen", "gen", true}, // twice in a row is once
+		{"a/**/**/b", "a/x/y/b", true},
+		{"a/**/**", "a", false},
+		{"**/a/**/b", "x/a/y/z/b", true},
+		{"**/a/**/b", "x/b/y/a", false},
+		{"a/b/c/d", "a/b", false},      // more names than folders
 		{"dist\n!dist", "dist", false}, // the last match wins
 		{"*\n!keep", "keep", false},
 		{"# bin", "bin", false},  // a comment
@@ -44,6 +52,31 @@ func TestGitignoreMatchesFolders(t *testing.T) {
 		_, got := g.match(strings.Split(tt.dir, "/"))
 		if got != tt.want {
 			t.Errorf("%q against folder %q: %v, want %v", tt.file, tt.dir, got, tt.want)
+		}
+	}
+}
+
+// TestGitignoreStarsStayFast: a .gitignore comes with whatever repository
+// was cloned, so a hostile one must not stall the crawl. Many "**" against
+// a deep folder used to take minutes for that one folder; tried every way
+// to split the path, over and over.
+func TestGitignoreStarsStayFast(t *testing.T) {
+	deep := strings.Split(strings.Repeat("a/", 40)+"b", "/")
+	for _, file := range []string{
+		strings.Repeat("**/", 1000) + "z", // in a row
+		strings.Repeat("**/a/", 20) + "z", // apart, every "a" a fit
+		strings.Repeat("a/**/", 20) + "b", // and one that matches
+	} {
+		g := parseGitignore("/r", []byte(file))
+		done := make(chan struct{})
+		go func() {
+			g.match(deep)
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%.20q… still matching one folder after 5s", file)
 		}
 	}
 }

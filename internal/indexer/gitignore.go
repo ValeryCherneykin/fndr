@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -85,7 +86,11 @@ func parseGitignore(base string, data []byte) *gitignore {
 		if line == "" {
 			continue
 		}
-		p.segs = strings.Split(line, "/")
+		// "**/**" means what "**" does; one is kept, so a line of a thousand
+		// of them costs what one costs (see matchSegs).
+		p.segs = slices.CompactFunc(strings.Split(line, "/"), func(a, b string) bool {
+			return a == "**" && b == "**"
+		})
 		g.pats = append(g.pats, p)
 	}
 	if len(g.pats) == 0 {
@@ -121,27 +126,69 @@ func (p *ignorePattern) matches(rel []string) bool {
 // folders, none included, except at the end: "out/**" is what is inside
 // out, not out itself.
 func matchSegs(pat, rel []string) bool {
-	for len(pat) > 0 {
-		if pat[0] == "**" {
-			if len(pat) == 1 {
-				return len(rel) > 0
+	// Every name that is not "**" takes one folder: a pattern with more of
+	// them than rel has folders cannot match. Besides being quick, this
+	// bounds the work below: with "**" never twice in a row (see
+	// parseGitignore), a pattern that gets past here has at most one more
+	// "**" than rel has folders.
+	names := 0
+	for _, s := range pat {
+		if s != "**" {
+			names++
+		}
+	}
+	if names > len(rel) {
+		return false
+	}
+	m := segMatch{pat: pat, rel: rel}
+	return m.from(0, 0)
+}
+
+// segMatch is one run of matchSegs.
+//
+// Each "**" tries every number of folders it could stand for, and the rest
+// of the pattern is matched after each. Plain recursion would do that work
+// again and again: in "**/**/z" (or "**/a/**/a/z") different splits reach
+// the same question, "does the pattern from i match the path from j", and
+// a dozen "**" against a deep folder took minutes. There are only
+// len(pat) × len(rel) such questions; failed remembers the answers, so each
+// is worked out once. Only failures need remembering: the first success
+// ends the match.
+type segMatch struct {
+	pat, rel []string
+	failed   []bool // [i*(len(rel)+1)+j]: pat[i:], a "**", fails on rel[j:]; nil until a "**" is met
+}
+
+func (m *segMatch) from(i, j int) bool {
+	for i < len(m.pat) {
+		if m.pat[i] == "**" {
+			if i == len(m.pat)-1 {
+				return j < len(m.rel)
 			}
-			for i := range len(rel) + 1 {
-				if matchSegs(pat[1:], rel[i:]) {
+			if m.failed == nil {
+				m.failed = make([]bool, len(m.pat)*(len(m.rel)+1))
+			}
+			k := i*(len(m.rel)+1) + j
+			if m.failed[k] {
+				return false
+			}
+			for next := j; next <= len(m.rel); next++ {
+				if m.from(i+1, next) {
 					return true
 				}
 			}
+			m.failed[k] = true
 			return false
 		}
-		if len(rel) == 0 {
+		if j == len(m.rel) {
 			return false
 		}
-		if ok, _ := path.Match(pat[0], rel[0]); !ok { //nolint:errcheck // a broken pattern matches nothing
+		if ok, _ := path.Match(m.pat[i], m.rel[j]); !ok { //nolint:errcheck // a broken pattern matches nothing
 			return false
 		}
-		pat, rel = pat[1:], rel[1:]
+		i, j = i+1, j+1
 	}
-	return len(rel) == 0
+	return j == len(m.rel)
 }
 
 // ignoreStack is the .gitignore files that apply in a folder: those of the
