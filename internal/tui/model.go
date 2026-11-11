@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ValeryCherneykin/fndr/internal/filter"
 	"github.com/ValeryCherneykin/fndr/internal/frecency"
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
@@ -73,6 +74,7 @@ type Model struct {
 
 	query   string
 	qpos    int              // text cursor: byte offset into query, on a rune boundary
+	tags    filter.Stack     // what the search is narrowed to (tags.go)
 	results []indexer.Result // what the list shows: the listing or search results
 	total   int              // matches in the index, of which results holds the best
 

@@ -146,6 +146,7 @@ func (m *Model) renamed(msg *renamedMsg) tea.Cmd {
 	}
 	m.setNotice(fmt.Sprintf("%s %s → %s", verb, filepath.Base(msg.from), shown), false)
 
+	m.tags = nil // a tag must not hide what was just renamed
 	cmd := m.setQuery(filepath.Base(msg.to))
 	if cmd == nil {
 		cmd = m.search() // the query was the name already: search again anyway, the index changed

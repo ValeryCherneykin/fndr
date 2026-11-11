@@ -25,7 +25,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m.quit()
 	case "esc":
-		// Esc is always one step back: the query, then GLOBAL, then fndr.
+		// Esc is always one step back: the last tag, the query, then
+		// GLOBAL, then fndr.
+		if len(m.tags) > 0 {
+			cmd := m.popTag()
+			return m, cmd
+		}
 		if m.query != "" {
 			cmd := m.setQuery("")
 			return m, cmd
@@ -37,6 +42,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.quit()
 	case "tab":
 		cmd := m.toggleGlobal()
+		return m, cmd
+	case "ctrl+t":
+		cmd := m.addTag()
 		return m, cmd
 	case "ctrl+e":
 		m.exitDir = m.jumpTarget()
@@ -69,9 +77,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.move(len(m.results))
 
 	case "backspace", "-":
-		// With nothing typed, both step back out of the folder: backspace
-		// has nothing left to erase, and "-" goes up as in Oil.nvim. In a
-		// query they edit it ("vless-tun").
+		// With nothing typed, both step back: backspace takes the last tag
+		// off, as it erases the chip before the cursor, then out of the
+		// folder, having nothing left to erase; "-" goes up as in
+		// Oil.nvim. In a query they edit it ("vless-tun").
+		if m.query == "" && len(m.tags) > 0 && msg.String() == "backspace" {
+			cmd := m.popTag()
+			return m, cmd
+		}
 		if m.query == "" {
 			cmd := m.up()
 			return m, cmd
@@ -96,7 +109,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // the selected folder, or the folder holding the selected file. Search,
 // then jump: a zoxide that knows the whole disk.
 func (m *Model) jumpTarget() string {
-	if m.query == "" || len(m.results) == 0 {
+	if m.browsing() || len(m.results) == 0 {
 		return m.cwd
 	}
 	e := &m.results[m.cursor].Entry

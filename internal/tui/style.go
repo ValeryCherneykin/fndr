@@ -31,6 +31,7 @@ var (
 	stPrompt       = lipgloss.NewStyle().Foreground(colLocal).Bold(true)
 	stPromptRename = stPrompt.Foreground(colWarn) // the line is a path to rename, not a query
 	stQuery        = lipgloss.NewStyle().Foreground(colBright)
+	stChip         = lipgloss.NewStyle().Background(colHair).Foreground(colText) // a tag before the query
 	stHair         = lipgloss.NewStyle().Foreground(colHair)
 	stMarker       = lipgloss.NewStyle().Foreground(colLocal)
 

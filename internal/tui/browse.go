@@ -82,7 +82,7 @@ func (m *Model) listed(msg *listMsg) {
 	for _, e := range msg.entries {
 		m.listing = append(m.listing, indexer.Result{Entry: e})
 	}
-	if m.query == "" {
+	if m.browsing() {
 		m.showListing()
 	}
 }

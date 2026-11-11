@@ -42,7 +42,7 @@ func (m *Model) search() tea.Cmd {
 		m.cancelSearch()
 	}
 	m.seq++
-	if m.query == "" {
+	if m.browsing() {
 		m.searching, m.cancelSearch = false, nil
 		m.showListing()
 		return nil
@@ -56,6 +56,10 @@ func (m *Model) search() tea.Cmd {
 	// "internal/" finds the folder, not the files that live in it.
 	text, dirs := strings.CutSuffix(m.query, "/")
 	seq, snap, q := m.seq, m.current().ix.Snapshot(), indexer.Query{Text: text, Under: m.under(), Dirs: dirs, Boost: m.boosts}
+	if len(m.tags) > 0 {
+		tags, under := m.tags, q.Under // never changed in place: safe on the search's goroutines
+		q.Keep = func(e indexer.Entry) bool { return tags.Match(e, under) }
+	}
 	return func() tea.Msg {
 		defer cancel() // release the context once done; canceling twice is harmless
 		rs, total, err := indexer.Search(ctx, snap, q)

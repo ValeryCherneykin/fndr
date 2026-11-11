@@ -70,7 +70,7 @@ func (m *Model) savedLoaded(msg *savedMsg) tea.Cmd {
 		}
 		cmds = append(cmds, m.startCrawl(m.local))
 	}
-	if m.query != "" {
+	if !m.browsing() {
 		cmds = append(cmds, m.search())
 	}
 	return tea.Batch(cmds...)

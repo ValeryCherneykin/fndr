@@ -32,11 +32,11 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
-	line, color := m.queryLine(), colLocal
+	line, color, x := m.queryLine(), colLocal, promptWidth+ansi.StringWidth(m.viewChips())
 	if m.rename != nil {
-		line, color = m.rename.line, colWarn
+		line, color, x = m.rename.line, colWarn, promptWidth
 	}
-	v.Cursor = tea.NewCursor(min(promptWidth+ansi.StringWidth(safeText(line.text[:line.pos])), m.width-1), 0)
+	v.Cursor = tea.NewCursor(min(x+ansi.StringWidth(safeText(line.text[:line.pos])), m.width-1), 0)
 	v.Cursor.Shape = tea.CursorBar
 	v.Cursor.Color = color
 	return v
@@ -47,7 +47,7 @@ func (m *Model) viewPrompt() string {
 	if m.rename != nil {
 		return " " + stPromptRename.Render("❯") + " " + stQuery.Render(safeText(m.rename.line.text))
 	}
-	return " " + m.accent().prompt.Render("❯") + " " + stQuery.Render(m.query)
+	return " " + m.accent().prompt.Render("❯") + " " + m.viewChips() + stQuery.Render(m.query)
 }
 
 // viewList writes listHeight lines: the visible results, or an empty state
@@ -58,15 +58,15 @@ func (m *Model) viewList(b *strings.Builder) {
 
 	var hint string
 	switch {
-	case m.query == "" && m.globalOn:
+	case m.browsing() && m.globalOn:
 		if m.homeHabits != nil && len(m.homeHabits) == 0 {
 			hint = "type to search the whole home"
 		}
-	case m.query == "" && m.listErr != nil:
+	case m.browsing() && m.listErr != nil:
 		hint = "cannot read this folder: " + safeText(m.listErr.Error())
-	case m.query == "" && m.listing != nil && len(m.listing) == 0:
+	case m.browsing() && m.listing != nil && len(m.listing) == 0:
 		hint = "empty folder"
-	case m.query != "" && len(m.results) == 0 && !m.searching:
+	case !m.browsing() && len(m.results) == 0 && !m.searching:
 		hint = "no matches"
 	}
 	if hint != "" {
@@ -84,7 +84,7 @@ func (m *Model) viewList(b *strings.Builder) {
 
 	for i := range h {
 		if r := m.offset + i; r < len(m.results) {
-			habit := m.query == "" && (m.globalOn || r < m.habits) // GLOBAL's empty query is all habits
+			habit := m.browsing() && (m.globalOn || r < m.habits) // GLOBAL's empty query is all habits
 			b.WriteString(renderRow(&m.results[r], m.under(), w, r == m.cursor, habit, m.accent()))
 		} else {
 			b.WriteString(strings.Repeat(" ", w))
@@ -121,7 +121,7 @@ func (m *Model) viewStatus() string {
 		right = append(right, stBarWarn.Render(fmt.Sprintf("%d unreadable", s.skipped)))
 	}
 	count := humanCount(s.ix.Len())
-	if m.query != "" {
+	if !m.browsing() {
 		count = humanCount(m.total) + "/" + count
 	}
 	if s.crawling && s.next == nil { // a refresh is quiet: what is searched is whole

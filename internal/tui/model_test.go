@@ -312,6 +312,13 @@ func TestViewFillsScreenExactly(t *testing.T) {
 		"long query":    func(m *Model) { typeText(m, strings.Repeat("g", 300)) },
 		"while crawled": func(m *Model) { m.local.crawling = true; m.local.skipped = 3 },
 		"long notice":   func(m *Model) { m.setNotice(strings.Repeat("cannot open ", 30), true) },
+		"many tags": func(m *Model) {
+			for _, t := range []string{".go", "dirs", "size>1mb", "image|archive|code", "мои", "a-long-piece-of-path"} {
+				typeText(m, t)
+				key(m, 't', tea.ModCtrl)
+			}
+			typeText(m, "ma")
+		},
 	}
 	for name, setup := range states {
 		for _, sz := range sizes {

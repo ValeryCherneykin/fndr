@@ -43,7 +43,7 @@ func (m *Model) homeHabitsLoaded(msg *homeHabitsMsg) {
 	for _, e := range msg.entries {
 		m.homeHabits = append(m.homeHabits, indexer.Result{Entry: e})
 	}
-	if m.globalOn && m.query == "" {
+	if m.globalOn && m.browsing() {
 		m.showListing()
 	}
 }

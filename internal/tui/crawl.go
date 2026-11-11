@@ -153,7 +153,7 @@ func (m *Model) batch(msg *batchMsg) tea.Cmd {
 	// Refresh results as the index grows, but never queue searches: if one
 	// is running, its reply triggers the next (see searched). A batch of
 	// the scope not searched now changes nothing on screen.
-	if s == m.current() && m.query != "" && !m.searching {
+	if s == m.current() && !m.browsing() && !m.searching {
 		return tea.Batch(cmd, m.search())
 	}
 	return cmd
@@ -193,7 +193,7 @@ func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
 	if complete && s == m.global && m.savedPath != "" {
 		cmds = append(cmds, m.saveIndex())
 	}
-	if s == m.current() && m.query != "" {
+	if s == m.current() && !m.browsing() {
 		cmds = append(cmds, m.search())
 	}
 	return tea.Batch(cmds...)
