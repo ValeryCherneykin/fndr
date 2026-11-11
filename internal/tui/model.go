@@ -58,6 +58,10 @@ type Model struct {
 	// crawlGen numbers the crawls of every scope (see scope.gen).
 	crawlGen int
 
+	// savedPath is where the home's index is kept between runs (saved.go);
+	// empty, it is neither read nor written.
+	savedPath string
+
 	// With an empty query the list shows cwd's contents (browse); otherwise
 	// search results. listing is nil until the directory has been read.
 	listing []indexer.Result
@@ -130,6 +134,9 @@ func New(root string) *Model {
 	m := newModel(root, home, &indexer.Index{})
 	m.local.crawling = true // Init starts it
 	m.graphics, m.tmux = detectGraphics(os.Getenv)
+	if path, err := indexer.DefaultSavedPath(); err == nil && home != "" {
+		m.savedPath = path
+	}
 
 	hist, err := openHistory()
 	if err != nil {
@@ -156,8 +163,13 @@ func (m *Model) Init() tea.Cmd {
 	if m.graphics && m.tmux {
 		passthrough = allowPassthrough
 	}
-	if !m.local.crawling {
+	switch {
+	case !m.local.crawling:
 		return tea.Batch(m.load(m.cwd), passthrough)
+	case m.savedPath != "":
+		// The crawls start once the saved index is read (savedLoaded):
+		// started now, they would fill the indexes it is meant to fill.
+		return tea.Batch(m.load(m.cwd), loadSaved(m.savedPath), passthrough)
 	}
 	return tea.Batch(m.load(m.cwd), m.startCrawl(m.local), passthrough)
 }
@@ -234,6 +246,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case listMsg:
 		m.listed(&msg)
+		return m, nil
+
+	case savedMsg:
+		cmd := m.savedLoaded(&msg)
+		return m, cmd
+
+	case indexSavedMsg:
+		m.indexSaved(msg)
 		return m, nil
 
 	case homeHabitsMsg:

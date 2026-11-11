@@ -257,3 +257,26 @@ func BenchmarkSavedHome(b *testing.B) {
 		b.ReportMetric(float64(info.Size())/1024, "KiB")
 	})
 }
+
+func TestUnder(t *testing.T) {
+	sorted := sortedCopy(savedEntries("/r"))
+	paths := func(es []Entry) []string {
+		ps := make([]string, 0, len(es))
+		for _, e := range es {
+			ps = append(ps, e.Path)
+		}
+		return ps
+	}
+	for dir, want := range map[string][]string{
+		"/r/a":      {"/r/a/b", "/r/a/b c/d/e/f/g.go"}, // not "/r/a b", not "/r/a0"
+		"/r/привет": {"/r/привет/мир.txt"},
+		"/r/a/b":    nil, // a file: nothing below it
+		"/r/none":   nil,
+		"/":         paths(sorted),
+		"/r":        paths(sorted),
+	} {
+		if got := paths(Under(sorted, dir)); !slices.Equal(got, want) {
+			t.Errorf("Under %s = %q, want %q", dir, got, want)
+		}
+	}
+}

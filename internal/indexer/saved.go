@@ -311,3 +311,37 @@ func (r *reader) byte() byte {
 	r.b = r.b[1:]
 	return v
 }
+
+// DefaultSavedPath is where the index of the home is kept:
+// $XDG_CACHE_HOME/fndr/index, or ~/.cache/fndr/index. A cache, as the
+// name says: deleting it costs one crawl.
+func DefaultSavedPath() (string, error) {
+	dir := os.Getenv("XDG_CACHE_HOME")
+	if dir == "" || !filepath.IsAbs(dir) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("index path: %w", err)
+		}
+		dir = filepath.Join(home, ".cache")
+	}
+	return filepath.Join(dir, "fndr", "index"), nil
+}
+
+// Under returns the entries of sorted, sorted by path as Load returns
+// them, that are below dir: a part of sorted, not a copy, found by binary
+// search in microseconds where a scan of a home would take milliseconds.
+//
+// Below dir means starting with dir and a separator, and sorted by bytes
+// those paths are all together: from dir+"/" up to dir+"0", "0" being
+// the byte after "/".
+func Under(sorted []Entry, dir string) []Entry {
+	lo := dir + string(filepath.Separator)
+	if dir == string(filepath.Separator) {
+		lo = dir
+	}
+	hi := lo[:len(lo)-1] + string(rune(filepath.Separator+1))
+	cmp := func(e Entry, p string) int { return strings.Compare(e.Path, p) }
+	i, _ := slices.BinarySearchFunc(sorted, lo, cmp)
+	j, _ := slices.BinarySearchFunc(sorted, hi, cmp)
+	return sorted[i:j]
+}

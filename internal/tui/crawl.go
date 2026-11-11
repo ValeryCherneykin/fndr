@@ -43,6 +43,16 @@ type scope struct {
 	crawling bool
 	skipped  int   // paths the crawl could not read
 	err      error // why the crawl failed, if it did
+
+	// A crawl of a scope that already has entries (a saved index, see
+	// saved.go) refreshes it: it fills next, and ix, still searched, is
+	// replaced only once next is complete. Filling ix itself would show
+	// every entry twice until the crawl ended, and anything deleted
+	// since would never leave. changes are the edits made to ix
+	// meanwhile (renames, OIL), replayed on next before the swap: the
+	// crawl may have read a folder before it changed.
+	next    *indexer.Index
+	changes []change
 }
 
 // crawlStream connects the crawl goroutine to the UI. Batches are pulled one
@@ -64,6 +74,10 @@ func (m *Model) startCrawl(s *scope) tea.Cmd {
 	ctx, stop := context.WithCancel(m.ctx)
 	s.gen, s.stop, s.stream = m.crawlGen, stop, nil
 	s.crawling, s.skipped, s.err = true, 0, nil
+	s.next, s.changes = nil, nil
+	if s.ix.Len() > 0 {
+		s.next = &indexer.Index{}
+	}
 	return runCrawl(ctx, s.gen, s.root, m.prune)
 }
 
@@ -115,6 +129,10 @@ func (m *Model) batch(msg *batchMsg) tea.Cmd {
 	if s == nil {
 		return nil
 	}
+	if s.next != nil {
+		s.next.Add(msg.entries)
+		return s.stream.next() // nothing searched changes until the swap
+	}
 	s.ix.Add(msg.entries)
 	cmd := s.stream.next()
 	// Refresh results as the index grows, but never queue searches: if one
@@ -126,7 +144,9 @@ func (m *Model) batch(msg *batchMsg) tea.Cmd {
 	return cmd
 }
 
-// crawlDone records how the crawl ended and searches the complete index.
+// crawlDone records how the crawl ended, puts a complete refresh in place
+// of what it refreshed, and searches the complete index. A full crawl of
+// the home is saved for the next start.
 func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
 	s := m.crawled(msg.gen)
 	if s == nil {
@@ -137,10 +157,31 @@ func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
 	if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
 		s.err = msg.err
 	}
-	if s == m.current() && m.query != "" && !m.searching {
-		return m.search()
+	complete := msg.err == nil
+	if s.next != nil {
+		if complete {
+			for _, c := range s.changes {
+				// What a change adds goes first out of next, with all below
+				// it: the crawl may have found it too, and twice is a bug.
+				remove := c.remove
+				for i := range c.add {
+					remove = append(remove, c.add[i].Path)
+				}
+				s.next.Update(remove, c.add)
+			}
+			s.ix = s.next
+		}
+		s.next, s.changes = nil, nil // a crawl cut short leaves the old index
 	}
-	return nil
+
+	var cmds []tea.Cmd
+	if complete && s == m.global && m.savedPath != "" {
+		cmds = append(cmds, m.saveIndex())
+	}
+	if s == m.current() && m.query != "" {
+		cmds = append(cmds, m.search())
+	}
+	return tea.Batch(cmds...)
 }
 
 // next returns a command that waits for the next batch, or for the final

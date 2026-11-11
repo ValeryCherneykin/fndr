@@ -124,7 +124,7 @@ func (m *Model) viewStatus() string {
 	if m.query != "" {
 		count = humanCount(m.total) + "/" + count
 	}
-	if s.crawling {
+	if s.crawling && s.next == nil { // a refresh is quiet: what is searched is whole
 		count = "indexing " + count
 	}
 	if m.rename != nil {

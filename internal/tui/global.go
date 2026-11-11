@@ -98,8 +98,12 @@ func (m *Model) toggleGlobal() tea.Cmd {
 // both searches find a renamed file under its new name.
 func (m *Model) updateIndexes(remove []string, add []indexer.Entry) {
 	for _, s := range []*scope{m.local, m.global} {
-		if s != nil {
-			s.ix.Update(remove, add)
+		if s == nil {
+			continue
+		}
+		s.ix.Update(remove, add)
+		if s.next != nil {
+			s.changes = append(s.changes, change{remove, add}) // see scope.next
 		}
 	}
 }
