@@ -14,7 +14,8 @@ func benchEntries(n int) []Entry {
 	ps := benchPaths(n)
 	es := make([]Entry, n)
 	for i, p := range ps {
-		es[i] = NewEntry(p, 0, 0, false)
+		// Times repeat, so ranking by time has ties to break too.
+		es[i] = NewEntry(p, 0, int64(i*7919%1000), false)
 	}
 	return es
 }
@@ -27,9 +28,15 @@ func naiveSearch(snap []Entry, q Query) (paths []string, total int) {
 	if limit <= 0 {
 		limit = DefaultLimit
 	}
+	if q.Text == "" && q.Keep == nil {
+		return nil, 0
+	}
 	lq := strings.ToLower(q.Text)
 	var all []candidate
 	for i := range snap {
+		if q.Keep != nil && !q.Keep(snap[i]) {
+			continue
+		}
 		if q.Under != "" && !isBelow(snap[i].Path, q.Under) {
 			continue
 		}
@@ -40,7 +47,7 @@ func naiveSearch(snap []Entry, q Query) (paths []string, total int) {
 			all = append(all, candidate{idx: int32(i), score: int32(s)}) //nolint:gosec // test data is small
 		}
 	}
-	slices.SortFunc(all, func(a, b candidate) int { return rank(snap, a, b) })
+	slices.SortFunc(all, func(a, b candidate) int { return rank(snap, q.Text == "", a, b) })
 	total = len(all)
 	for _, c := range all[:min(limit, len(all))] {
 		paths = append(paths, snap[c.idx].Path)
@@ -137,9 +144,13 @@ func resultPaths(rs []Result) []string {
 func TestSearchMatchesNaive(t *testing.T) {
 	for _, n := range []int{0, 1, chunkSize - 1, chunkSize, 3*chunkSize + 17, 50_000} {
 		snap := benchEntries(n)
-		for _, text := range []string{"intfile9", "go", "nomatch!", "FILE_1"} {
+		for _, text := range []string{"intfile9", "go", "nomatch!", "FILE_1", "", "+go"} {
 			for _, limit := range []int{1, 7, 100} {
 				q := Query{Text: text, Limit: limit}
+				if text == "" || text[0] == '+' { // with a tag: names ending in 1
+					q.Text = strings.TrimPrefix(text, "+")
+					q.Keep = func(e Entry) bool { return strings.HasSuffix(e.Name(), "1") }
+				}
 				wantPaths, wantTotal := naiveSearch(snap, q)
 				for _, workers := range []int{1, 3, 8, 64} {
 					t.Run(fmt.Sprintf("n=%d/q=%s/limit=%d/w=%d", n, text, limit, workers), func(t *testing.T) {
@@ -157,6 +168,33 @@ func TestSearchMatchesNaive(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestSearchTagsOnly: tags with nothing typed find every entry they keep,
+// the places the user goes to first, then the newest: "all .go files"
+// opens on the ones in use, not on the ones with the shortest paths.
+func TestSearchTagsOnly(t *testing.T) {
+	snap := []Entry{
+		NewEntry("/a/old.go", 0, 100, false),
+		NewEntry("/a/new.go", 0, 300, false),
+		NewEntry("/a/b/habit.go", 0, 50, false),
+		NewEntry("/a/mid.go", 0, 200, false),
+		NewEntry("/a/notes.md", 0, 999, false),
+	}
+	goFiles := func(e Entry) bool { return strings.HasSuffix(e.Name(), ".go") }
+	rs, total, err := Search(context.Background(), snap, Query{
+		Keep: goFiles, Boost: map[string]int{"/a/b/habit.go": 5},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/a/b/habit.go", "/a/new.go", "/a/mid.go", "/a/old.go"}
+	if got := resultPaths(rs); total != 4 || !slices.Equal(got, want) {
+		t.Errorf("got %q (%d), want %q", got, total, want)
+	}
+	if rs, _, _ := Search(context.Background(), snap, Query{}); rs != nil {
+		t.Errorf("no text, no tags: %d results, want none (the folder is listed instead)", len(rs))
 	}
 }
 

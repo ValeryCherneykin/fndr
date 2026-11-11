@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -179,14 +180,47 @@ func FuzzParse(f *testing.F) {
 	})
 }
 
-// BenchmarkMatch: a stack of three tags over 100k entries, the work it
-// adds to every key typed. It must not allocate.
-func BenchmarkMatch(b *testing.B) {
+// BenchmarkSearch: what tags cost a whole search over 100k entries, as
+// the TUI makes it: with a query (tags only see what it found), and with
+// tags alone (every entry is tested, and ranked by time).
+func BenchmarkSearch(b *testing.B) {
+	es := benchIndex()
+	code, err := Parse("code|doc")
+	if err != nil {
+		b.Fatal(err)
+	}
+	s := Stack{code}
+	keep := func(e indexer.Entry) bool { return s.Match(e, under) }
+	for _, q := range []indexer.Query{
+		{Text: "pkgmain", Under: under},
+		{Text: "pkgmain", Under: under, Keep: keep},
+		{Under: under, Keep: keep},
+	} {
+		name := fmt.Sprintf("text=%q/tags=%t", q.Text, q.Keep != nil)
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, _, err := indexer.Search(context.Background(), es, q); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func benchIndex() []indexer.Entry {
 	kinds := []string{"main.go", "README.md", "photo.jpg", "notes.txt", "lib.rs", "archive.zip", "Makefile"}
 	es := make([]indexer.Entry, 100_000)
 	for i := range es {
-		es[i] = file(fmt.Sprintf("dev/project%d/pkg/%s", i%300, kinds[i%len(kinds)]), int64(i*37))
+		es[i] = indexer.NewEntry(fmt.Sprintf("%s/dev/project%d/pkg/%s", under, i%300, kinds[i%len(kinds)]), int64(i*37), int64(i), false)
 	}
+	return es
+}
+
+// BenchmarkMatch: a stack of three tags over 100k entries, the work it
+// adds to every key typed. It must not allocate.
+func BenchmarkMatch(b *testing.B) {
+	es := benchIndex()
 	var s Stack
 	for _, t := range []string{"code|doc", "size>1k", "project1"} {
 		tag, err := Parse(t)

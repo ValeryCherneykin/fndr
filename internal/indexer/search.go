@@ -51,6 +51,13 @@ type Query struct {
 	// worker at once, so the caller must never change a map once it has
 	// been passed here; build a new one instead.
 	Boost map[string]int
+
+	// Keep, if set, is one more test an entry must pass: the tags of the
+	// search. It is called from every worker at once, on what the cheap
+	// test of Text let through. With Keep, an empty Text matches every
+	// entry kept, ranked by Boost, then newest first: "all .go files"
+	// shows the ones in use, not the ones with the shortest paths.
+	Keep func(Entry) bool
 }
 
 // Result is one search hit.
@@ -88,9 +95,10 @@ func Search(ctx context.Context, snap []Entry, q Query) (results []Result, total
 // search is Search with an explicit worker count, so tests can check that the
 // result does not depend on it.
 func search(ctx context.Context, snap []Entry, q Query, workers int) (results []Result, total int, err error) {
-	if q.Text == "" {
+	if q.Text == "" && q.Keep == nil {
 		return nil, 0, nil
 	}
+	recent := q.Text == "" // no letters to rank by: time ranks
 	limit := q.Limit
 	if limit <= 0 {
 		limit = DefaultLimit
@@ -114,7 +122,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 	var wg sync.WaitGroup
 	for w := range workers {
 		wg.Go(func() {
-			top := topK{snap: snap, limit: limit}
+			top := topK{snap: snap, limit: limit, recent: recent}
 			for ctx.Err() == nil {
 				c := int(next.Add(1) - 1)
 				if c >= chunks {
@@ -131,6 +139,9 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 						continue
 					}
 					if !hasSubsequenceFold(e.Path[from:], lq) {
+						continue
+					}
+					if q.Keep != nil && !q.Keep(*e) {
 						continue
 					}
 					score, _ := fuzzyScore(e, from, lq, nil)
@@ -153,7 +164,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 		total += t.count
 		all = append(all, t.items...)
 	}
-	slices.SortFunc(all, func(a, b candidate) int { return rank(snap, a, b) })
+	slices.SortFunc(all, func(a, b candidate) int { return rank(snap, recent, a, b) })
 	if len(all) > limit {
 		all = all[:limit]
 	}
@@ -182,11 +193,15 @@ type candidate struct {
 }
 
 // rank orders candidates best first: it returns a negative number when a
-// ranks above b. Higher score wins; ties go to the shorter path, then to the
-// lexically smaller one, which makes the order total and deterministic.
-func rank(snap []Entry, a, b candidate) int {
+// ranks above b. Higher score wins; with recent, ties go to the newer
+// entry; then to the shorter path, then to the lexically smaller one,
+// which makes the order total and deterministic.
+func rank(snap []Entry, recent bool, a, b candidate) int {
 	if a.score != b.score {
 		return cmp.Compare(b.score, a.score)
+	}
+	if ta, tb := snap[a.idx].ModTime, snap[b.idx].ModTime; recent && ta != tb {
+		return cmp.Compare(tb, ta)
 	}
 	pa, pb := snap[a.idx].Path, snap[b.idx].Path
 	if len(pa) != len(pb) {
@@ -207,10 +222,11 @@ func rank(snap []Entry, a, b candidate) int {
 // takes `any`: every Push would box the candidate into a heap allocation, in
 // the hottest loop of the search.
 type topK struct {
-	snap  []Entry
-	limit int
-	items []candidate
-	count int
+	snap   []Entry
+	limit  int
+	recent bool // see rank
+	items  []candidate
+	count  int
 }
 
 func (t *topK) offer(c candidate) {
@@ -220,7 +236,7 @@ func (t *topK) offer(c candidate) {
 		t.up(len(t.items) - 1)
 		return
 	}
-	if rank(t.snap, c, t.items[0]) >= 0 {
+	if rank(t.snap, t.recent, c, t.items[0]) >= 0 {
 		return // not better than the worst we keep
 	}
 	t.items[0] = c
@@ -229,7 +245,7 @@ func (t *topK) offer(c candidate) {
 
 // worse reports whether items[i] ranks below items[j].
 func (t *topK) worse(i, j int) bool {
-	return rank(t.snap, t.items[i], t.items[j]) > 0
+	return rank(t.snap, t.recent, t.items[i], t.items[j]) > 0
 }
 
 // up moves items[i] toward the root while it is worse than its parent.
