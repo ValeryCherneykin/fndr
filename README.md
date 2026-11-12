@@ -57,12 +57,17 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
   hidden folders, app bundles and the folders a project's `.gitignore`
   names (`bin/`, `dist/`, `target/`) are listed, so you can find them by
   name and go in, but their insides stay out of the results. Ignored
-  *files*, like `.env`, stay searchable. On a real home
-  that is 88 thousand entries instead of 760 thousand.
+  *files*, like `.env`, stay searchable, and so does `~/.config`, hidden
+  as it is: `init.lua` is one `Tab` away. On a real home that is 88
+  thousand entries instead of 760 thousand.
 - **Browse when you want to.** An empty query is a plain folder view:
   folders first, hidden files dimmed. `Enter` goes in, `-` goes up, and
   search narrows to wherever you are.
 - **`internal/`** — end the query with a slash and only folders come back.
+- **Tags: search by what you remember.** Not the name? Then the type, the
+  size, the day, or what was inside: `.go`, `image>5mb`, `@today`,
+  `has:.json`. Type one, press `Ctrl+T`, and it sticks as a chip; stack
+  as many as you like. See below.
 - **fndr learns you.** Folders you enter, files you open and places you jump
   to are remembered, frecency-style, as in zoxide. Search ranks your habits
   first, and an empty query offers the places you usually go from here,
@@ -82,12 +87,55 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
 - **Jump on exit.** `Ctrl+E` quits and `cd`s your shell into the selected
   folder, or into the folder of the selected file. Search + jump is a zoxide
   that already knows your whole disk.
-- **Edit the folder as text** (`Ctrl+O`), as in Oil.nvim. See below.
+- **Edit the folder as text** (`Ctrl+O`), as in Oil.nvim, **or edit what
+  you found**: every result a line, from as many folders as it takes. See
+  below.
 - **Rename or move what you found** (`Ctrl+R`). The query line turns into
   the entry's path: change the name, or the folders in it, and press
   `Enter`. Missing folders are made, and nothing is ever overwritten.
 - **A real query line.** Move through it with `Ctrl+H` / `Ctrl+L`, fix a typo
   in the middle without retyping the rest.
+
+### 🏷 Tags
+
+Type a tag in the query and press `Ctrl+T`: it becomes a chip in front of
+the query, and everything you type after searches among what it lets
+through. A tag alone is a search too: `@today`, `Ctrl+T`, and there is
+everything you touched today.
+
+| Tag | Finds |
+|---|---|
+| `.go` · `.tar.gz` | names with that extension |
+| `dirs` · `files` | folders only · everything else |
+| `image` `video` `audio` `doc` `code` `archive` | files of that kind |
+| `size>1mb` · `>1mb` · `<10k` | files by size (B, KB, MB, GB, TB, in powers of 1000) |
+| `.go>1mb` · `image>5mb` | a kind and a size in one |
+| `@today` · `@yesterday` · `@week` · `@3d` | changed then, by the calendar: at 01:00, 23:00 was yesterday |
+| `has:.json` · `has:dockerfile` | folders that hold such a thing, anywhere inside: the deepest one that does |
+| `fndr` | anything else: a piece of the path |
+| `.go\|dirs` | either one |
+
+Several tags must all match: `has:.json` `has:dockerfile` is the project
+you remember by its files, not by its name, and `Ctrl+E` takes you there.
+The same tag again takes it off; `Backspace` or `Esc` on an empty query
+take off the last one, `Ctrl+U` all of them. Tags stay through `Tab`;
+going into a folder drops them, since they were how you found it.
+
+### ⚙️ Config
+
+`~/.config/fndr/config` (or `$XDG_CONFIG_HOME/fndr/config`, or `-config
+path`), written like Ghostty's. For now it puts tags a chord away:
+
+```
+bind = ctrl+f>f = tag:dirs
+bind = ctrl+f>t = tag:@today
+bind = ctrl+f>p = tag:has:go.mod
+```
+
+`Ctrl+F` shows what can follow in the status bar, so there is nothing to
+remember; `Ctrl+F` again with `Ctrl` still held works too, and so does any
+keyboard layout. A line that is wrong is reported by its number when fndr
+starts, and the rest still works.
 
 ### ✏️ Edit the folder as text
 
@@ -114,6 +162,13 @@ fndr started.
 `Esc` (or `Ctrl+O` again) goes back to search. `:q`, `:wq` and `ZZ` quit
 fndr, as they quit Vim. With unsaved changes, fndr won't leave the buffer:
 write them with `:w`, undo them with `u`, or quit without them with `:q!`.
+
+**Edit what you found.** With a query or tags on, `Ctrl+O` fills the
+buffer with every result instead, each line its path from the folder
+searched (`fndr/debug.log`). Change the name to rename it, the folders to
+move it, `dd` it to trash it, in as many folders as the search reached:
+`@today .log`, `Ctrl+O`, `ggdG`, `:w`, `y` clears today's logs. After `y`
+the buffer is what you wrote, even what the search would no longer find.
 
 ---
 
@@ -157,14 +212,15 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+N` / `Ctrl+P`, `↓` / `↑` | Move through the list |
 | `PgDn` / `PgUp`, `End` / `Home` | Move by a page, to the end |
 | `Enter` | Open a file · enter a folder |
-| `-` · `Backspace` on an empty query | Go up a folder |
+| `-` · `Backspace` on an empty query | Go up a folder; with tags on, `Backspace` takes the last one off |
 | `Ctrl+H` / `Ctrl+L`, `←` / `→` | Move through the query |
-| `Ctrl+W` · `Ctrl+U` | Delete a word · delete to the start |
+| `Ctrl+W` · `Ctrl+U` | Delete a word · delete to the start; on an empty query, `Ctrl+U` takes every tag off |
+| `Ctrl+T` | Make what is typed a tag (see above); again to take it off |
 | `Ctrl+V` | Show or hide the preview (from 100 columns) |
-| `Ctrl+O` | Edit the folder as text with Vim keys (see above); `Esc` or `Ctrl+O` goes back, `:q` quits |
+| `Ctrl+O` | Edit the folder as text with Vim keys, or, searching, what was found (see above); `Esc` or `Ctrl+O` goes back, `:q` quits |
 | `Ctrl+R` | Rename or move the selected entry: edit its path, `Enter`; missing folders are made, nothing is ever overwritten |
 | `Ctrl+E` | Quit and jump there |
-| `Esc` | Clear the query, then leave GLOBAL, then quit |
+| `Esc` | Take off the last tag, then clear the query, then leave GLOBAL, then quit |
 | `Ctrl+C` | Quit |
 
 ---
@@ -225,7 +281,9 @@ noticeably slower is treated as a bug.
   tiny file claiming 20000×20000 gets an info card, not gigabytes of memory.
 - **Nothing is deleted for good, nothing is overwritten.** Deleting moves to
   the trash, and only after the plan is shown and confirmed. New files are
-  created with `O_EXCL`: if the name is taken, nothing happens.
+  created with `O_EXCL`: if the name is taken, nothing happens. Editing
+  what a search found stops at 10 000 entries: `ggdG` never reaches a
+  whole home.
 - **Several fndr, one history.** Open it in every tmux pane: visits add up
   under a file lock instead of the last one to exit erasing the others.
 - **Never silent.** Whatever happens (opened, refused, failed) is said in the
@@ -249,8 +307,10 @@ noticeably slower is treated as a bug.
   Vim keys; rename or move any search result
 - [x] **Instant start** — an on-disk index, caught up in the background
   by checking which folders changed
-- [ ] Stackable filters: `main .go >1mb @today`
-- [ ] Config: rebind any key, choose your editor
+- [x] **Tags**, stacked: `.go`, `image>5mb`, `@today`, `has:.json`
+- [x] Edit what a search found, from every folder at once
+- [x] Config: tags a chord away
+- [ ] Config: rebind any key, choose your editor, folders to search or skip
 - [ ] bash and fish integration
 
 ---
