@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
@@ -39,7 +40,7 @@ func kept(t *testing.T, es []indexer.Entry, under string, tags ...string) []stri
 		}
 		s = s.Toggle(tag)
 	}
-	keep := s.Keep(es, under)
+	keep := s.Keep(es, under, time.Now())
 	got := []string{}
 	for _, e := range es {
 		if below(e.Path, under) && keep(e) {
@@ -164,6 +165,6 @@ func BenchmarkHas(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		s.Keep(es, under)
+		s.Keep(es, under, time.Now())
 	}
 }

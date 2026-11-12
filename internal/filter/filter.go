@@ -43,6 +43,7 @@ const (
 	kindDirs                 // folders only
 	kindFiles                // everything but folders
 	kindAny                  // a size alone: any file, the size decides
+	kindTime                 // changed on certain days: @today, @3d
 )
 
 // term is one choice of a tag: what kind of entry, and, if op is set, a
@@ -53,6 +54,13 @@ type term struct {
 	cat  category // for kindCategory: every category of the tag, see Parse
 	op   byte     // '>' or '<' to compare the size with n; 0 for no size
 	n    int64    // bytes
+
+	// For kindTime, the days, back from today, the change falls in: from
+	// that many days ago, up to the start of day to (-1: up to now and
+	// on). after and before are those days as times, set for each search
+	// (Stack.at); a tag not yet set matches nothing.
+	from, to      int
+	after, before int64 // Unix nanoseconds, after inclusive
 }
 
 // Parse reads a tag as typed after ctrl+t, case-insensitively. Each choice
@@ -63,6 +71,7 @@ type term struct {
 //   - a size: size>1MB, size<10k, or short >1mb; units B, K(B), M(B),
 //     G(B), T(B) in powers of 1000, as sizes are shown;
 //   - an extension: .go, .tar.gz;
+//   - a time: @today, @yesterday, @week, @3d, by the calendar (see when.go);
 //   - anything else: a piece of the path below the folder searched.
 //
 // Any of these but dirs can be followed by a size, which the entry must
@@ -123,6 +132,17 @@ func parseTerm(p string) (term, string, error) {
 		head, size = p[:i], p[i:]
 	}
 	tm, text := parseHead(head)
+	if w, ok := strings.CutPrefix(head, "@"); ok {
+		var err error
+		if tm, err = parseWhen(w); err != nil {
+			return term{}, "", err
+		}
+	}
+	if tm.kind == kindExt && strings.ContainsAny(tm.text, " \t") {
+		// .go has:.gif typed at once is two tags, not an extension with a
+		// space: say so rather than search for it and find nothing.
+		return term{}, "", errors.New("an extension has no spaces: one tag per ctrl+t")
+	}
 	if size == "" {
 		return tm, text, nil
 	}
@@ -223,6 +243,8 @@ func (tm *term) match(e indexer.Entry, under string) bool {
 			strings.EqualFold(name[len(name)-len(tm.text):], tm.text)
 	case kindCategory:
 		return !e.IsDir && categoryOf(e.Name())&tm.cat != 0
+	case kindTime:
+		return tm.after <= e.ModTime && e.ModTime < tm.before
 	default:
 		rel := e.Path
 		if under != "" && len(rel) > len(under) && strings.HasPrefix(rel, under) {

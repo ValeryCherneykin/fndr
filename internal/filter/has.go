@@ -3,6 +3,7 @@ package filter
 import (
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
@@ -24,11 +25,12 @@ const hasPrefix = "has:"
 // types 65; past that a search finds nothing rather than a wrong answer.
 const maxHas = 64
 
-// Keep returns the test a search runs on each entry below under: every
-// tag of s must match. With has: tags it first goes over snap to find the
-// folders that hold what they ask for, a pass over the whole index: call
-// it where the search runs, off the UI goroutine.
-func (s Stack) Keep(snap []indexer.Entry, under string) func(indexer.Entry) bool {
+// Keep returns the test a search made at now runs on each entry below
+// under: every tag of s must match. With has: tags it first goes over snap
+// to find the folders that hold what they ask for, a pass over the whole
+// index: call it where the search runs, off the UI goroutine.
+func (s Stack) Keep(snap []indexer.Entry, under string, now time.Time) func(indexer.Entry) bool {
+	s = s.at(now)
 	var plain Stack
 	var has []Tag
 	for _, t := range s {

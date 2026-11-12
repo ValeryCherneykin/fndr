@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -61,7 +62,7 @@ func (m *Model) search() tea.Cmd {
 		defer cancel() // release the context once done; canceling twice is harmless
 		if len(tags) > 0 {
 			// Here, not in Update: a has: tag goes over the whole snapshot.
-			q.Keep = tags.Keep(snap, q.Under)
+			q.Keep = tags.Keep(snap, q.Under, time.Now())
 		}
 		rs, total, err := indexer.Search(ctx, snap, q)
 		return searchMsg{seq: seq, results: rs, total: total, indexed: len(snap), err: err}

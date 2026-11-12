@@ -15,9 +15,9 @@ import (
 // starts typing first and decides what it is after, and sees the tag while
 // typing it. Several tags must all match; the same tag again takes it off.
 //
-// Tags stay through Tab and through folders entered: they are the cards on
-// the desk, the query is what is looked for among them. Backspace on an
-// empty query and Esc take the last one off.
+// Tags stay through Tab: the same search, wider or narrower. Going into a
+// folder drops them: they were how it was found, and in it the user wants
+// what it holds. Backspace on an empty query and Esc take the last one off.
 
 // browsing reports whether the list shows the folder rather than a
 // search: nothing typed and no tags. With a tag alone, it is a search of
@@ -28,7 +28,7 @@ func (m *Model) browsing() bool { return m.query == "" && len(m.tags) == 0 }
 func (m *Model) addTag() tea.Cmd {
 	text := strings.TrimSpace(m.query)
 	if text == "" {
-		m.setNotice("type a tag, then ctrl+t: .go  dirs  image  size>1mb  .go|dirs", false)
+		m.setNotice("type a tag, then ctrl+t: .go  dirs  image  size>1mb  @today  has:.go  .go|dirs", false)
 		return nil
 	}
 	t, err := filter.Parse(text)
