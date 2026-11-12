@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // crawlSorted crawls root, or refreshes it from saved, and returns the
@@ -38,9 +39,7 @@ func crawlSorted(tb testing.TB, root string, prune *Prune, saved []Entry) ([]Ent
 	return sortedCopy(all), stats
 }
 
-// names is what search sees of entries: paths and which are folders.
-// Sizes and times of files are left out: Refresh keeps them as saved
-// for files written in place (see Refresh).
+// names is entries in short, for failure messages.
 func names(es []Entry) []string {
 	out := make([]string, len(es))
 	for i, e := range es {
@@ -70,6 +69,38 @@ func TestRefreshUnchanged(t *testing.T) {
 	}
 }
 
+// TestRefreshSeesWritesInPlace: a file saved over in place, as editors
+// often do, leaves its folder's time as it was; a refresh must still see
+// its new size and time, or @today misses this morning's edit.
+func TestRefreshSeesWritesInPlace(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "src", "main.go")
+	writeFile(t, path, "package main")
+	saved, _ := crawlSorted(t, root, nil, nil)
+
+	dir, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, "package main\n\nfunc main() {}\n")
+	later := dir.ModTime().Add(time.Hour)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if now, err := os.Stat(filepath.Dir(path)); err != nil || !now.ModTime().Equal(dir.ModTime()) {
+		t.Fatalf("the folder's time moved (%v): the test needs it not to", err)
+	}
+
+	got, stats := crawlSorted(t, root, nil, saved)
+	if stats.Reused != 1 {
+		t.Fatalf("%d folders reused, want src: the case is a folder that did not change", stats.Reused)
+	}
+	e, _ := find(got, path)
+	if e.Size != 29 || e.ModTime != later.UnixNano() {
+		t.Errorf("main.go after a refresh: size %d, time %v; want 29 and %v", e.Size, time.Unix(0, e.ModTime), later)
+	}
+}
+
 // TestRefreshFindsWhatCrawlFinds: after random edits of every kind, a
 // refresh finds exactly what a fresh crawl does, round after round, each
 // refreshing the one before, as starts would.
@@ -91,7 +122,9 @@ func TestRefreshFindsWhatCrawlFinds(t *testing.T) {
 		}
 		got, _ := crawlSorted(t, root, prune, saved)
 		want, _ := crawlSorted(t, root, prune, nil)
-		if !slices.Equal(names(got), names(want)) {
+		// Whole entries, sizes and times too: files are written in place
+		// (edit, case 5), which no folder's time shows.
+		if !slices.Equal(got, want) {
 			t.Fatalf("round %d:\n got %v\nwant %v", round, names(got), names(want))
 		}
 		saved = got
@@ -176,7 +209,7 @@ func TestRefreshSeesGitignoreEdits(t *testing.T) {
 		writeFile(t, gi, rules) // in place: a's time does not change
 		got, _ := crawlSorted(t, root, prune, saved)
 		want, _ := crawlSorted(t, root, prune, nil)
-		if !slices.Equal(names(got), names(want)) {
+		if !slices.Equal(got, want) {
 			t.Fatalf(".gitignore now %q:\n got %v\nwant %v", rules, names(got), names(want))
 		}
 		saved = got
@@ -185,7 +218,7 @@ func TestRefreshSeesGitignoreEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := crawlSorted(t, root, prune, saved)
-	if want, _ := crawlSorted(t, root, prune, nil); !slices.Equal(names(got), names(want)) {
+	if want, _ := crawlSorted(t, root, prune, nil); !slices.Equal(got, want) {
 		t.Fatalf(".gitignore removed:\n got %v\nwant %v", names(got), names(want))
 	}
 }
@@ -209,7 +242,7 @@ func TestRefreshUnreadableThenReadable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := crawlSorted(t, root, nil, saved)
-	if want, _ := crawlSorted(t, root, nil, nil); !slices.Equal(names(got), names(want)) {
+	if want, _ := crawlSorted(t, root, nil, nil); !slices.Equal(got, want) {
 		t.Errorf("made readable:\n got %v\nwant %v", names(got), names(want))
 	}
 }
