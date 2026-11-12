@@ -46,6 +46,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t":
 		cmd := m.addTag()
 		return m, cmd
+	case "ctrl+u":
+		// It erases the line before the cursor; with nothing typed, what is
+		// before it is the chips, all of them. ctrl+l, once meant for this,
+		// moves the cursor (as l in Vim).
+		if m.query == "" && len(m.tags) > 0 {
+			m.tags = nil
+			cmd := m.tagsChanged()
+			return m, cmd
+		}
 	case "ctrl+e":
 		m.exitDir = m.jumpTarget()
 		_ = m.learn(m.exitDir) // its save never runs, quitting: SaveHistory writes it once the interface has closed

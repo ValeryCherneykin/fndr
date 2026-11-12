@@ -232,3 +232,20 @@ func TestRowOfTheRootItself(t *testing.T) {
 		}
 	}
 }
+
+// TestCtrlUTakesAllTagsOff: ctrl+u erases what is typed, as ever; on
+// nothing typed, what is before the cursor is the chips, all of them.
+func TestCtrlUTakesAllTagsOff(t *testing.T) {
+	m := tagModel(t)
+	tag(m, ".go")
+	tag(m, "a")
+	typeText(m, "ma")
+	key(m, 'u', tea.ModCtrl)
+	if m.query != "" || len(m.tags) != 2 {
+		t.Fatalf("first ctrl+u: query %q, tags %q; want the text gone, the tags kept", m.query, m.tagTexts())
+	}
+	key(m, 'u', tea.ModCtrl)
+	if len(m.tags) != 0 || !m.browsing() || m.cwd != "/r" {
+		t.Errorf("second ctrl+u: tags %q, cwd %q; want none, the folder shown", m.tagTexts(), m.cwd)
+	}
+}
