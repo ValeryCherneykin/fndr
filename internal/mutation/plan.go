@@ -43,6 +43,7 @@ var (
 	ErrCopy     = errors.New("the same item is on two lines; copying is not supported yet")
 	ErrConflict = errors.New("two entries would have the same name")
 	ErrUnknown  = errors.New("line refers to no item of this folder")
+	ErrNested   = errors.New("inside a folder that changes too: one at a time")
 )
 
 // LineError says which line of the buffer is wrong, counting from 1, so
@@ -87,6 +88,7 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 	}
 
 	var renames, creates Plan
+	renamedOn := map[string]int{} // old name → the line renaming it
 	seen := make(map[int]bool, len(lines))
 	taken := map[string]int{} // final name → the line that claims it
 	for i, l := range lines {
@@ -145,6 +147,7 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 		case final != op.From:
 			op.To = final
 			renames = append(renames, op)
+			renamedOn[op.From] = n
 		}
 	}
 
@@ -169,5 +172,49 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 			deletes = append(deletes, Op{Kind: OpDelete, From: byID[it.ID]})
 		}
 	}
+	deletes, err := nested(deletes, renames, renamedOn)
+	if err != nil {
+		return nil, err
+	}
 	return append(append(deletes, renames...), creates...), nil
+}
+
+// nested settles items inside a folder the plan also moves, which a buffer
+// of search results can hold: "fndr/" and "fndr/debug.log". Deleted with
+// their folder, they go with it: their own delete is dropped, as the trash
+// would find them gone. Otherwise the plan would act on a path the folder's
+// step has already moved, so it is refused, on the line to look at.
+func nested(deletes, renames Plan, renamedOn map[string]int) (Plan, error) {
+	// What leaves its old path, by that path. Each name looks up its
+	// parents, not every step of the plan: ggdG over 10 000 lines would
+	// otherwise be 10^8 comparisons.
+	movers := make(map[string]Op, len(deletes)+len(renames))
+	for _, op := range slices.Concat(deletes, renames) {
+		movers[op.From] = op
+	}
+	inside := func(name string) (Op, bool) {
+		for d := filepath.Dir(name); d != "." && d != "/"; d = filepath.Dir(d) {
+			if f, ok := movers[d]; ok {
+				return f, true
+			}
+		}
+		return Op{}, false
+	}
+	for _, op := range renames {
+		if _, ok := inside(op.From); ok {
+			return nil, &LineError{Line: renamedOn[op.From], Err: ErrNested}
+		}
+	}
+	kept := deletes[:0:0]
+	for _, op := range deletes {
+		f, ok := inside(op.From)
+		switch {
+		case !ok:
+			kept = append(kept, op)
+		case f.Kind == OpRename:
+			return nil, &LineError{Line: renamedOn[f.From], Err: ErrNested}
+		}
+		// Inside a folder deleted too: it goes to the trash with it.
+	}
+	return kept, nil
 }

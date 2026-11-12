@@ -153,3 +153,42 @@ func FuzzDiff(f *testing.F) {
 		}
 	})
 }
+
+// TestDiffNested: a buffer of search results may hold a folder and what is
+// inside it. Deleted along with the folder, the inside goes with it; any
+// other step on both would act on a path the folder's step has moved.
+func TestDiffNested(t *testing.T) {
+	items := []Item{{1, "fndr/"}, {2, "fndr/debug.log"}, {3, "fndr/cmd/trace.log"}, {4, "site/x.log"}}
+	all := func(edit func([]Line) []Line) []Line {
+		ls := []Line{{1, "fndr/"}, {2, "fndr/debug.log"}, {3, "fndr/cmd/trace.log"}, {4, "site/x.log"}}
+		return edit(ls)
+	}
+	for _, tc := range []struct {
+		name    string
+		lines   []Line
+		want    Plan
+		badLine int // 0: no error
+	}{
+		{"ggdG: the folder takes what is inside", nil,
+			Plan{{Kind: OpDelete, From: "fndr"}, {Kind: OpDelete, From: "site/x.log"}}, 0},
+		{"inside alone is fine", all(func(ls []Line) []Line { ls[1].Text = "fndr/old.log"; return ls }),
+			Plan{{Kind: OpRename, From: "fndr/debug.log", To: "fndr/old.log"}}, 0},
+		{"the folder alone takes what is inside along", all(func(ls []Line) []Line { ls[0].Text = "tool/"; return ls }),
+			Plan{{Kind: OpRename, From: "fndr", To: "tool"}}, 0},
+		{"renamed inside a renamed folder", all(func(ls []Line) []Line { ls[0].Text = "tool/"; ls[2].Text = "fndr/cmd/t.log"; return ls }),
+			nil, 3},
+		{"renamed inside a deleted folder", all(func(ls []Line) []Line { ls[2].Text = "fndr/cmd/t.log"; return ls[1:] }),
+			nil, 2},
+		{"deleted inside a renamed folder", all(func(ls []Line) []Line { ls[0].Text = "tool/"; return append(ls[:1], ls[2:]...) }),
+			nil, 1},
+	} {
+		got, err := Diff(items, tc.lines)
+		var le *LineError
+		switch {
+		case tc.badLine != 0 && (!errors.As(err, &le) || le.Line != tc.badLine || !errors.Is(err, ErrNested)):
+			t.Errorf("%s: %v, want ErrNested on line %d", tc.name, err, tc.badLine)
+		case tc.badLine == 0 && (err != nil || !slices.Equal(got, tc.want)):
+			t.Errorf("%s: %v, %v\nwant %v", tc.name, got, err, tc.want)
+		}
+	}
+}
