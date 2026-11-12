@@ -1,7 +1,8 @@
 // Package filter turns tags into tests on index entries. A tag narrows a
 // search the way a card on a desk does: .go, dirs, size>1MB, image. Tags
 // stack: an entry must pass every one (AND), and a single tag may offer
-// choices separated by "|", of which one is enough (OR): .go|dirs.
+// choices separated by "|", of which one is enough (OR): .go|dirs. A tag
+// after has: finds folders by what they hold instead (see Stack.Keep).
 //
 // A tag is kept as data, not as a closure: it has to be drawn as a chip,
 // compared with another (adding the same tag again removes it), and
@@ -30,6 +31,7 @@ var ErrEmpty = errors.New("empty tag")
 type Tag struct {
 	terms []term
 	text  string // the tag as Parse cleaned it up, see String
+	has   bool   // a has: tag: its terms are what a folder must hold
 }
 
 type kind uint8
@@ -66,7 +68,23 @@ type term struct {
 // Any of these but dirs can be followed by a size, which the entry must
 // also have: .go>1mb, image>5mb, code<1k. Folders have no size of their
 // own, so a size only ever matches files.
+//
+// has: before a tag makes it a tag on folders, by what they hold: has:.go,
+// has:.json|.yaml. It goes before the whole tag, once.
 func Parse(s string) (Tag, error) {
+	if rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(s)), hasPrefix); ok {
+		t, err := parse(rest)
+		if err != nil {
+			return Tag{}, err
+		}
+		t.has, t.text = true, hasPrefix+t.text
+		return t, nil
+	}
+	return parse(s)
+}
+
+// parse reads a tag without has:.
+func parse(s string) (Tag, error) {
 	parts := strings.Split(s, "|")
 	t := Tag{terms: make([]term, 0, len(parts))}
 	texts := make([]string, 0, len(parts))
@@ -74,6 +92,9 @@ func Parse(s string) (Tag, error) {
 		p = strings.ToLower(strings.TrimSpace(p))
 		if p == "" {
 			return Tag{}, ErrEmpty
+		}
+		if strings.HasPrefix(p, hasPrefix) {
+			return Tag{}, errors.New("has: goes once, before the whole tag")
 		}
 		tm, text, err := parseTerm(p)
 		if err != nil {
@@ -175,6 +196,9 @@ func (t Tag) String() string { return t.text }
 // Match reports whether e matches one of t's choices. under is the folder
 // searched: a piece of text is looked for in the path below it, since
 // the folders above are the same for every entry.
+//
+// For a has: tag, Match tests the tag after has:, on e itself; whether a
+// folder holds what it asks for takes the whole index, see Stack.Keep.
 func (t Tag) Match(e indexer.Entry, under string) bool {
 	for i := range t.terms {
 		if t.terms[i].match(e, under) {

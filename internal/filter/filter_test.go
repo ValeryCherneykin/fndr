@@ -108,6 +108,9 @@ func TestParse(t *testing.T) {
 		{".", "."},       // a piece of path
 		{"./x", "./x"},   // not an extension
 		{"my notes", "my notes"},
+		{"HAS: .Go | .RS ", "has:.go|.rs"},
+		{"has:image>5mb", "has:image>5mb"},
+		{"has", "has"}, // a word
 	} {
 		tag, err := Parse(tc.in)
 		if err != nil || tag.String() != tc.want {
@@ -115,7 +118,8 @@ func TestParse(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"", " ", "|", ".go|", "|dirs", ">", "size>", ">1xb", ">mb", ">1..2mb",
-		">nan", ">inf", ">1e9", ">-1", ">+1", ">0x10", ">99999999tb", "dirs>1mb", ".go>", ".go>1xb", ".go>1mb<2mb"} {
+		">nan", ">inf", ">1e9", ">-1", ">+1", ">0x10", ">99999999tb", "dirs>1mb", ".go>", ".go>1xb", ".go>1mb<2mb",
+		"has:", "has: ", "has:has:.go", ".go|has:.rs", "has:dirs>1mb", "has:.go|"} {
 		if _, err := Parse(bad); err == nil {
 			t.Errorf("Parse(%q) accepted it", bad)
 		}
@@ -143,10 +147,11 @@ func TestToggle(t *testing.T) {
 	}
 
 	// AND: a .go folder is the only one both .go and dirs.
-	if !s.Match(dir("dev/tools.go"), under) || s.Match(file("main.go", 1), under) || s.Match(dir("dev"), under) {
+	keep := s.Keep(nil, under)
+	if !keep(dir("dev/tools.go")) || keep(file("main.go", 1)) || keep(dir("dev")) {
 		t.Error("a stack must match every tag")
 	}
-	if !(Stack{}).Match(file("x", 1), under) {
+	if !(Stack{}).Keep(nil, under)(file("x", 1)) {
 		t.Error("no tags must match everything")
 	}
 }
@@ -169,7 +174,7 @@ func TestToggleNeverShares(t *testing.T) {
 // FuzzParse: Parse never panics, and a tag shown and typed again is the
 // same tag: what the chip says is what it does.
 func FuzzParse(f *testing.F) {
-	for _, s := range []string{".go", "dirs|.go", "size>1.5MB", "<10k", "image", "foo bar", "|", ">1..mb", "Ǆ.GO"} {
+	for _, s := range []string{".go", "dirs|.go", "size>1.5MB", "<10k", "image", "foo bar", "|", ">1..mb", "Ǆ.GO", "has:.go|dirs"} {
 		f.Add(s)
 	}
 	entries := []indexer.Entry{file("a/main.go", 10), file("b.TAR.GZ", 2e6), dir("dev/x.go"), file("ǆ.go", 1)}
@@ -199,8 +204,7 @@ func BenchmarkSearch(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	s := Stack{code}
-	keep := func(e indexer.Entry) bool { return s.Match(e, under) }
+	keep := Stack{code}.Keep(es, under)
 	for _, q := range []indexer.Query{
 		{Text: "pkgmain", Under: under},
 		{Text: "pkgmain", Under: under, Keep: keep},
@@ -239,12 +243,13 @@ func BenchmarkMatch(b *testing.B) {
 		}
 		s = s.Toggle(tag)
 	}
+	keep := s.Keep(es, under)
 	b.ReportAllocs()
 	n := 0
 	for b.Loop() {
 		n = 0
 		for i := range es {
-			if s.Match(es[i], under) {
+			if keep(es[i]) {
 				n++
 			}
 		}

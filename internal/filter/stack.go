@@ -22,9 +22,10 @@ func (s Stack) Toggle(t Tag) Stack {
 	return append(slices.Clip(s), t)
 }
 
-// Match reports whether e matches every tag of s. under is the folder
+// match reports whether e matches every tag of s, which holds no has:
+// tags (they need the whole index, see Keep). under is the folder
 // searched, see Tag.Match.
-func (s Stack) Match(e indexer.Entry, under string) bool {
+func (s Stack) match(e indexer.Entry, under string) bool {
 	for i := range s {
 		if !s[i].Match(e, under) {
 			return false
