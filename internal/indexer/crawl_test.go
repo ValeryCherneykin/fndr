@@ -390,9 +390,13 @@ func BenchmarkCrawlDir(b *testing.B) {
 func TestCrawlPrunes(t *testing.T) {
 	t.Setenv("GOPATH", "") // the store is then ~/go/pkg, in the test's home
 	t.Setenv("GOMODCACHE", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
 	home := t.TempDir()
 	for _, f := range []string{
-		".config/nvim/init.lua",
+		".config/nvim/init.lua", // hidden, but the user's own settings: gone into
+		".config/.secret/x",
+		".config/google-chrome/Default/Cache/data_0",
+		".cache/go-build/x",
 		"Library/Caches/x",
 		"go/pkg/mod/m.go",
 		"go/src/app/main.go",
@@ -411,7 +415,8 @@ func TestCrawlPrunes(t *testing.T) {
 	}
 	got := byRel(t, home, entries)
 	for _, want := range []string{
-		".config", "Library", "go/pkg", "go/src/app/main.go", "dev/app/node_modules",
+		".config/nvim/init.lua", ".config/.secret", ".config/google-chrome/Default/Cache", ".cache",
+		"Library", "go/pkg", "go/src/app/main.go", "dev/app/node_modules",
 		"dev/app/src/index.js", "Applications/Ghostty.app", "Pictures/Photos Library.photoslibrary", ".zshrc",
 	} {
 		if _, ok := got[want]; !ok {
@@ -419,12 +424,33 @@ func TestCrawlPrunes(t *testing.T) {
 		}
 	}
 	for _, not := range []string{
-		".config/nvim", "Library/Caches", "go/pkg/mod", "dev/app/node_modules/left-pad",
+		".config/.secret/x", ".config/google-chrome/Default/Cache/data_0", ".cache/go-build",
+		"Library/Caches", "go/pkg/mod", "dev/app/node_modules/left-pad",
 		"dev/app/.git", "Applications/Ghostty.app/Contents", "Pictures/Photos Library.photoslibrary/db",
 	} {
 		if _, ok := got[not]; ok {
 			t.Errorf("%s was crawled", not)
 		}
+	}
+}
+
+// TestCrawlKeepsXDGConfig: settings moved with $XDG_CONFIG_HOME are gone
+// into where they are, and ~/.config is then just a hidden folder.
+func TestCrawlKeepsXDGConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".dotconf"))
+	writeFile(t, filepath.Join(home, ".dotconf", "nvim", "init.lua"), "")
+	writeFile(t, filepath.Join(home, ".config", "x"), "")
+	entries, _, err := crawlPruned(t, home, DefaultPrune(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := byRel(t, home, entries)
+	if _, ok := got[".dotconf/nvim/init.lua"]; !ok {
+		t.Error("$XDG_CONFIG_HOME was not gone into")
+	}
+	if _, ok := got[".config/x"]; ok {
+		t.Error("~/.config was gone into, though the settings are elsewhere")
 	}
 }
 
@@ -645,5 +671,16 @@ func BenchmarkCrawlWorkers(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// TestRulesSeeKeep: settings moved elsewhere change what is gone into, so
+// an index saved before must not pass for one crawled now.
+func TestRulesSeeKeep(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	before := DefaultPrune("/home/me").Rules()
+	t.Setenv("XDG_CONFIG_HOME", "/home/me/.dotconf")
+	if after := DefaultPrune("/home/me").Rules(); after == before {
+		t.Errorf("the same rules either way: %s", after)
 	}
 }

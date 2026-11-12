@@ -12,7 +12,7 @@ import (
 // pruneVersion is bumped whenever the rules by name change (junkNames,
 // bundleExts, how .gitignore is read): an index saved under the old ones
 // may lack what they no longer leave out.
-const pruneVersion = 1
+const pruneVersion = 2
 
 // Prune says which folders a crawl lists but does not go into. On the
 // author's home, caches, package stores and app internals were 80% of the
@@ -27,6 +27,7 @@ const pruneVersion = 1
 // it is left out altogether.
 type Prune struct {
 	paths     map[string]bool // absolute folders, such as ~/Library
+	keep      map[string]bool // absolute hidden folders gone into all the same: ~/.config
 	gitignore bool            // folders that .gitignore files name, too (gitignore.go)
 }
 
@@ -34,6 +35,13 @@ type Prune struct {
 var junkNames = map[string]bool{
 	"node_modules": true,
 	"__pycache__":  true,
+	// Browsers' and editors' caches, which on Linux sit in ~/.config
+	// (google-chrome/Default/Cache, Code/CachedData): thousands of files
+	// next to the settings fndr goes into ~/.config for.
+	"Cache":      true,
+	"Code Cache": true,
+	"GPUCache":   true,
+	"CachedData": true,
 }
 
 // bundleExts are macOS bundles: folders that the Finder shows, and the
@@ -58,12 +66,22 @@ var bundleExts = map[string]bool{
 // folders .gitignore files name, the macOS ~/Library (application data,
 // two thirds of it caches) and the Go package store ($GOPATH/pkg, and
 // GOMODCACHE if moved elsewhere).
+//
+// Hidden but gone into: ~/.config, or $XDG_CONFIG_HOME. It holds the
+// user's own settings, nvim/init.lua, ghostty/config, a few dozen files
+// looked for by name all the time, not a tool's dump.
 func DefaultPrune(home string) *Prune {
-	p := &Prune{paths: map[string]bool{}, gitignore: true}
+	p := &Prune{paths: map[string]bool{}, keep: map[string]bool{}, gitignore: true}
+	if conf := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(conf) {
+		p.keep[filepath.Clean(conf)] = true
+	}
 	if home == "" {
 		return p // no home to find ~/Library under: the rules by name still hold
 	}
 	p.paths[filepath.Join(home, "Library")] = true
+	if len(p.keep) == 0 {
+		p.keep[filepath.Join(home, ".config")] = true
+	}
 
 	// GOPATH may list several folders; go install, and so the package
 	// store, uses the first.
@@ -84,7 +102,8 @@ func (p *Prune) Rules() string {
 	if p == nil {
 		return "none"
 	}
-	return fmt.Sprintf("v%d gitignore=%t %q", pruneVersion, p.gitignore, slices.Sorted(maps.Keys(p.paths)))
+	return fmt.Sprintf("v%d gitignore=%t %q keep %q", pruneVersion, p.gitignore,
+		slices.Sorted(maps.Keys(p.paths)), slices.Sorted(maps.Keys(p.keep)))
 }
 
 // Reaches reports whether a crawl from root goes into dir, at or below it:
@@ -121,7 +140,7 @@ func (p *Prune) ignoresIn(stack ignoreStack, dir string) ignoreStack {
 // without going in. The .gitignore files are the crawl's to apply (see
 // Reaches): they hang on the folders above, which a name does not tell.
 func (p *Prune) Prunes(path, name string) bool {
-	if p == nil {
+	if p == nil || p.keep[path] {
 		return false
 	}
 	return strings.HasPrefix(name, ".") ||
