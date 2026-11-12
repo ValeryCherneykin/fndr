@@ -160,9 +160,10 @@ func applyPlan(dir string, plan mutation.Plan, quit bool, snap []indexer.Entry, 
 			msg.err = err // before anything is done: nothing half applied
 			return msg
 		}
+		made := madeOnTheWay(dir, plan)
 		n, err := mutation.Apply(dir, plan, trash)
 		msg.done, msg.err = plan[:n], err
-		msg.remove, msg.add = indexChanges(dir, msg.done, snap, prune)
+		msg.remove, msg.add = indexChanges(dir, msg.done, snap, prune, made)
 		return msg
 	}
 }
@@ -170,8 +171,14 @@ func applyPlan(dir string, plan mutation.Plan, quit bool, snap []indexer.Entry, 
 // indexChanges returns what the index must drop and add after steps were
 // carried out in dir. A renamed folder is read again below its new name:
 // everything in it moved with it. prune is the crawl's, so a folder renamed
-// is indexed as a crawl would have.
-func indexChanges(dir string, done mutation.Plan, snap []indexer.Entry, prune *indexer.Prune) (remove []string, add []indexer.Entry) {
+// is indexed as a crawl would have. made is what madeOnTheWay found missing
+// before the plan ran; whichever of it is there now was made by it.
+func indexChanges(dir string, done mutation.Plan, snap []indexer.Entry, prune *indexer.Prune, made []string) (remove []string, add []indexer.Entry) {
+	for _, d := range made {
+		if info, err := os.Lstat(d); err == nil && info.IsDir() {
+			add = append(add, indexer.NewEntry(d, info.Size(), info.ModTime().UnixNano(), true))
+		}
+	}
 	for _, op := range done {
 		switch op.Kind {
 		case mutation.OpDelete:
@@ -186,6 +193,29 @@ func indexChanges(dir string, done mutation.Plan, snap []indexer.Entry, prune *i
 		}
 	}
 	return remove, add
+}
+
+// madeOnTheWay returns the folders the plan's renames go into that are not
+// there yet. Apply makes them (docs/ for ideas.md → docs/ideas.md), and
+// the index must learn them too, or dirs would miss docs until the next
+// crawl, the very thing made out of sight. Asked before Apply: after it,
+// a folder made and a folder found look the same.
+func madeOnTheWay(dir string, plan mutation.Plan) []string {
+	var made []string
+	seen := map[string]bool{}
+	for _, op := range plan {
+		if op.Kind != mutation.OpRename {
+			continue
+		}
+		for d := filepath.Dir(filepath.Join(dir, op.To)); d != dir && within(d, dir) && !seen[d]; d = filepath.Dir(d) {
+			seen[d] = true
+			if _, err := os.Lstat(d); err == nil {
+				break // there, and so is every folder above it
+			}
+			made = append(made, d)
+		}
+	}
+	return made
 }
 
 // newEntries reads what Create made, for the index: every level from Top

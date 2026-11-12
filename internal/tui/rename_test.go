@@ -122,3 +122,35 @@ func TestRenameEveryScreenSize(t *testing.T) {
 		}
 	}
 }
+
+// TestRenameIntoNewFolderIsFound: a move into a folder that is not there
+// yet makes it, and the index learns it at once: dirs shows it, not only
+// after the next crawl. A folder that was there is not added twice.
+func TestRenameIntoNewFolderIsFound(t *testing.T) {
+	m, root := browseModel(t, "")
+	typeText(m, "util")
+	key(m, 'r', tea.ModCtrl)
+	retype(m, "lib/x/util.go")
+	for _, d := range []string{"lib", "lib/x"} {
+		if !m.indexed(filepath.Join(root, d)) {
+			t.Errorf("%s was made but is not indexed", d)
+		}
+	}
+
+	key(m, 'u', tea.ModCtrl)
+	typeText(m, "main")
+	key(m, 'r', tea.ModCtrl)
+	retype(m, "lib/main.go") // lib is there now
+	if !exists(filepath.Join(root, "lib", "main.go")) {
+		t.Fatalf("main.go not moved: notice %q", m.notice)
+	}
+	n := 0
+	for _, e := range m.local.ix.Snapshot() {
+		if e.Path == filepath.Join(root, "lib") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("lib is indexed %d times, want once", n)
+	}
+}

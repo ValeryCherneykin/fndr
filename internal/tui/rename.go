@@ -121,9 +121,10 @@ func renameEntry(dir string, op mutation.Op, prune *indexer.Prune) tea.Cmd {
 		msg := renamedMsg{from: filepath.Join(dir, op.From), to: filepath.Join(dir, op.To), dir: dir}
 		plan := mutation.Plan{op}
 		// No trash: a plan without deletes never asks for one.
+		made := madeOnTheWay(dir, plan)
 		n, err := mutation.Apply(dir, plan, nil)
 		msg.err, msg.done = err, plan[:n]
-		msg.remove, msg.add = indexChanges(dir, msg.done, nil, prune)
+		msg.remove, msg.add = indexChanges(dir, msg.done, nil, prune, made)
 		return msg
 	}
 }

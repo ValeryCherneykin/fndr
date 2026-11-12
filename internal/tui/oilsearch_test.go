@@ -225,3 +225,17 @@ func writeFile(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+// TestOilResultsMoveIntoNewFolder: as with ctrl+r, a folder made on the
+// way is indexed at once.
+func TestOilResultsMoveIntoNewFolder(t *testing.T) {
+	m, root := resultsModel(t)
+	goTo(t, m, "src/util.go")
+	typeText(m, "ccpkg/util.go")
+	key(m, tea.KeyEscape, 0)
+	command(m, "w")
+	typeText(m, "y")
+	if !exists(filepath.Join(root, "pkg", "util.go")) || !m.indexed(filepath.Join(root, "pkg")) {
+		t.Errorf("pkg made: %v, indexed: %v", exists(filepath.Join(root, "pkg")), m.indexed(filepath.Join(root, "pkg")))
+	}
+}
