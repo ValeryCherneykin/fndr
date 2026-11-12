@@ -26,9 +26,12 @@ Set Theme { "name": "fndr-noir", "background": "#09090b", "foreground": "#d4d4d8
 #   - a fresh clone in a throwaway $HOME: the demo shows exactly what is on
 #     GitHub, nothing of the machine it is recorded on (local notes, build
 #     output, .DS_Store), and paths read "~/dev/fndr" for anyone;
-#   - a prompt that shows paths from "~", so no user name is ever on screen.
+#   - a prompt that shows paths from "~", so no user name is ever on screen;
+#   - a config of the demo's own, in the throwaway home (XDG_CONFIG_HOME
+#     unset, or the recorder's would be read), and the trash there too
+#     (XDG_DATA_HOME unset: on Linux it is where the trash lives).
 Hide
-Type `unset GHOSTTY_RESOURCES_DIR KITTY_WINDOW_ID TMUX TERM_PROGRAM XDG_STATE_HOME XDG_CACHE_HOME; export PATH="$HOME/go/bin:$PATH"; D="$(cd "$(mktemp -d)" && pwd -P)"; git clone -q "$PWD" "$D/dev/fndr"; export HOME="$D"; cd ~/dev/fndr; PS1='%F{cyan}%~%f ❯ '; eval "$(fndr init zsh)"; clear`
+Type `unset GHOSTTY_RESOURCES_DIR KITTY_WINDOW_ID TMUX TERM_PROGRAM XDG_STATE_HOME XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME; export PATH="$HOME/go/bin:$PATH"; D="$(cd "$(mktemp -d)" && pwd -P)"; git clone -q "$PWD" "$D/dev/fndr"; export HOME="$D"; mkdir -p ~/.config/fndr; printf 'bind = ctrl+f>f = tag:dirs\nbind = ctrl+f>g = tag:.go\nbind = ctrl+f>p = tag:has:go.mod\n' > ~/.config/fndr/config; cd ~/dev/fndr; PS1='%F{cyan}%~%f ❯ '; eval "$(fndr init zsh)"; clear`
 Enter
 Sleep 1s
 Show
@@ -143,3 +146,55 @@ Type "docs/ideas.md"
 Sleep 800ms
 Enter
 Sleep 2.5s
+
+# 7. Tags: .go and Ctrl+T make a chip; what is typed after searches among
+#    the .go files only. Ctrl+U clears the query, then the tags.
+Ctrl+U
+Sleep 400ms
+Type ".go"
+Sleep 500ms
+Ctrl+T
+Sleep 1.5s
+Type "tags"
+Sleep 2s
+Ctrl+U
+Sleep 300ms
+Ctrl+U
+Sleep 800ms
+
+# 8. A chord from the config: Ctrl+F says what may follow, F turns dirs on.
+Ctrl+F
+Sleep 2s
+Type "f"
+Sleep 2s
+
+# 9. Edit what you found: the .go files named saved, from both folders
+#    they are in, one buffer, a line each, its path. Esc goes back.
+Ctrl+U
+Sleep 300ms
+Type ".go"
+Ctrl+T
+Type "saved"
+Sleep 1.5s
+Ctrl+O
+Sleep 3s
+Escape
+Sleep 500ms
+Ctrl+U
+Sleep 300ms
+Ctrl+U
+Sleep 600ms
+
+# 10. Found by what is inside: the folder that holds Go code and a GIF,
+#     anywhere in the home. Not cmd (no GIF), not assets (no Go): the
+#     project. Ctrl+E, and the shell is there.
+Tab
+Sleep 800ms
+Type "has:.go"
+Ctrl+T
+Sleep 600ms
+Type "has:.gif"
+Ctrl+T
+Sleep 2.5s
+Ctrl+E
+Sleep 2s
