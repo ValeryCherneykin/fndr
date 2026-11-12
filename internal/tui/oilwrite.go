@@ -257,6 +257,9 @@ func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
 		_, cmd := m.quit() // :wq, written: quit fndr, as :wq quits Vim
 		return cmd
 	}
+	if st.search != nil {
+		return st.oilReread() // what was written, not the search again
+	}
 	// What was just made is always shown: a new ".env" turns hidden names
 	// on, or it would vanish the moment it exists.
 	hidden := st.hidden || strings.HasPrefix(reveal, ".")
@@ -266,10 +269,13 @@ func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
 // leaveOil ends OIL. If anything was written the folder is read again
 // for the list, with reveal, a name in it, selected.
 func (m *Model) leaveOil(reveal string) tea.Cmd {
-	wrote := m.oil.wrote
+	wrote, search := m.oil.wrote, m.oil.search != nil
 	m.oil = nil
 	if !wrote {
 		return nil
+	}
+	if search {
+		return m.search() // back to the search, with its query and tags, as it now finds
 	}
 	if reveal != "" {
 		reveal = filepath.Join(m.cwd, reveal)

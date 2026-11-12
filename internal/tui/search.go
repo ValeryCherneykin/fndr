@@ -53,19 +53,31 @@ func (m *Model) search() tea.Cmd {
 	m.cancelSearch = cancel
 	m.searching = true
 
+	seq, run := m.seq, m.searcher(0)
+	return func() tea.Msg {
+		defer cancel() // release the context once done; canceling twice is harmless
+		rs, total, indexed, err := run(ctx)
+		return searchMsg{seq: seq, results: rs, total: total, indexed: indexed, err: err}
+	}
+}
+
+// searcher returns the search for what is typed and tagged now, at most
+// limit results (0: indexer.DefaultLimit), to run off the UI goroutine.
+// It holds everything it needs: the user may type on while it runs.
+func (m *Model) searcher(limit int) func(context.Context) (rs []indexer.Result, total, indexed int, err error) {
 	// A trailing "/" asks for folders only, the way a path names a folder:
 	// "internal/" finds the folder, not the files that live in it.
 	text, dirs := strings.CutSuffix(m.query, "/")
-	seq, snap, q := m.seq, m.current().ix.Snapshot(), indexer.Query{Text: text, Under: m.under(), Dirs: dirs, Boost: m.boosts}
+	snap := m.current().ix.Snapshot()
+	q := indexer.Query{Text: text, Under: m.under(), Dirs: dirs, Boost: m.boosts, Limit: limit}
 	tags := m.tags // never changed in place: safe on the search's goroutines
-	return func() tea.Msg {
-		defer cancel() // release the context once done; canceling twice is harmless
+	return func(ctx context.Context) ([]indexer.Result, int, int, error) {
 		if len(tags) > 0 {
 			// Here, not in Update: a has: tag goes over the whole snapshot.
 			q.Keep = tags.Keep(snap, q.Under, time.Now())
 		}
 		rs, total, err := indexer.Search(ctx, snap, q)
-		return searchMsg{seq: seq, results: rs, total: total, indexed: len(snap), err: err}
+		return rs, total, len(snap), err
 	}
 }
 

@@ -71,7 +71,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.activate()
 		return m, cmd
 	case "ctrl+o":
-		return m, loadOil(m.cwd, false, "")
+		// Browsing, the folder; searching, what was found (oilsearch.go).
+		if m.browsing() {
+			return m, loadOil(m.cwd, false, "")
+		}
+		cmd := m.oilFromSearch()
+		return m, cmd
 	case "ctrl+r":
 		m.startRename()
 

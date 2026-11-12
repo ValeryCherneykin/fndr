@@ -33,6 +33,11 @@ type oilState struct {
 	dir string
 	buf *oil.Buffer
 
+	// search is set for a buffer of search results (oilsearch.go): its
+	// lines are paths from dir, and it is read again by path, not as a
+	// folder.
+	search *oilSearch
+
 	// items are the entries the buffer was filled with, by id: items[i]
 	// has id i+1, and entries[i] is the same entry with its size and
 	// time. Only what is shown is here: an entry left out of the buffer
@@ -73,6 +78,9 @@ type oilMsg struct {
 	err     error
 	hidden  bool
 	reveal  string
+
+	search *oilSearch // results, not a folder (oilsearch.go)
+	row    int        // for results read again: where the cursor was
 }
 
 // loadOil reads dir for OIL, off the UI goroutine.
@@ -93,28 +101,36 @@ func loadOil(dir string, hidden bool, reveal string) tea.Cmd {
 // where they were, never one in each place.
 func (m *Model) oilLoaded(msg *oilMsg) tea.Cmd {
 	if msg.err != nil {
-		m.setNotice("cannot edit this folder: "+msg.err.Error(), true)
+		what := "cannot edit this folder: "
+		if msg.search != nil {
+			what = "cannot edit what was found: "
+		}
+		m.setNotice(what+msg.err.Error(), true)
 		return nil
 	}
-	st := &oilState{dir: msg.dir, hidden: msg.hidden}
+	st := &oilState{dir: msg.dir, hidden: msg.hidden, search: msg.search}
 	if m.oil != nil {
 		st.wrote = m.oil.wrote
 	}
 	var lines []mutation.Line
 	for _, e := range msg.entries {
-		name := e.Name()
-		if name == ".git" || !msg.hidden && strings.HasPrefix(name, ".") {
+		// Hidden names are a folder's to hide; a search shows what it found.
+		if msg.search == nil && (e.Name() == ".git" || !msg.hidden && strings.HasPrefix(e.Name(), ".")) {
 			continue
 		}
-		if e.IsDir {
-			name += "/"
-		}
+		name := oilLine(&e, msg.dir, msg.search != nil)
 		id := len(st.items) + 1
 		st.items = append(st.items, mutation.Item{ID: id, Name: name})
 		st.entries = append(st.entries, e)
 		lines = append(lines, mutation.Line{ID: id, Text: name})
 	}
 	st.buf = oil.New(lines)
+	if msg.search != nil {
+		st.buf.GoTo(min(msg.row, max(len(lines)-1, 0)))
+		m.oil = st
+		m.oilScroll()
+		return nil // results stay where they were searched: no folder to move to
+	}
 	for i, l := range lines {
 		if msg.reveal != "" && strings.TrimSuffix(l.Text, "/") == msg.reveal {
 			st.buf.GoTo(i)
@@ -197,12 +213,22 @@ func (m *Model) oilGo(act oil.Action) tea.Cmd {
 		_, cmd := m.quit()
 		return cmd
 	case oil.Refresh:
+		if st.search != nil {
+			return st.oilReread()
+		}
 		return loadOil(st.dir, st.hidden, here)
 	case oil.ToggleHidden:
+		if st.search != nil {
+			m.setNotice("g. is for a folder: results show what the search found", false)
+			return nil
+		}
 		return loadOil(st.dir, !st.hidden, here)
 	case oil.Cwd:
 		return loadOil(m.start, st.hidden, "")
 	case oil.Parent:
+		if st.search != nil {
+			return loadOil(st.dir, false, "") // up from results: the folder searched
+		}
 		parent := filepath.Dir(st.dir)
 		if parent == st.dir {
 			m.setNotice("already at the top", false)
@@ -262,7 +288,15 @@ func (m *Model) viewOil() tea.View {
 	numW := max(len(strconv.Itoa(st.buf.Len())), 3)
 
 	var b strings.Builder
-	b.WriteString(finish(" "+stQuery.Render(shortenLeft(safeText(m.tildify(st.dir)), max(w-2, 1))), w))
+	// For results, what found the lines and how many: an edit of results
+	// says what it is an edit of. The folder gives way first, cut from
+	// the left, as in the status bar.
+	label := ""
+	if st.search != nil {
+		label = "   " + safeText(st.search.label) + "   " + fmt.Sprintf("%d found", len(st.items))
+	}
+	room := max(w-2-ansi.StringWidth(label), 1)
+	b.WriteString(finish(" "+stQuery.Render(shortenLeft(safeText(m.tildify(st.dir)), room))+stDir.Render(label), w))
 	b.WriteByte('\n')
 	b.WriteString(stHair.Render(strings.Repeat("─", w)))
 	b.WriteByte('\n')
