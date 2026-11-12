@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
@@ -199,4 +200,35 @@ func TestTagAloneIsASearch(t *testing.T) {
 			t.Error("a tag that finds nothing must say so")
 		}
 	})
+}
+
+// TestEnterFolderDropsTags: tags found the folder; entered, it shows what
+// it holds, at once, not a search by the same tags (has: would find
+// nothing in the very folder it found, dirs would hide the files).
+func TestEnterFolderDropsTags(t *testing.T) {
+	m, root := browseModel(t, "")
+	tag(m, "dirs")
+	for m.results[m.cursor].Entry.Name() != "src" {
+		key(m, tea.KeyDown, 0)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // before the listing is read
+	if m.cwd != filepath.Join(root, "src") || len(m.tags) != 0 || !m.browsing() || len(m.results) != 0 {
+		t.Fatalf("cwd %q, tags %q, rows %q; want src, no tags, nothing stale", m.cwd, m.tagTexts(), m.resultPaths())
+	}
+	_ = m.View() // a stale row of the folder itself crashed here once
+	send(m, m.load(m.cwd)())
+	if got := sorted(m.names()); !slices.Equal(got, []string{"main.go", "util.go"}) {
+		t.Errorf("in src: %q, want its files", got)
+	}
+}
+
+// TestRowOfTheRootItself: a row that is the folder searched has no
+// directory to show; drawing it must not cut past the end of its path.
+func TestRowOfTheRootItself(t *testing.T) {
+	r := indexer.Result{Entry: indexer.NewEntry("/r/a", 0, 0, true)}
+	for _, root := range []string{"/r/a", "/r/a/b"} {
+		if row := renderRow(&r, root, 40, false, false, &accentLocal); ansi.StringWidth(row) != 40 {
+			t.Errorf("root %s: row %q is not 40 cells", root, row)
+		}
+	}
 }

@@ -109,6 +109,10 @@ func relDir(path string, nameLo int, root string) (lo, hi int) {
 		lo = 0
 	case strings.HasSuffix(root, string(filepath.Separator)):
 		lo = len(root) // the filesystem root "/"
+	case len(path) <= len(root):
+		// root itself: no directory to show, and len(root)+1 would be past
+		// the end of path. A stale row did that once (see chdir).
+		return nameLo, nameLo
 	case strings.HasPrefix(path, root):
 		lo = len(root) + 1
 	}

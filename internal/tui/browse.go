@@ -166,7 +166,11 @@ func (m *Model) chdir(dir, reveal string) tea.Cmd {
 	m.globalOn = false // a folder entered is searched in: LOCAL there
 	m.listing, m.listErr = nil, nil
 	m.query, m.qpos = "", 0 // the cursor must never point past the query
-	m.search()              // cancels any search in flight and shows the (empty) listing
+	// Tags too: they were how the folder was found, and inside it the user
+	// wants its contents. Kept, has: would show nothing by its own rule (the
+	// folder found is the deepest), dirs would hide every file.
+	m.tags = nil
+	m.search() // cancels any search in flight and shows the (empty) listing
 
 	cmds := []tea.Cmd{m.load(dir)}
 	if !within(dir, m.local.root) || !m.prune.Reaches(m.local.root, dir) {
