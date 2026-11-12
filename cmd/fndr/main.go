@@ -17,6 +17,12 @@
 //
 //	-version
 //		Print the version and exit.
+//	-config path
+//		Read settings from path instead of ~/.config/fndr/config (or
+//		$XDG_CONFIG_HOME/fndr/config). There, for now, tags a chord away:
+//
+//			bind = ctrl+f>f = tag:dirs
+//			bind = ctrl+f>t = tag:@today
 //	-cwd-file path
 //		On exit with Ctrl+E, write the folder to jump to to path, for a shell
 //		function to cd into. A program cannot change its parent shell's
@@ -38,6 +44,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ValeryCherneykin/fndr/internal/config"
 	"github.com/ValeryCherneykin/fndr/internal/shell"
 	"github.com/ValeryCherneykin/fndr/internal/tui"
 )
@@ -55,9 +62,20 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, runTUI))
 }
 
-// runTUI runs the interface on root until the user quits.
-func runTUI(root string) (string, error) {
-	final, err := tea.NewProgram(tui.New(root)).Run()
+// runTUI runs the interface on root, with the settings at configPath (""
+// for the usual place), until the user quits.
+func runTUI(root, configPath string) (string, error) {
+	var (
+		cfg  config.Config
+		errs []error
+	)
+	if configPath == "" {
+		configPath, _ = config.DefaultPath() // no home: no settings, like no file
+	}
+	if configPath != "" {
+		cfg, errs = config.Load(configPath)
+	}
+	final, err := tea.NewProgram(tui.New(root, cfg, errs)).Run()
 	if err != nil {
 		return "", err
 	}
@@ -94,9 +112,9 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 // parameters and returns an exit code instead of calling os.Exit, so tests can
 // drive the whole CLI in-process without spawning a binary. The interface is
 // passed in as ui for the same reason: tests must not take over a terminal.
-// ui runs the interface on root and returns the folder the shell should
-// change to afterwards, or "" to stay.
-type ui func(root string) (exitDir string, err error)
+// ui runs the interface on root with the settings file at configPath and
+// returns the folder the shell should change to afterwards, or "" to stay.
+type ui func(root, configPath string) (exitDir string, err error)
 
 func run(args []string, stdout, stderr io.Writer, ui ui) int {
 	if len(args) > 0 && args[0] == "init" {
@@ -107,6 +125,7 @@ func run(args []string, stdout, stderr io.Writer, ui ui) int {
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	cwdFile := fs.String("cwd-file", "", "on exit with Ctrl+E, write the folder to jump to to this file")
+	configPath := fs.String("config", "", "read settings from this file instead of ~/.config/fndr/config")
 
 	if err := fs.Parse(args); err != nil {
 		// -h and -help are a successful request for usage, not a mistake.
@@ -129,7 +148,7 @@ func run(args []string, stdout, stderr io.Writer, ui ui) int {
 	root, err := startDir()
 	var exitDir string
 	if err == nil {
-		exitDir, err = ui(root)
+		exitDir, err = ui(root, *configPath)
 	}
 	if err == nil && *cwdFile != "" && exitDir != "" {
 		err = os.WriteFile(*cwdFile, []byte(exitDir), 0o600)

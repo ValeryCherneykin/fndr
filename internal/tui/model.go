@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ValeryCherneykin/fndr/internal/config"
 	"github.com/ValeryCherneykin/fndr/internal/filter"
 	"github.com/ValeryCherneykin/fndr/internal/frecency"
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
@@ -75,6 +76,8 @@ type Model struct {
 	query   string
 	qpos    int              // text cursor: byte offset into query, on a rune boundary
 	tags    filter.Stack     // what the search is narrowed to (tags.go)
+	binds   []binding        // the user's keys, from the config (binds.go)
+	pending []string         // the keys of a chord pressed so far, waiting for the rest
 	results []indexer.Result // what the list shows: the listing or search results
 	total   int              // matches in the index, of which results holds the best
 
@@ -133,7 +136,7 @@ type Model struct {
 
 // New returns a model that will index and search root once the program
 // starts.
-func New(root string) *Model {
+func New(root string, cfg config.Config, cfgErrs []error) *Model {
 	home, _ := os.UserHomeDir() // best effort: without it paths just are not shortened
 	m := newModel(root, home, &indexer.Index{})
 	m.local.crawling = true // Init starts it
@@ -147,6 +150,8 @@ func New(root string) *Model {
 		m.setNotice("not learning this time: "+err.Error(), true)
 	}
 	m.useHistory(hist)
+
+	m.useConfig(cfg, cfgErrs)
 	return m
 }
 

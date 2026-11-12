@@ -20,6 +20,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.renameKey(msg)
 		return m, cmd
 	}
+	if cmd, ok := m.bindKey(msg); ok {
+		return m, cmd
+	}
 
 	switch msg.String() {
 	case "ctrl+c":

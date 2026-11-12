@@ -10,7 +10,7 @@ import (
 )
 
 // noUI stands in for the interface, so tests never take over the terminal.
-func noUI(string) (string, error) { return "", nil }
+func noUI(string, string) (string, error) { return "", nil }
 
 func TestRun(t *testing.T) {
 	tests := []struct {
@@ -60,7 +60,7 @@ func TestRunOpensUIOnCurrentDir(t *testing.T) {
 	t.Chdir(dir)
 
 	var got string
-	ui := func(root string) (string, error) { got = root; return "", nil }
+	ui := func(root, _ string) (string, error) { got = root; return "", nil }
 	if code := run(nil, &bytes.Buffer{}, &bytes.Buffer{}, ui); code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
@@ -71,9 +71,17 @@ func TestRunOpensUIOnCurrentDir(t *testing.T) {
 	}
 }
 
+func TestRunPassesConfig(t *testing.T) {
+	var got string
+	ui := func(_, path string) (string, error) { got = path; return "", nil }
+	if code := run([]string{"-config", "/x/fndr.conf"}, &bytes.Buffer{}, &bytes.Buffer{}, ui); code != 0 || got != "/x/fndr.conf" {
+		t.Errorf("code %d, config %q; want 0 and /x/fndr.conf", code, got)
+	}
+}
+
 func TestRunReportsUIError(t *testing.T) {
 	var stderr bytes.Buffer
-	ui := func(string) (string, error) { return "", errors.New("no tty") }
+	ui := func(string, string) (string, error) { return "", errors.New("no tty") }
 	if code := run(nil, &bytes.Buffer{}, &stderr, ui); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
@@ -84,7 +92,7 @@ func TestRunReportsUIError(t *testing.T) {
 
 func TestRunWritesCwdFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "cwd")
-	ui := func(string) (string, error) { return "/home/v/dev", nil }
+	ui := func(string, string) (string, error) { return "/home/v/dev", nil }
 	if code := run([]string{"-cwd-file", file}, &bytes.Buffer{}, &bytes.Buffer{}, ui); code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
