@@ -34,7 +34,7 @@ func TestOilMoveAway(t *testing.T) {
 	typeText(m, "cc~/Documents/video/src/")
 	key(m, tea.KeyEscape, 0)
 	command(m, "w")
-	if !strings.Contains(m.View().Content, "src/ → ~/Documents/video/src/") {
+	if v := m.View().Content; !strings.Contains(v, "move") || !strings.Contains(v, "src/ → ~/Documents/video/src/") {
 		t.Errorf("the plan does not say where:\n%s", m.View().Content)
 	}
 	typeText(m, "y")

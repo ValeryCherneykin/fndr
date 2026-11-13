@@ -387,7 +387,11 @@ func (st *oilState) planBox(maxW, maxH int) []string {
 			if dirs[op.From] {
 				to += "/"
 			}
-			steps = append(steps, stPlanVerb.Render("rename  ")+stName.Render(name(op.From)+" → "+to))
+			verb := "rename  "
+			if filepath.Dir(op.From) != filepath.Dir(op.To) {
+				verb = "move    " // to another folder: as the status says after y
+			}
+			steps = append(steps, stPlanVerb.Render(verb)+stName.Render(name(op.From)+" → "+to))
 		case mutation.OpCreate:
 			steps = append(steps, stPlanVerb.Render("create  ")+stName.Render(safeText(op.To)))
 		case mutation.OpDelete:
