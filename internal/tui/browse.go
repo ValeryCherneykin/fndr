@@ -179,9 +179,18 @@ func (m *Model) chdir(dir, reveal string) tea.Cmd {
 
 	cmds := []tea.Cmd{m.load(dir)}
 	if !within(dir, m.local.root) || !m.prune.Reaches(m.local.root, dir) {
-		m.local.root, m.local.ix = dir, &indexer.Index{}
-		m.local.ix.Add(m.fromGlobal(dir))
-		cmds = append(cmds, m.startCrawl(m.local)) // with entries, a quiet refresh
+		// A new scope, never this one changed in place: it may be GLOBAL's
+		// too (fndr started in the home), and GLOBAL stays the home.
+		if m.local != m.global && m.local.stop != nil {
+			m.local.stop() // its crawl is no one's any more
+		}
+		if dir == m.home && m.global != nil {
+			m.local = m.global // back home: one index again
+		} else {
+			m.local = &scope{root: dir, ix: &indexer.Index{}}
+			m.local.ix.Add(m.fromGlobal(dir))
+			cmds = append(cmds, m.startCrawl(m.local)) // with entries, a quiet refresh
+		}
 	}
 	return tea.Batch(cmds...)
 }

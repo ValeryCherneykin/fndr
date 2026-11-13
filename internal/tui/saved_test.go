@@ -225,13 +225,85 @@ func TestChdirTakesFromGlobal(t *testing.T) {
 	})
 
 	t.Run("first crawl", func(t *testing.T) {
+		// A folder of the home entered outside LOCAL while GLOBAL's first
+		// crawl is under way: what GLOBAL holds of it is a part, not taken.
 		m, home := savedModel(t)
 		m.global = &scope{root: home, ix: &indexer.Index{}}
 		m.startCrawl(m.global) // never run: a crawl under way, nothing whole yet
-		m.global.ix.Add([]indexer.Entry{indexer.NewEntry(filepath.Join(home, "README.md"), 1, 1, false)})
-		m.up()
+		src := filepath.Join(home, "src")
+		m.global.ix.Add([]indexer.Entry{indexer.NewEntry(filepath.Join(src, "main.go"), 1, 1, false)})
+		m.local.root = filepath.Join(home, "elsewhere") // as if started there
+		m.chdir(src, "")
 		if m.local.ix.Len() != 0 || m.local.next != nil {
 			t.Errorf("LOCAL took %d entries from a crawl under way", m.local.ix.Len())
 		}
 	})
+}
+
+// TestHomeIsOneScope: started in the home, LOCAL and GLOBAL are one index,
+// not the same paths held twice; a folder left for elsewhere gets its own,
+// GLOBAL staying the home; coming back home shares it again.
+func TestHomeIsOneScope(t *testing.T) {
+	m, home := savedModel(t)
+	m.local.root, m.cwd = home, home // started in the home
+	loaded(t, m)
+	if m.local != m.global {
+		t.Fatal("started in the home: LOCAL and GLOBAL are two indexes")
+	}
+	elsewhere := t.TempDir()
+	m.chdir(elsewhere, "")
+	if m.local == m.global || m.global.root != home || m.local.root != elsewhere {
+		t.Fatalf("elsewhere: local %q, global %q, shared %v", m.local.root, m.global.root, m.local == m.global)
+	}
+	m.chdir(home, "")
+	if m.local != m.global {
+		t.Error("back home: LOCAL did not share GLOBAL's index")
+	}
+}
+
+// TestOneScopeUpdatedOnce: an edit reaches a shared index once, or a
+// renamed file would be found twice.
+func TestOneScopeUpdatedOnce(t *testing.T) {
+	m, home := savedModel(t)
+	m.local.root, m.cwd = home, home
+	loaded(t, m)
+	p := filepath.Join(home, "new.txt")
+	m.updateIndexes(nil, []indexer.Entry{indexer.NewEntry(p, 1, 1, false)})
+	if n := count(m.local.ix, p); n != 1 {
+		t.Errorf("new.txt is in the index %d times, want once", n)
+	}
+}
+
+// TestChdirStopsLocalCrawl: a folder left for one outside LOCAL ends the
+// old LOCAL's crawl, which no one would read; never the home's, if shared.
+func TestChdirStopsLocalCrawl(t *testing.T) {
+	m, _ := savedModel(t)
+	loaded(t, m) // LOCAL is src, GLOBAL the home: two scopes, two crawls
+	stopped := false
+	m.local.stop = func() { stopped = true }
+	m.chdir(t.TempDir(), "")
+	if !stopped {
+		t.Error("the old LOCAL's crawl goes on")
+	}
+
+	m, home := savedModel(t)
+	m.local.root, m.cwd = home, home
+	loaded(t, m) // one scope
+	stopped = false
+	m.global.stop = func() { stopped = true }
+	m.chdir(t.TempDir(), "")
+	if stopped {
+		t.Error("leaving the home stopped GLOBAL's crawl")
+	}
+}
+
+// TestTabSharesHome: with no saved index, Tab in the home searches the
+// index LOCAL is already crawling, not a second crawl of the same home.
+func TestTabSharesHome(t *testing.T) {
+	m, home := browseModel(t, "")
+	m.home = home
+	key(m, tea.KeyTab, 0)
+	if m.global != m.local {
+		t.Error("Tab in the home started a second index of it")
+	}
 }

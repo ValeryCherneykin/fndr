@@ -58,13 +58,19 @@ func (m *Model) savedLoaded(msg *savedMsg) tea.Cmd {
 	var cmds []tea.Cmd
 	if m.global == nil {
 		m.global = &scope{root: m.home, ix: &indexer.Index{}}
+		if m.local.root == m.home && m.local.stop == nil {
+			// fndr is in the home: LOCAL's index would be GLOBAL's, every
+			// path held twice (on a home of 320k files, 50 MB more). One
+			// scope serves both, and LOCAL is caught up, not crawled.
+			m.global = m.local
+		}
 		if usable {
 			m.global.ix.Add(s.Entries)
 			m.global.seed = s.Entries
 		}
 		cmds = append(cmds, m.startCrawl(m.global))
 	}
-	if m.local.stop == nil {
+	if m.local != m.global && m.local.stop == nil {
 		if usable && m.local.ix.Len() == 0 && within(m.local.root, m.home) && m.prune.Reaches(m.home, m.local.root) {
 			m.local.ix.Add(indexer.Under(s.Entries, m.local.root))
 		}

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"runtime/debug"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -88,11 +89,21 @@ func (m *Model) startCrawl(s *scope) tea.Cmd {
 	return runCrawl(ctx, s.gen, s.root, m.prune, s.seed)
 }
 
+// scopes returns the scopes there are, each once. LOCAL and GLOBAL are one
+// when fndr is in the home (see savedLoaded): an edit applied to both by
+// name would be applied twice, and show twice in search.
+func (m *Model) scopes() []*scope {
+	if m.global == nil || m.global == m.local {
+		return []*scope{m.local}
+	}
+	return []*scope{m.local, m.global}
+}
+
 // crawled returns the scope whose current crawl is gen, or nil if that
 // crawl has been replaced.
 func (m *Model) crawled(gen int) *scope {
-	for _, s := range []*scope{m.local, m.global} {
-		if s != nil && s.gen == gen {
+	for _, s := range m.scopes() {
+		if s.gen == gen {
 			return s
 		}
 	}
@@ -193,6 +204,9 @@ func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
 	if complete && s == m.global && m.savedPath != "" {
 		cmds = append(cmds, m.saveIndex())
 	}
+	if complete {
+		cmds = append(cmds, releaseMemory)
+	}
 	if s == m.current() && !m.browsing() {
 		cmds = append(cmds, m.search())
 	}
@@ -208,4 +222,15 @@ func (s *crawlStream) next() tea.Cmd {
 		}
 		return <-s.done
 	}
+}
+
+// releaseMemory hands back to the system what a crawl used and no longer
+// holds. A crawl's peak (a saved index read, the index it replaces, a
+// Lstat per file) is gone once it ends, but Go keeps freed memory for
+// minutes in case it is needed again: on a home of 320k files fndr held
+// some 80 MB more than its index for nothing. Once per crawl, in a
+// command: the collection it forces runs beside the interface.
+func releaseMemory() tea.Msg {
+	debug.FreeOSMemory()
+	return nil
 }

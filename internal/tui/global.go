@@ -85,7 +85,11 @@ func (m *Model) toggleGlobal() tea.Cmd {
 		return nil
 	default:
 		m.globalOn = true
-		if m.global == nil {
+		switch {
+		case m.global != nil:
+		case m.local.root == m.home:
+			m.global = m.local // LOCAL is the home already: one index, one crawl
+		default:
 			m.global = &scope{root: m.home, ix: &indexer.Index{}}
 			crawl = m.startCrawl(m.global)
 		}
@@ -98,10 +102,7 @@ func (m *Model) toggleGlobal() tea.Cmd {
 // updateIndexes tells every scope about entries changed on the disk, so
 // both searches find a renamed file under its new name.
 func (m *Model) updateIndexes(remove []string, add []indexer.Entry) {
-	for _, s := range []*scope{m.local, m.global} {
-		if s == nil {
-			continue
-		}
+	for _, s := range m.scopes() {
 		// Only what is below the scope's root: an edit in OIL in /tmp has
 		// no place in the index of the home, and would keep it from being
 		// saved in a form the next start can read.
