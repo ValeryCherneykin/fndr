@@ -79,6 +79,7 @@ type Model struct {
 	binds   []binding        // the user's keys, from the config (binds.go)
 	copier  copier           // how to copy here (copy.go); none in tests unless set
 	yanking bool             // ctrl+y was pressed: the next key says what to copy (copy.go)
+	narrow  *narrowing       // the last search's matches, for the next key to search within (narrow.go)
 	pending []string         // the keys of a chord pressed so far, waiting for the rest
 	results []indexer.Result // what the list shows: the listing or search results
 	total   int              // matches in the index, of which results holds the best

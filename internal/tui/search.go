@@ -21,6 +21,11 @@ type searchMsg struct {
 	total   int
 	indexed int // snapshot length the search ran on
 	err     error
+
+	// key and matched are the search and all it matched, for the next key
+	// to search within (narrow.go).
+	key     searchKey
+	matched []int32
 }
 
 // setQuery replaces the query, resets the selection to the top, and starts a
@@ -53,11 +58,20 @@ func (m *Model) search() tea.Cmd {
 	m.cancelSearch = cancel
 	m.searching = true
 
-	seq, run := m.seq, m.searcher(0, false)
+	text, dirs := strings.CutSuffix(m.query, "/")
+	snap := m.current().ix.Snapshot()
+	q := indexer.Query{Text: text, Under: m.under(), Dirs: dirs, Boost: m.boosts}
+	key := m.keyOf(snap, text, dirs)
+	q.Within = m.within(key)   // nil: the whole index
+	tags, seq := m.tags, m.seq // never changed in place: safe on the search's goroutines
 	return func() tea.Msg {
 		defer cancel() // release the context once done; canceling twice is harmless
-		rs, total, indexed, err := run(ctx)
-		return searchMsg{seq: seq, results: rs, total: total, indexed: indexed, err: err}
+		if len(tags) > 0 {
+			// Here, not in Update: a has: tag goes over the whole snapshot.
+			q.Keep = tags.Keep(snap, q.Under, time.Now())
+		}
+		rs, total, matched, err := indexer.SearchMatches(ctx, snap, q)
+		return searchMsg{seq: seq, results: rs, total: total, indexed: len(snap), err: err, key: key, matched: matched}
 	}
 }
 
@@ -96,6 +110,10 @@ func (m *Model) searched(msg *searchMsg) tea.Cmd {
 	m.searching = false
 	if msg.err != nil {
 		return nil // canceled; a newer search is already on its way
+	}
+	m.narrow = nil
+	if msg.matched != nil { // nil: most matched, nothing to gain (indexer.SearchMatches)
+		m.narrow = &narrowing{key: msg.key, matched: msg.matched}
 	}
 	m.results, m.total = msg.results, msg.total
 	m.cursor = m.pickedRow()

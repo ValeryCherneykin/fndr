@@ -76,14 +76,7 @@ func (m *Model) oilFromSearch() tea.Cmd {
 
 // searchLabel is the tags and the query, as typed.
 func (m *Model) searchLabel() string {
-	parts := make([]string, 0, len(m.tags)+1)
-	for _, t := range m.tags {
-		parts = append(parts, t.String())
-	}
-	if m.query != "" {
-		parts = append(parts, m.query)
-	}
-	return strings.Join(parts, " ")
+	return strings.TrimSpace(m.searchLabelTags() + " " + m.query)
 }
 
 // oilReread reads again, for a buffer of results, the entries its lines
