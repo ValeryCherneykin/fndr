@@ -30,7 +30,8 @@ const oilMaxResults = 10_000
 
 // oilSearch marks a buffer of search results, and says what found them.
 type oilSearch struct {
-	label string // the tags and the query, for the header
+	label     string // the tags and the query, for the header
+	fuzzyLeft int    // found by the fuzzy search, left out of the buffer
 }
 
 // oilFromSearch loads the results of the search on screen for OIL, all of
@@ -42,15 +43,28 @@ func (m *Model) oilFromSearch() tea.Cmd {
 		m.setNotice("still indexing: ctrl+o once the search has everything", true)
 		return nil
 	}
-	run, dir, search := m.searcher(oilMaxResults+1), m.under(), &oilSearch{label: m.searchLabel()}
+	// Only what holds the query whole: a fuzzy search for file_7_99 also
+	// finds file_70_99 and file_7_909, 1596 of them for 11 that the eye
+	// sees on top, and ggdG would trash them all. Fuzzy finds; an edit is
+	// of what was meant. The rest is counted, and the header says so.
+	run, fuzzy := m.searcher(oilMaxResults+1, true), m.searcher(1, false)
+	dir, search, typed := m.under(), &oilSearch{label: m.searchLabel()}, m.query
 	ctx := m.ctx
 	return func() tea.Msg {
 		rs, total, _, err := run(ctx)
+		if err == nil && strings.TrimSuffix(typed, "/") != "" {
+			var all int
+			if _, all, _, err = fuzzy(ctx); err == nil {
+				search.fuzzyLeft = all - total
+			}
+		}
 		switch {
 		case err != nil:
 			return oilMsg{search: search, err: err}
 		case total > oilMaxResults:
 			return oilMsg{search: search, err: fmt.Errorf("%d found, %d at most: narrow the search first", total, oilMaxResults)}
+		case total == 0 && search.fuzzyLeft > 0:
+			return oilMsg{search: search, err: fmt.Errorf("nothing holds %q whole; OIL takes no fuzzy match (%d left out)", typed, search.fuzzyLeft)}
 		}
 		es := make([]indexer.Entry, len(rs))
 		for i := range rs {

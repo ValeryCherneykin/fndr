@@ -175,7 +175,9 @@ write them with `:w`, undo them with `u`, or quit without them with `:q!`.
 
 **Edit what you found.** With a query or tags on, `Ctrl+O` fills the
 buffer with every result instead, each line its path from the folder
-searched (`fndr/debug.log`). Change the name to rename it, the folders to
+searched (`fndr/debug.log`). Only what holds the query whole: a fuzzy
+search for `file_7_99` also finds `file_70_99`, which you see in the list
+but never edit by accident; the header counts what was left out. Change the name to rename it, the folders to
 move it, `dd` it to trash it, in as many folders as the search reached:
 `@today .log`, `Ctrl+O`, `ggdG`, `:w`, `y` clears today's logs. After `y`
 the buffer is what you wrote, even what the search would no longer find.

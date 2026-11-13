@@ -315,6 +315,9 @@ func (m *Model) viewOil() tea.View {
 	label := ""
 	if st.search != nil {
 		label = "   " + safeText(st.search.label) + "   " + fmt.Sprintf("%d found", len(st.items))
+		if st.search.fuzzyLeft > 0 {
+			label += fmt.Sprintf(" · %d fuzzy left out", st.search.fuzzyLeft)
+		}
 	}
 	room := max(w-2-ansi.StringWidth(label), 1)
 	b.WriteString(finish(" "+stQuery.Render(shortenLeft(safeText(m.tildify(st.dir)), room))+stDir.Render(label), w))

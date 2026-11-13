@@ -53,7 +53,7 @@ func (m *Model) search() tea.Cmd {
 	m.cancelSearch = cancel
 	m.searching = true
 
-	seq, run := m.seq, m.searcher(0)
+	seq, run := m.seq, m.searcher(0, false)
 	return func() tea.Msg {
 		defer cancel() // release the context once done; canceling twice is harmless
 		rs, total, indexed, err := run(ctx)
@@ -64,7 +64,10 @@ func (m *Model) search() tea.Cmd {
 // searcher returns the search for what is typed and tagged now, at most
 // limit results (0: indexer.DefaultLimit), to run off the UI goroutine.
 // It holds everything it needs: the user may type on while it runs.
-func (m *Model) searcher(limit int) func(context.Context) (rs []indexer.Result, total, indexed int, err error) {
+//
+// whole keeps only entries holding what is typed whole, in one piece: the
+// search for OIL, where a fuzzy match is not one to edit (oilsearch.go).
+func (m *Model) searcher(limit int, whole bool) func(context.Context) (rs []indexer.Result, total, indexed int, err error) {
 	// A trailing "/" asks for folders only, the way a path names a folder:
 	// "internal/" finds the folder, not the files that live in it.
 	text, dirs := strings.CutSuffix(m.query, "/")
@@ -75,6 +78,9 @@ func (m *Model) searcher(limit int) func(context.Context) (rs []indexer.Result, 
 		if len(tags) > 0 {
 			// Here, not in Update: a has: tag goes over the whole snapshot.
 			q.Keep = tags.Keep(snap, q.Under, time.Now())
+		}
+		if whole && text != "" {
+			q.Keep = holdsWhole(q.Keep, text, q.Under)
 		}
 		rs, total, err := indexer.Search(ctx, snap, q)
 		return rs, total, len(snap), err
@@ -100,4 +106,17 @@ func (m *Model) searched(msg *searchMsg) tea.Cmd {
 		return m.search()
 	}
 	return nil
+}
+
+// holdsWhole adds to keep (nil: keep all) that the path below under holds
+// text in one piece, in any case: file_7_99 in file_7_99.go, not spread
+// over file_70_99 or file_7_909 as a fuzzy match may be. It runs on what
+// the cheap fuzzy test let through, once, for OIL: not worth a faster
+// path than a lower-case copy.
+func holdsWhole(keep func(indexer.Entry) bool, text, under string) func(indexer.Entry) bool {
+	lower := strings.ToLower(text)
+	return func(e indexer.Entry) bool {
+		rel := strings.TrimPrefix(e.Path, under)
+		return strings.Contains(strings.ToLower(rel), lower) && (keep == nil || keep(e))
+	}
 }

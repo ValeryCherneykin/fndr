@@ -298,3 +298,40 @@ func TestOilRereadKeepsWhatStayed(t *testing.T) {
 		t.Errorf("entries %v, want stayed.go alone", msg.entries)
 	}
 }
+
+// TestOilResultsWholeOnly: a fuzzy search for file_7_99 also finds
+// file_70_99 and file_7_909; the buffer holds only what has the query
+// whole, so ggdG trashes what the eye saw on top, and the header counts
+// the rest. Nothing whole: no buffer, and the status says why.
+func TestOilResultsWholeOnly(t *testing.T) {
+	m := testModel(t, "/r/a/file_7_99.go", "/r/a/file_70_99.go", "/r/b/FILE_7_99.md", "/r/b/file_7_909.go")
+	typeText(m, "file_7_99")
+	if len(m.results) != 4 {
+		t.Fatalf("the fuzzy search: %q, want all four", m.resultPaths())
+	}
+	key(m, 'o', tea.ModCtrl)
+	if m.oil == nil {
+		t.Fatalf("no buffer: notice %q", m.notice)
+	}
+	if got := sorted(m.oilTexts()); !slices.Equal(got, []string{"a/file_7_99.go", "b/FILE_7_99.md"}) {
+		t.Errorf("buffer %q, want the two holding file_7_99 whole, in any case", got)
+	}
+	if head := strings.SplitN(m.View().Content, "\n", 2)[0]; !strings.Contains(head, "2 found · 2 fuzzy left out") {
+		t.Errorf("header %q", head)
+	}
+
+	m = testModel(t, "/r/a/file_7_99.go", "/r/a/file_70_99.go", "/r/b/FILE_7_99.md")
+	tag(m, ".go") // tags still hold with the query: the .md stays out
+	typeText(m, "file_7_99")
+	key(m, 'o', tea.ModCtrl)
+	if m.oil == nil || !slices.Equal(m.oilTexts(), []string{"a/file_7_99.go"}) {
+		t.Errorf("tag and query: %q, want the .go holding it whole", m.oilTexts())
+	}
+
+	m = testModel(t, "/r/a/file_7_99.go", "/r/a/file_70_99.go")
+	typeText(m, "f799")
+	key(m, 'o', tea.ModCtrl)
+	if m.oil != nil || !m.noticeErr || !strings.Contains(m.notice, "nothing holds") {
+		t.Errorf("nothing whole: oil %v, notice %q", m.oil != nil, m.notice)
+	}
+}
