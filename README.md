@@ -77,13 +77,15 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
   folders with their contents, **pictures as pictures** in kitty-compatible
   terminals (Ghostty, kitty; tmux works too), and a card for everything else:
   *PDF document · 2.1 MB · 8 Nov 2026*. Loaded off the UI thread with a 60 ms
-  settle delay and a cache, so holding `↓` never lags.
+  settle delay and a cache, so holding `↓` never lags. `Ctrl+J` / `Ctrl+K`
+  scroll it.
 - **Icons by file type.** ~150 types by name and extension (`Dockerfile`,
   `go.mod`, `.rs`, `.png`…), in the same glyphs and colours as
   nvim-web-devicons, so a file looks the same here as in your editor.
 - **Opens things the right way.** Text goes to `$VISUAL` / `$EDITOR` (then
-  nvim, vim, vi) and fndr comes back with your query intact; everything else
-  goes to `open` / `xdg-open` / `wslview`.
+  nvim, vim, vi) and fndr comes back with your query intact; an app
+  (`Ghostty.app`) starts; everything else goes to `open` / `xdg-open` /
+  `wslview`.
 - **Jump on exit.** `Ctrl+E` quits and `cd`s your shell into the selected
   folder, or into the folder of the selected file. Search + jump is a zoxide
   that already knows your whole disk.
@@ -324,8 +326,11 @@ noticeably slower is treated as a bug.
 - [x] **Tags**, stacked: `.go`, `image>5mb`, `@today`, `has:.json`
 - [x] Edit what a search found, from every folder at once
 - [x] Config: tags a chord away
-- [ ] Config: rebind any key, choose your editor, folders to search or skip
+- [x] Every day: copy a path, show it in Finder, move anything anywhere
+  with `~/`, start apps, scroll the preview
 - [x] bash and fish integration
+- [ ] Config: rebind any key, choose your editor, folders to search or
+  skip, a commented default written for you, help on `F1`
 
 ---
 

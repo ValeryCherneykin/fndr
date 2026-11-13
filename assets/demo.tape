@@ -27,13 +27,18 @@ Set Theme { "name": "fndr-noir", "background": "#09090b", "foreground": "#d4d4d8
 #     GitHub, nothing of the machine it is recorded on (local notes, build
 #     output, .DS_Store), and paths read "~/dev/fndr" for anyone;
 #   - a prompt that shows paths from "~", so no user name is ever on screen;
+#   - a pbcopy of the demo's own, first on PATH, that keeps nothing: the
+#     copy scene must not fill the recorder's clipboard;
+#   - a Downloads with a Kafka course in it, for the move scene;
 #   - a config of the demo's own, in the throwaway home (XDG_CONFIG_HOME
 #     unset, or the recorder's would be read), and the trash there too
 #     (XDG_DATA_HOME unset: on Linux it is where the trash lives).
 Hide
-Type `unset GHOSTTY_RESOURCES_DIR KITTY_WINDOW_ID TMUX TERM_PROGRAM XDG_STATE_HOME XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME; export PATH="$HOME/go/bin:$PATH"; D="$(cd "$(mktemp -d)" && pwd -P)"; git clone -q "$PWD" "$D/dev/fndr"; export HOME="$D"; mkdir -p ~/.config/fndr; printf 'bind = ctrl+f>f = tag:dirs\nbind = ctrl+f>g = tag:.go\nbind = ctrl+f>p = tag:has:go.mod\n' > ~/.config/fndr/config; cd ~/dev/fndr; PS1='%F{cyan}%~%f ❯ '; eval "$(fndr init zsh)"; clear`
+Type `unset GHOSTTY_RESOURCES_DIR KITTY_WINDOW_ID TMUX TERM_PROGRAM XDG_STATE_HOME XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME; export PATH="$HOME/go/bin:$PATH"; D="$(cd "$(mktemp -d)" && pwd -P)"; git clone -q "$PWD" "$D/dev/fndr"; export HOME="$D"; mkdir -p ~/bin ~/Downloads/Kafka ~/Documents; printf '#!/bin/sh\ncat >/dev/null\n' > ~/bin/pbcopy; chmod +x ~/bin/pbcopy; export PATH="$HOME/bin:$PATH"; touch ~/Downloads/Kafka/01-intro.mp4 ~/Downloads/Kafka/02-topics.mp4 ~/Downloads/notes.txt; mkdir -p ~/.config/fndr; printf 'bind = ctrl+f>f = tag:dirs\nbind = ctrl+f>g = tag:.go\nbind = ctrl+f>p = tag:has:go.mod\n' > ~/.config/fndr/config; cd ~/dev/fndr; PS1='%F{cyan}%~%f ❯ '; eval "$(fndr init zsh)"; clear`
 Enter
-Sleep 1s
+# Long enough for the clone and the clear: shown before they finish, the
+# setup line itself is the GIF's first frames. Hidden time costs nothing.
+Sleep 4s
 Show
 
 Sleep 700ms
@@ -185,6 +190,28 @@ Sleep 300ms
 Ctrl+U
 Sleep 600ms
 
+# 9b. The preview scrolls: Ctrl+J and Ctrl+K, half a pane at a time.
+#     Then Ctrl+Y and R copies the path as the row shows it; the status bar
+#     shows the choices first, then what was copied and how.
+Type "model.go"
+Sleep 800ms
+Ctrl+V
+Sleep 1.5s
+Ctrl+J
+Sleep 1.2s
+Ctrl+J
+Sleep 1.5s
+Ctrl+K
+Sleep 1s
+Ctrl+V
+Sleep 400ms
+Ctrl+Y
+Sleep 1.8s
+Type "r"
+Sleep 2.2s
+Ctrl+U
+Sleep 600ms
+
 # 10. Found by what is inside: the folder that holds Go code and a GIF,
 #     anywhere in the home. Not cmd (no GIF), not assets (no Go): the
 #     project. Ctrl+E, and the shell is there.
@@ -198,3 +225,26 @@ Ctrl+T
 Sleep 2.5s
 Ctrl+E
 Sleep 2s
+
+# 11. Move anything anywhere: in Downloads, rewrite Kafka's line as where
+#     it goes. :w shows the move, y does it, folders made on the way.
+Type "cd ~/Downloads && fndr"
+Enter
+Sleep 1s
+Ctrl+O
+Sleep 1.2s
+Type "cc~/Documents/video/Kafka/"
+Escape
+Sleep 800ms
+Type ":w"
+Enter
+Sleep 2.5s
+Type "y"
+Sleep 2s
+Escape
+Sleep 300ms
+Escape
+Sleep 300ms
+Type "ls ~/Documents/video/Kafka"
+Enter
+Sleep 2.5s
