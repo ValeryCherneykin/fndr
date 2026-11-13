@@ -58,6 +58,12 @@ type Query struct {
 	// entry kept, ranked by Boost, then newest first: "all .go files"
 	// shows the ones in use, not the ones with the shortest paths.
 	Keep func(Entry) bool
+
+	// Within, if set, is the positions in the snapshot to look at, and no
+	// other: what matched a query this one only adds letters to (see
+	// SearchMatches). A match of "file_7" must be a match of "file", so
+	// searching only those finds the same, at a fraction of the work.
+	Within []int32
 }
 
 // Result is one search hit.
@@ -89,14 +95,24 @@ type Result struct {
 // Ties are broken by shorter path, then by path, so the order is stable from
 // one keystroke to the next and the list on screen does not jump around.
 func Search(ctx context.Context, snap []Entry, q Query) (results []Result, total int, err error) {
-	return search(ctx, snap, q, runtime.GOMAXPROCS(0))
+	results, total, _, err = search(ctx, snap, q, runtime.GOMAXPROCS(0), false)
+	return results, total, err
+}
+
+// SearchMatches is Search that also returns the positions in snap of every
+// entry that matched, in snapshot order: the Within of a next search whose
+// text only adds to this one's, as typing does. With most of snap
+// matching, matched is nil, the total no longer len(matched): narrowing
+// to nearly everything saves nothing. total says how many.
+func SearchMatches(ctx context.Context, snap []Entry, q Query) (results []Result, total int, matched []int32, err error) {
+	return search(ctx, snap, q, runtime.GOMAXPROCS(0), true)
 }
 
 // search is Search with an explicit worker count, so tests can check that the
-// result does not depend on it.
-func search(ctx context.Context, snap []Entry, q Query, workers int) (results []Result, total int, err error) {
+// result does not depend on it. With collect, matched holds every match.
+func search(ctx context.Context, snap []Entry, q Query, workers int, collect bool) (results []Result, total int, matched []int32, err error) {
 	if q.Text == "" && q.Keep == nil {
-		return nil, 0, nil
+		return nil, 0, nil, nil
 	}
 	recent := q.Text == "" // no letters to rank by: time ranks
 	limit := q.Limit
@@ -106,8 +122,21 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 	lq := strings.ToLower(q.Text)
 	from := tailStart(q.Under)
 
-	chunks := (len(snap) + chunkSize - 1) / chunkSize // ceiling division
+	// What is looked at: all of snap, or the positions in Within.
+	n := len(snap)
+	if q.Within != nil {
+		n = len(q.Within)
+	}
+	chunks := (n + chunkSize - 1) / chunkSize // ceiling division
 	workers = max(1, min(workers, chunks))
+
+	// The matches of each chunk, kept apart and joined in chunk order: the
+	// positions come out in snapshot order with no sort, which on a first
+	// letter matching most of a home would cost more than it saves.
+	var byChunk [][]int32
+	if collect {
+		byChunk = make([][]int32, chunks)
+	}
 
 	// Dynamic scheduling: workers claim chunks from a shared atomic counter,
 	// so fast cores do more of the work instead of waiting for slow ones.
@@ -129,8 +158,19 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 					break
 				}
 				lo := c * chunkSize
-				hi := min(lo+chunkSize, len(snap))
-				for i := lo; i < hi; i++ {
+				hi := min(lo+chunkSize, n)
+				var found []int32
+				if collect {
+					// Room for the whole chunk at once: grown match by
+					// match, it was reallocated over and over, and the
+					// garbage cost a quarter of a key's time.
+					found = make([]int32, 0, hi-lo)
+				}
+				for k := lo; k < hi; k++ {
+					i := k
+					if q.Within != nil {
+						i = int(q.Within[k])
+					}
 					e := &snap[i]
 					if q.Under != "" && !isBelow(e.Path, q.Under) {
 						continue
@@ -147,6 +187,12 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 					score, _ := fuzzyScore(e, from, lq, nil)
 					score += q.Boost[e.Path]                                 // a nil map reads as 0
 					top.offer(candidate{idx: int32(i), score: int32(score)}) //nolint:gosec // see candidate
+					if collect {
+						found = append(found, int32(i)) //nolint:gosec // see candidate
+					}
+				}
+				if collect {
+					byChunk[c] = found // one chunk, one worker: no other writes it
 				}
 			}
 			tops[w] = top
@@ -154,7 +200,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 	}
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	// Merge. The global best `limit` are among the union of each worker's
@@ -163,6 +209,16 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 	for _, t := range tops {
 		total += t.count
 		all = append(all, t.items...)
+	}
+	// Most of the whole snapshot matched (the first letter or two): a next
+	// search within it would look at nearly as much, so it is not kept,
+	// and the next searches all; nil says so. Of the snapshot, not of what
+	// was looked at: within a narrowed search most match by design.
+	if collect && total <= len(snap)*3/4 {
+		matched = make([]int32, 0, total)
+		for _, f := range byChunk {
+			matched = append(matched, f...)
+		}
 	}
 	slices.SortFunc(all, func(a, b candidate) int { return rank(snap, recent, a, b) })
 	if len(all) > limit {
@@ -180,7 +236,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int) (results []
 		fuzzyScore(e, from, lq, pos)
 		results[i] = Result{Entry: *e, Score: int(c.score), Positions: pos}
 	}
-	return results, total, nil
+	return results, total, matched, nil
 }
 
 // candidate is a match waiting to be ranked: 8 bytes, so a heap of them is

@@ -154,7 +154,7 @@ func TestSearchMatchesNaive(t *testing.T) {
 				wantPaths, wantTotal := naiveSearch(snap, q)
 				for _, workers := range []int{1, 3, 8, 64} {
 					t.Run(fmt.Sprintf("n=%d/q=%s/limit=%d/w=%d", n, text, limit, workers), func(t *testing.T) {
-						rs, total, err := search(context.Background(), snap, q, workers)
+						rs, total, _, err := search(context.Background(), snap, q, workers, false)
 						if err != nil {
 							t.Fatal(err)
 						}

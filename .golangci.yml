@@ -71,6 +71,12 @@ linters:
         # nolint directives must still be justified in review, but forcing a
         # comment on every obvious one only adds noise.
         - whyNoLint
+      settings:
+        hugeParam:
+          # A query (indexer.Query, tui.searchKey) is copied once per search,
+          # not per entry: some 90 bytes a key typed. The hot loops get their
+          # Entry by pointer already.
+          sizeThreshold: 128
 
     revive:
       rules:
