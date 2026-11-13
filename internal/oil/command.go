@@ -28,6 +28,7 @@ const (
 	Refresh      // ctrl+r: read the folder again
 	ToggleHidden // g.: show or hide names starting with "."
 	CopyPath     // gp: copy the path of the entry on the line
+	Reveal       // gx: show the entry on the line in the file manager, as gx opens in Vim
 	Help         // g?: the keys
 )
 
@@ -48,6 +49,7 @@ var keyActions = map[string]Action{
 	"ctrl+r": Refresh,
 	"g.":     ToggleHidden,
 	"gp":     CopyPath,
+	"gx":     Reveal,
 	"g?":     Help,
 	"q":      Close,
 	"esc":    Close,

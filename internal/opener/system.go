@@ -2,6 +2,7 @@ package opener
 
 import (
 	"errors"
+	"path/filepath"
 	"runtime"
 )
 
@@ -46,4 +47,29 @@ func (e env) system(goos, path string) ([]string, error) {
 		}
 	}
 	return nil, ErrNoOpener
+}
+
+// Reveal returns the command line that shows path in the system's file
+// manager, Finder on macOS: a folder as its window, anything else
+// selected in its folder's window, as Finder's "Show in Enclosing Folder".
+func Reveal(path string, isDir bool) ([]string, error) {
+	return osEnv.reveal(runtime.GOOS, path, isDir)
+}
+
+func (e env) reveal(goos, path string, isDir bool) ([]string, error) {
+	if goos == "darwin" {
+		// A folder with an extension is opened by open as what it is:
+		// Ghostty.app would start Ghostty, and a .photoslibrary would open
+		// Photos. -R shows it instead, selected, whatever it is.
+		if isDir && filepath.Ext(path) == "" {
+			return []string{"open", path}, nil
+		}
+		return []string{"open", "-R", path}, nil
+	}
+	// Elsewhere a file manager is a folder's default application, and
+	// there is no common way to select a file in it: the file's folder.
+	if !isDir {
+		path = filepath.Dir(path)
+	}
+	return e.system(goos, path)
 }

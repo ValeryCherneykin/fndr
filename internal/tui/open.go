@@ -22,12 +22,14 @@ type (
 		name     string
 		argv     []string
 		terminal bool // a terminal editor: suspend the UI while it runs
+		reveal   bool // shown in the file manager, not opened (ctrl+g)
 	}
 	openedMsg struct {
-		name    string
-		viaApp  bool // opened by the system opener, which returns at once
-		program bool // a native executable, deliberately not opened
-		err     error
+		name     string
+		viaApp   bool // opened by the system opener, which returns at once
+		revealed bool // shown in the file manager
+		program  bool // a native executable, deliberately not opened
+		err      error
 	}
 )
 
@@ -95,7 +97,7 @@ func (msg openMsg) run() tea.Cmd {
 				err = fmt.Errorf("%s: %s", msg.argv[0], line)
 			}
 		}
-		return openedMsg{name: msg.name, viaApp: true, err: err}
+		return openedMsg{name: msg.name, viaApp: !msg.reveal, revealed: msg.reveal, err: err}
 	}
 }
 
@@ -109,7 +111,22 @@ func (m *Model) opened(msg openedMsg) {
 		m.setNotice(msg.name+" is a program — not running it", false)
 	case msg.viaApp:
 		m.setNotice("opened "+msg.name, false)
+	case msg.revealed:
+		m.setNotice("shown "+msg.name, false)
 	}
+}
+
+// showInFiles shows path in the system's file manager (opener.Reveal), and fndr
+// stays open: ctrl+g in search, gx in OIL. Only the command is built
+// here; Update runs it as any system open.
+func (m *Model) showInFiles(path string, isDir bool) tea.Cmd {
+	name := filepath.Base(path)
+	argv, err := opener.Reveal(path, isDir)
+	if err != nil {
+		m.setNotice("cannot show "+name+": "+err.Error(), true)
+		return nil
+	}
+	return func() tea.Msg { return openMsg{name: name, argv: argv, reveal: true} }
 }
 
 // setNotice shows a one-line report in the status bar until the next key.

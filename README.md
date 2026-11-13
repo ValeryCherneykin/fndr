@@ -93,6 +93,8 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
 - **Rename or move what you found** (`Ctrl+R`). The query line turns into
   the entry's path: change the name, or the folders in it, and press
   `Enter`. Missing folders are made, and nothing is ever overwritten.
+- **Show it in Finder** (`Ctrl+G`): a folder opens as its window, a file
+  is shown selected in its folder's. An `.app` is shown, never started.
 - **Copy a path** (`Ctrl+Y`, then `Y` the full path, `R` from the folder
   searched, `N` the name). By every way that fits: `pbcopy`, `wl-copy`, `xclip`/`xsel`,
   `clip.exe`, tmux's buffer, and OSC 52 over SSH, so it lands on *your*
@@ -160,7 +162,7 @@ from disk, and the status bar says what was done.
 The keys are Vim's: `hjkl`, `0 ^ $ gg G`, counts (`3j`, `2dd`), `i a I A
 o O`, `x dd D cc C s S yy p P`, `u` to undo and `U` to redo. Pasting a
 list of names creates that many files. `g.` shows hidden entries, `gp`
-copies the line's full path.
+copies the line's full path, `gx` shows it in Finder.
 `Enter`, `-` and `_` go into a folder, up a folder, and back to where
 fndr started.
 
@@ -221,6 +223,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+H` / `Ctrl+L`, `←` / `→` | Move through the query |
 | `Ctrl+W` · `Ctrl+U` | Delete a word · delete to the start; on an empty query, `Ctrl+U` takes every tag off |
 | `Ctrl+T` | Make what is typed a tag (see above); again to take it off |
+| `Ctrl+G` | Show the selected entry in Finder (or the file manager), selected; fndr stays open |
 | `Ctrl+Y` then `Y` · `R` · `N` | Copy the selected path, in full · from the folder searched · its name; the status bar shows the choices, then what was copied and how |
 | `Ctrl+V` | Show or hide the preview (from 100 columns) |
 | `Ctrl+O` | Edit the folder as text with Vim keys, or, searching, what was found (see above); `Esc` or `Ctrl+O` goes back, `:q` quits |

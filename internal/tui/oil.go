@@ -165,6 +165,16 @@ func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd = m.oilWrite(act == oil.WriteQuit)
 	case oil.ForceQuit:
 		_, cmd = m.quit()
+	case oil.Reveal:
+		path, isDir := st.dir, true // a blank line: the folder
+		if line := st.buf.Line(st.buf.Row()); strings.TrimSpace(line.Text) != "" {
+			path = filepath.Join(st.dir, strings.TrimSuffix(strings.TrimSpace(line.Text), "/"))
+			isDir = strings.HasSuffix(line.Text, "/")
+			if line.ID > 0 {
+				isDir = st.entries[line.ID-1].IsDir
+			}
+		}
+		cmd = m.showInFiles(path, isDir)
 	case oil.CopyPath:
 		line := st.buf.Line(st.buf.Row())
 		if text := strings.TrimSpace(line.Text); text != "" {

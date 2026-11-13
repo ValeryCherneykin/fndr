@@ -59,3 +59,30 @@ func TestSystemDoesNotShareOpeners(t *testing.T) {
 		t.Errorf("first command became %q, want %q", first, want)
 	}
 }
+
+func TestReveal(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		goos  string
+		path  string
+		isDir bool
+		want  []string
+	}{
+		{"macOS folder", "darwin", "/u/dev", true, []string{"open", "/u/dev"}},
+		{"macOS file: selected", "darwin", "/u/dev/a.go", false, []string{"open", "-R", "/u/dev/a.go"}},
+		// open Ghostty.app starts Ghostty: a folder with an extension is
+		// shown, never opened.
+		{"macOS app: shown, not run", "darwin", "/Applications/Ghostty.app", true, []string{"open", "-R", "/Applications/Ghostty.app"}},
+		{"macOS library: shown", "darwin", "/u/Pictures/Photos Library.photoslibrary", true, []string{"open", "-R", "/u/Pictures/Photos Library.photoslibrary"}},
+		{"linux folder", "linux", "/u/dev", true, []string{"xdg-open", "/u/dev"}},
+		{"linux file: its folder", "linux", "/u/dev/a.go", false, []string{"xdg-open", "/u/dev"}},
+	} {
+		got, err := fakeEnv(nil, "xdg-open").reveal(tc.goos, tc.path, tc.isDir)
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %q, %v; want %q", tc.name, got, err, tc.want)
+		}
+	}
+	if _, err := fakeEnv(nil).reveal("linux", "/u/a.go", false); !errors.Is(err, ErrNoOpener) {
+		t.Errorf("linux with nothing: %v, want ErrNoOpener", err)
+	}
+}

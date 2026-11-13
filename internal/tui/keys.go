@@ -54,6 +54,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t":
 		cmd := m.addTag()
 		return m, cmd
+	case "ctrl+g":
+		// The selected entry, or, with nothing in the list, the folder.
+		path, isDir := m.cwd, true
+		if len(m.results) > 0 {
+			e := &m.results[m.cursor].Entry
+			path, isDir = e.Path, e.IsDir
+		}
+		cmd := m.showInFiles(path, isDir)
+		return m, cmd
 	case "ctrl+y":
 		m.yanking = true
 		m.setNotice(copyHint, false)
