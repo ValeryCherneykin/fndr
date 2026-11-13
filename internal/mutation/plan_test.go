@@ -130,6 +130,9 @@ func FuzzDiff(f *testing.F) {
 	f.Add("a", "b/", "c")
 	f.Add("Icon\r", "notes ", " ")
 	f.Add(" ", "..", "../x")
+	f.Add("0", "1", "/0")           // a move away: allowed, as a rename only
+	f.Add("a", "b", "/x/~/y")       // never through "~"
+	f.Add("a", "b/", "/home/me/b/") // a folder moved away
 	f.Fuzz(func(t *testing.T, a, b, typed string) {
 		if a == b || strings.TrimSuffix(a, "/") == strings.TrimSuffix(b, "/") || a == "" || b == "" {
 			return // names in one folder are unique and never empty
@@ -147,7 +150,10 @@ func FuzzDiff(f *testing.F) {
 			if op.From == strings.TrimSuffix(a, "/") {
 				t.Fatalf("editing line 2 changed line 1: %v", p)
 			}
-			if op.To != "" && !filepath.IsLocal(filepath.Clean(op.To)) {
+			// In the folder, or, only for a rename, a whole path written
+			// out: a move away (Diff), cleaned, never through "~".
+			away := op.Kind == OpRename && filepath.IsAbs(op.To) && filepath.Clean(op.To) == op.To && !hasTilde(op.To)
+			if op.To != "" && !filepath.IsLocal(filepath.Clean(op.To)) && !away {
 				t.Fatalf("%q leaves the folder: %v", op.To, p)
 			}
 		}
