@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -305,5 +306,35 @@ func TestTabSharesHome(t *testing.T) {
 	key(m, tea.KeyTab, 0)
 	if m.global != m.local {
 		t.Error("Tab in the home started a second index of it")
+	}
+}
+
+// releases reports whether cmd, a crawl's end, gives memory back.
+func releases(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	cmds := []tea.Cmd{cmd}
+	if batch, ok := cmd().(tea.BatchMsg); ok {
+		cmds = batch
+	}
+	for _, c := range cmds {
+		if c != nil && reflect.ValueOf(c).Pointer() == reflect.ValueOf(releaseMemory).Pointer() {
+			return true
+		}
+	}
+	return false
+}
+
+// TestReleaseAfterHomeOnly: memory goes back to the system after the
+// home's crawl, the big one, not after every folder entered.
+func TestReleaseAfterHomeOnly(t *testing.T) {
+	m, _ := savedModel(t)
+	loaded(t, m) // LOCAL is src, GLOBAL the home
+	if releases(m.crawlDone(&crawlDoneMsg{gen: m.local.gen})) {
+		t.Error("released after a folder's crawl")
+	}
+	if !releases(m.crawlDone(&crawlDoneMsg{gen: m.global.gen})) {
+		t.Error("not released after the home's crawl")
 	}
 }

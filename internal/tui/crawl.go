@@ -204,7 +204,9 @@ func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
 	if complete && s == m.global && m.savedPath != "" {
 		cmds = append(cmds, m.saveIndex())
 	}
-	if complete {
+	if complete && s == m.global {
+		// The home's: a crawl of a folder entered is small, and a full
+		// collection after each would be work for nothing.
 		cmds = append(cmds, releaseMemory)
 	}
 	if s == m.current() && !m.browsing() {
