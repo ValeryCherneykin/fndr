@@ -20,12 +20,22 @@ import (
 //go:embed fndr.zsh
 var zsh string
 
+//go:embed fndr.bash
+var bash string
+
+//go:embed fndr.fish
+var fish string
+
 // Init returns the integration script for the named shell.
 func Init(name string) (string, error) {
 	switch name {
 	case "zsh":
 		return zsh, nil
+	case "bash":
+		return bash, nil
+	case "fish":
+		return fish, nil
 	default:
-		return "", fmt.Errorf("unsupported shell %q (supported: zsh)", name)
+		return "", fmt.Errorf("unsupported shell %q (supported: zsh, bash, fish)", name)
 	}
 }

@@ -197,15 +197,16 @@ go install github.com/ValeryCherneykin/fndr/cmd/fndr@latest
 ### Shell integration
 
 A program cannot change its parent shell's directory, so `Ctrl+E` needs a
-two-line shell function. Add this to `~/.zshrc`:
+small shell function. One line, for your shell:
 
-```zsh
-eval "$(fndr init zsh)"
+```sh
+eval "$(fndr init zsh)"     # ~/.zshrc
+eval "$(fndr init bash)"    # ~/.bashrc
+fndr init fish | source     # ~/.config/fish/config.fish
 ```
 
 Now `fndr` is a function that runs the binary and `cd`s where you jumped.
-`Esc` and `Ctrl+C` leave you exactly where you were. *(bash and fish are on
-the roadmap.)*
+`Esc` and `Ctrl+C` leave you exactly where you were.
 
 Icons need a [Nerd Font](https://www.nerdfonts.com/).
 
@@ -324,7 +325,7 @@ noticeably slower is treated as a bug.
 - [x] Edit what a search found, from every folder at once
 - [x] Config: tags a chord away
 - [ ] Config: rebind any key, choose your editor, folders to search or skip
-- [ ] bash and fish integration
+- [x] bash and fish integration
 
 ---
 

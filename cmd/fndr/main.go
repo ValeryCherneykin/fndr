@@ -3,7 +3,7 @@
 // Usage:
 //
 //	fndr [flags]
-//	fndr init zsh
+//	fndr init zsh|bash|fish
 //
 // Without flags it opens the interface on the current directory: type to
 // search, Ctrl+N and Ctrl+P (or up and down) to move through the list,
@@ -28,9 +28,13 @@
 //		function to cd into. A program cannot change its parent shell's
 //		directory itself.
 //
-// "fndr init zsh" prints that shell function; add this to ~/.zshrc:
+// "fndr init zsh|bash|fish" prints that shell function; add to ~/.zshrc:
 //
 //	eval "$(fndr init zsh)"
+//
+// to ~/.bashrc, the same with bash; to ~/.config/fish/config.fish:
+//
+//	fndr init fish | source
 package main
 
 import (
@@ -94,7 +98,7 @@ func runTUI(root, configPath string) (string, error) {
 // runInit prints the shell integration for the shell named in args.
 func runInit(args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 {
-		_, _ = fmt.Fprintln(stderr, "usage: fndr init zsh")
+		_, _ = fmt.Fprintln(stderr, "usage: fndr init zsh|bash|fish")
 		return 2
 	}
 	script, err := shell.Init(args[0])

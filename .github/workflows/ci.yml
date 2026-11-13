@@ -33,6 +33,13 @@ jobs:
           # Single source of truth for the Go version: the go directive in go.mod.
           go-version-file: go.mod
 
+      # zsh, bash and fish each get a real run of fndr's shell function
+      # (internal/shell); a shell that is missing is skipped, so install
+      # the two a Linux runner lacks.
+      - name: Install zsh and fish
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q zsh fish
+
       - name: Check go.mod is tidy
         run: go mod tidy -diff
 
