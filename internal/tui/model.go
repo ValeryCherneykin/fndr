@@ -115,8 +115,11 @@ type Model struct {
 	// paneWant is the path the pane should show: the selection, once the
 	// pane is shown. paneCache holds previews already read, by path; see
 	// pane.go for how they are loaded.
-	paneWant  string
-	paneCache map[string]paneEntry
+	paneWant string
+	// paneScroll is the first line of the preview shown: ctrl+j, ctrl+k
+	// (pane.go). A new selection starts at its top.
+	paneScroll int
+	paneCache  map[string]paneEntry
 
 	// Pictures in the pane (image.go). graphics: the terminal can show
 	// them; tmux: escape sequences must be wrapped to pass through it.

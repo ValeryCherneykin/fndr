@@ -84,7 +84,7 @@ func (m *Model) wantPreview() tea.Cmd {
 	}
 	path := m.selectedPath()
 	if path != m.paneWant {
-		m.paneWant = path
+		m.paneWant, m.paneScroll = path, 0 // a new file is seen from its top
 		if _, ok := m.paneCache[path]; !ok && path != "" {
 			return tea.Tick(previewDelay, func(time.Time) tea.Msg { return paneTickMsg{path: path} })
 		}
@@ -210,9 +210,9 @@ func (m *Model) paneLines(h int) []string {
 		case e.err != nil:
 			body = []string{stPaneDim.Render(ansi.Truncate("cannot preview: "+safeText(e.err.Error()), cw, "…"))}
 		case e.p.Kind == preview.Dir:
-			body = paneDir(e.p.Entries, cw, h)
+			body = paneDir(e.p.Entries[min(m.paneScroll, len(e.p.Entries)):], cw, h)
 		case e.p.Kind == preview.Text:
-			body = paneText(e.code, cw, h)
+			body = paneText(e.code[min(m.paneScroll, len(e.code)):], cw, h)
 		case e.p.Kind == preview.Image && e.img != nil:
 			body = e.img.lines()
 		default:
@@ -299,4 +299,21 @@ func humanSize(n int64) string {
 	default:
 		return trimZero(fmt.Sprintf("%.1f", float64(n)/1e9)) + " GB"
 	}
+}
+
+// scrollPane moves the preview by half its height, down (dir 1) or up
+// (-1): ctrl+j and ctrl+k, j and k as in Vim, which nothing types. Text
+// scrolls through the lines a preview keeps (paneMaxLines), a folder
+// through its entries; a preview is a look, reading is the editor's.
+func (m *Model) scrollPane(dir int) {
+	e, ok := m.paneCache[m.paneWant]
+	if !m.paneShown() || !ok {
+		return
+	}
+	n := len(e.code)
+	if e.p.Kind == preview.Dir {
+		n = len(e.p.Entries)
+	}
+	h := m.listHeight()
+	m.paneScroll = min(max(m.paneScroll+dir*max(h/2, 1), 0), max(n-h, 0))
 }

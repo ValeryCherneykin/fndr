@@ -227,6 +227,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+G` | Show the selected entry in Finder (or the file manager), selected; fndr stays open |
 | `Ctrl+Y` then `Y` · `R` · `N` | Copy the selected path, in full · from the folder searched · its name; the status bar shows the choices, then what was copied and how |
 | `Ctrl+V` | Show or hide the preview (from 100 columns) |
+| `Ctrl+J` / `Ctrl+K` | Scroll the preview down / up by half its height |
 | `Ctrl+O` | Edit the folder as text with Vim keys, or, searching, what was found (see above); `Esc` or `Ctrl+O` goes back, `:q` quits |
 | `Ctrl+R` | Rename or move the selected entry: edit its path, `Enter`; missing folders are made, nothing is ever overwritten |
 | `Ctrl+E` | Quit and jump there |

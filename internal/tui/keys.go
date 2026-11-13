@@ -54,6 +54,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t":
 		cmd := m.addTag()
 		return m, cmd
+	case "ctrl+j":
+		m.scrollPane(1)
+		return m, nil
+	case "ctrl+k":
+		m.scrollPane(-1)
+		return m, nil
 	case "ctrl+g":
 		// The selected entry, or, with nothing in the list, the folder.
 		path, isDir := m.cwd, true

@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -209,5 +212,69 @@ func TestHumanSize(t *testing.T) {
 		if got := humanSize(n); got != want {
 			t.Errorf("humanSize(%d) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+// TestPaneScrolls: ctrl+j and ctrl+k move the preview by half its height,
+// never past either end; a new selection is seen from its top; with the
+// pane off they do nothing.
+func TestPaneScrolls(t *testing.T) {
+	m, root := browseModel(t, "")
+	var long strings.Builder
+	for i := 1; i <= 100; i++ {
+		long.WriteString("line " + strconv.Itoa(i) + "\n")
+	}
+	write(t, filepath.Join(root, "long.txt"), long.String())
+	send(m, m.load(m.cwd)())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	key(m, 'j', tea.ModCtrl)
+	if m.paneScroll != 0 {
+		t.Fatalf("pane off: scrolled to %d", m.paneScroll)
+	}
+	m.selectName(t, "long.txt")
+	key(m, 'v', tea.ModCtrl)
+	h := m.listHeight()
+	if first := paneShows(t, m)[0]; first != "line 1" {
+		t.Fatalf("before: first line %q", first)
+	}
+	key(m, 'j', tea.ModCtrl)
+	if first, want := paneShows(t, m)[0], "line "+strconv.Itoa(h/2+1); first != want {
+		t.Errorf("ctrl+j: first line %q, want %q", first, want)
+	}
+	for range 20 {
+		key(m, 'j', tea.ModCtrl)
+	}
+	end := m.paneScroll
+	key(m, 'j', tea.ModCtrl)
+	if !slices.Contains(paneShows(t, m), "line 100") || m.paneScroll != end {
+		t.Errorf("at the end: %q, scroll %d then %d; want line 100 in sight and no further", paneShows(t, m), end, m.paneScroll)
+	}
+	for range 20 {
+		key(m, 'k', tea.ModCtrl)
+	}
+	if first := paneShows(t, m)[0]; first != "line 1" {
+		t.Errorf("back up: first line %q", first)
+	}
+	key(m, 'j', tea.ModCtrl)
+	m.selectName(t, "README.md")
+	key(m, 'v', tea.ModCtrl)
+	key(m, 'v', tea.ModCtrl) // off and on: runs the selection's preview
+	if m.paneScroll != 0 {
+		t.Errorf("a new selection starts scrolled to %d", m.paneScroll)
+	}
+}
+
+// TestPaneScrollsFolder: a folder's contents scroll as text does.
+func TestPaneScrollsFolder(t *testing.T) {
+	m, root := browseModel(t, "")
+	for i := range 50 {
+		write(t, filepath.Join(root, "docs", fmt.Sprintf("f%02d.md", i)), "")
+	}
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	m.selectName(t, "docs")
+	key(m, 'v', tea.ModCtrl)
+	key(m, 'j', tea.ModCtrl)
+	if first := paneShows(t, m)[0]; strings.Contains(first, "f00.md") || !strings.Contains(first, ".md") {
+		t.Errorf("after ctrl+j the folder starts at %q", first)
 	}
 }
