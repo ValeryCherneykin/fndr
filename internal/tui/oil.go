@@ -166,7 +166,10 @@ func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case oil.ForceQuit:
 		_, cmd = m.quit()
 	case oil.CopyPath:
-		m.setNotice("gp copies paths once fndr has a clipboard", true)
+		line := st.buf.Line(st.buf.Row())
+		if text := strings.TrimSpace(line.Text); text != "" {
+			cmd = m.copyText(filepath.Join(st.dir, strings.TrimSuffix(text, "/")))
+		}
 	case oil.Help:
 		m.setNotice("hjkl move · i a o type · dd trash · cc rename · u undo · :w write · esc back · :q quit · - up · g. hidden", false)
 	case oil.Close, oil.Quit, oil.Open, oil.Parent, oil.Cwd, oil.Refresh, oil.ToggleHidden:

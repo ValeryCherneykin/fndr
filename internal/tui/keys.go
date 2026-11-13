@@ -23,6 +23,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if cmd, ok := m.bindKey(msg); ok {
 		return m, cmd
 	}
+	if m.yanking { // the key after ctrl+y (copy.go)
+		m.yanking = false
+		cmd := m.copyKey(msg.Keystroke())
+		return m, cmd
+	}
 
 	switch msg.String() {
 	case "ctrl+c":
@@ -49,6 +54,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t":
 		cmd := m.addTag()
 		return m, cmd
+	case "ctrl+y":
+		m.yanking = true
+		m.setNotice(copyHint, false)
+		return m, nil
 	case "ctrl+u":
 		// It erases the line before the cursor; with nothing typed, what is
 		// before it is the chips, all of them. ctrl+l, once meant for this,

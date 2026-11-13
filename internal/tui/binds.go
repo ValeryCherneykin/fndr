@@ -31,7 +31,7 @@ type binding struct {
 // that help.
 var ownKeys = []string{
 	"ctrl+c", "ctrl+e", "ctrl+h", "ctrl+l", "ctrl+n", "ctrl+o", "ctrl+p",
-	"ctrl+r", "ctrl+t", "ctrl+u", "ctrl+v", "ctrl+w", "f1",
+	"ctrl+r", "ctrl+t", "ctrl+u", "ctrl+v", "ctrl+w", "ctrl+y", "f1",
 }
 
 // useConfig takes the settings read from the config file, and says its

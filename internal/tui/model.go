@@ -77,6 +77,8 @@ type Model struct {
 	qpos    int              // text cursor: byte offset into query, on a rune boundary
 	tags    filter.Stack     // what the search is narrowed to (tags.go)
 	binds   []binding        // the user's keys, from the config (binds.go)
+	copier  copier           // how to copy here (copy.go); none in tests unless set
+	yanking bool             // ctrl+y was pressed: the next key says what to copy (copy.go)
 	pending []string         // the keys of a chord pressed so far, waiting for the rest
 	results []indexer.Result // what the list shows: the listing or search results
 	total   int              // matches in the index, of which results holds the best
@@ -151,6 +153,7 @@ func New(root string, cfg config.Config, cfgErrs []error) *Model {
 	}
 	m.useHistory(hist)
 
+	m.copier = systemCopier()
 	m.useConfig(cfg, cfgErrs)
 	return m
 }
@@ -219,8 +222,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
+	case copiedMsg:
+		m.copied(&msg)
+		return m, nil
+
 	case tea.PasteMsg:
-		m.pending = nil // a chord is pressed, not pasted: what follows is typing again
+		m.pending, m.yanking = nil, false // a chord is pressed, not pasted: what follows is typing again
 		if m.oil != nil {
 			m.oilPaste(msg.Content)
 			return m, nil
