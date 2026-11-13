@@ -57,7 +57,7 @@ func (m *Model) relearn(dir string, done mutation.Plan) tea.Cmd {
 	var moves []frecency.Move
 	for _, op := range done {
 		if op.Kind == mutation.OpRename {
-			moves = append(moves, frecency.Move{From: filepath.Join(dir, op.From), To: filepath.Join(dir, op.To)})
+			moves = append(moves, frecency.Move{From: filepath.Join(dir, op.From), To: mutation.Target(dir, op.To)})
 		}
 	}
 	if len(moves) == 0 {

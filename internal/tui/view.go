@@ -170,9 +170,12 @@ func shortenLeft(path string, room int) string {
 }
 
 // tildify shortens paths under $HOME to "~/...".
-func (m *Model) tildify(p string) string {
-	if m.home != "" && (p == m.home || strings.HasPrefix(p, m.home+string(filepath.Separator))) {
-		return "~" + p[len(m.home):]
+func (m *Model) tildify(p string) string { return tildePath(m.home, p) }
+
+// tildePath is p with home written as "~".
+func tildePath(home, p string) string {
+	if home != "" && (p == home || strings.HasPrefix(p, home+string(filepath.Separator))) {
+		return "~" + p[len(home):]
 	}
 	return p
 }

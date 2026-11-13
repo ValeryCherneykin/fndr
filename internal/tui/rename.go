@@ -32,6 +32,7 @@ import (
 // renameState is a path being edited; m.rename is nil outside RENAME.
 type renameState struct {
 	from     string // the entry, absolute
+	dir      string // the folder the rename is planned in: fndr's, or the entry's
 	line     textLine
 	applying bool // enter was pressed and the disk is being changed
 }
@@ -55,12 +56,15 @@ func (m *Model) startRename() {
 	from := m.results[m.cursor].Entry.Path
 	rel, err := filepath.Rel(m.cwd, from)
 	if err != nil || !filepath.IsLocal(rel) {
-		// A frequent place on the empty query may lie anywhere.
-		m.setNotice(m.tildify(from)+" is outside this folder: go there to rename it", true)
+		// Found outside fndr's folder (GLOBAL, a frequent place): its whole
+		// path, from ~, planned in its own folder. Edited at the end, it is
+		// renamed there; rewritten, it moves (mutation.Target).
+		text := m.tildify(from)
+		m.rename = &renameState{from: from, dir: filepath.Dir(from), line: textLine{text, len(text)}}
 		return
 	}
 	rel = filepath.ToSlash(rel)
-	m.rename = &renameState{from: from, line: textLine{rel, len(rel)}}
+	m.rename = &renameState{from: from, dir: m.cwd, line: textLine{rel, len(rel)}}
 }
 
 // renameKey is handleKey in RENAME: the keys edit the path, enter applies
@@ -89,11 +93,12 @@ func (m *Model) applyRename() tea.Cmd {
 		m.setNotice("the new path is empty", true)
 		return nil
 	}
-	rel, _ := filepath.Rel(m.cwd, st.from) // startRename checked it
-	plan, err := mutation.Diff(
-		[]mutation.Item{{ID: 1, Name: filepath.ToSlash(rel)}},
-		[]mutation.Line{{ID: 1, Text: st.line.text}},
-	)
+	rel, _ := filepath.Rel(st.dir, st.from) // startRename made dir hold it
+	items := []mutation.Item{{ID: 1, Name: filepath.ToSlash(rel)}}
+	plan, err := mutation.Diff(items, mutation.ExpandHome(items, []mutation.Line{{ID: 1, Text: st.line.text}}, m.home))
+	if err == nil && len(plan) == 1 && mutation.Target(st.dir, plan[0].To) == st.from {
+		plan = nil // the whole path, as it was: not a move onto itself
+	}
 	switch {
 	case err != nil:
 		var lineErr *mutation.LineError
@@ -112,13 +117,13 @@ func (m *Model) applyRename() tea.Cmd {
 		return nil
 	}
 	st.applying = true
-	return renameEntry(m.cwd, plan[0], m.prune)
+	return renameEntry(st.dir, plan[0], m.prune)
 }
 
 // renameEntry carries out op in dir, off the UI goroutine.
 func renameEntry(dir string, op mutation.Op, prune *indexer.Prune) tea.Cmd {
 	return func() tea.Msg {
-		msg := renamedMsg{from: filepath.Join(dir, op.From), to: filepath.Join(dir, op.To), dir: dir}
+		msg := renamedMsg{from: filepath.Join(dir, op.From), to: mutation.Target(dir, op.To), dir: dir}
 		plan := mutation.Plan{op}
 		// No trash: a plan without deletes never asks for one.
 		made := madeOnTheWay(dir, plan)
@@ -142,8 +147,17 @@ func (m *Model) renamed(msg *renamedMsg) tea.Cmd {
 	m.rename = nil
 	verb, shown := "renamed", filepath.Base(msg.to)
 	if filepath.Dir(msg.to) != filepath.Dir(msg.from) {
-		rel, _ := filepath.Rel(m.cwd, msg.to) // the path as it was typed, from fndr's folder
-		verb, shown = "moved", filepath.ToSlash(rel)
+		verb, shown = "moved", m.tildify(msg.to)
+		if rel, err := filepath.Rel(m.cwd, msg.to); err == nil && filepath.IsLocal(rel) {
+			shown = filepath.ToSlash(rel) // the path as it was typed, from fndr's folder
+		}
+	}
+	if !within(msg.to, m.under()) {
+		// Moved away, out of what is searched: a search for its name here
+		// would find nothing. Go where it went, and select it there.
+		m.setNotice(fmt.Sprintf("moved %s → %s", filepath.Base(msg.from), m.tildify(msg.to)), false)
+		m.tags = nil
+		return m.chdir(filepath.Dir(msg.to), msg.to)
 	}
 	m.setNotice(fmt.Sprintf("%s %s → %s", verb, filepath.Base(msg.from), shown), false)
 

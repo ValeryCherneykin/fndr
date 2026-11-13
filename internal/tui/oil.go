@@ -38,6 +38,8 @@ type oilState struct {
 	// folder.
 	search *oilSearch
 
+	home string // for "~/" in a line, and to show a move away in the plan
+
 	// items are the entries the buffer was filled with, by id: items[i]
 	// has id i+1, and entries[i] is the same entry with its size and
 	// time. Only what is shown is here: an entry left out of the buffer
@@ -108,7 +110,7 @@ func (m *Model) oilLoaded(msg *oilMsg) tea.Cmd {
 		m.setNotice(what+msg.err.Error(), true)
 		return nil
 	}
-	st := &oilState{dir: msg.dir, hidden: msg.hidden, search: msg.search}
+	st := &oilState{dir: msg.dir, hidden: msg.hidden, search: msg.search, home: m.home}
 	if m.oil != nil {
 		st.wrote = m.oil.wrote
 	}
@@ -275,11 +277,17 @@ func (st *oilState) recount() {
 		return // a fresh buffer is at tick 0 with no changes, as counted starts
 	}
 	st.counted = st.buf.Tick()
-	plan, err := mutation.Diff(st.items, st.buf.Lines())
+	plan, err := st.diff()
 	st.changes = len(plan)
 	if err != nil {
 		st.changes = max(st.changes, 1)
 	}
+}
+
+// diff is the plan of the buffer as it stands, a line starting with "~/"
+// read as a move to home (mutation.ExpandHome).
+func (st *oilState) diff() (mutation.Plan, error) {
+	return mutation.Diff(st.items, mutation.ExpandHome(st.items, st.buf.Lines(), st.home))
 }
 
 // oilScroll keeps the cursor on screen, with oilScrolloff lines around it
@@ -375,7 +383,7 @@ func (st *oilState) planBox(maxW, maxH int) []string {
 		}
 		switch op.Kind {
 		case mutation.OpRename:
-			to := safeText(op.To)
+			to := safeText(tildePath(st.home, op.To)) // a move away is a whole path: ~/… reads as typed
 			if dirs[op.From] {
 				to += "/"
 			}

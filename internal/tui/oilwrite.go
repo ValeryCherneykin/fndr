@@ -39,7 +39,7 @@ type oilWrittenMsg struct {
 // plan, or says why there is none.
 func (m *Model) oilWrite(quit bool) tea.Cmd {
 	st := m.oil
-	plan, err := mutation.Diff(st.items, st.buf.Lines())
+	plan, err := st.diff()
 	var lineErr *mutation.LineError
 	switch {
 	case errors.As(err, &lineErr):
@@ -185,7 +185,7 @@ func indexChanges(dir string, done mutation.Plan, snap []indexer.Entry, prune *i
 			remove = append(remove, filepath.Join(dir, op.From))
 		case mutation.OpRename:
 			remove = append(remove, filepath.Join(dir, op.From))
-			add = append(add, tree(filepath.Join(dir, op.To), prune)...)
+			add = append(add, tree(mutation.Target(dir, op.To), prune)...)
 		case mutation.OpCreate:
 			path := filepath.Join(dir, op.To)
 			first, _, _ := strings.Cut(filepath.ToSlash(filepath.Clean(op.To)), "/")
@@ -207,7 +207,9 @@ func madeOnTheWay(dir string, plan mutation.Plan) []string {
 		if op.Kind != mutation.OpRename {
 			continue
 		}
-		for d := filepath.Dir(filepath.Join(dir, op.To)); d != dir && within(d, dir) && !seen[d]; d = filepath.Dir(d) {
+		// Up to the first folder that is there: in dir, or, for a move away,
+		// anywhere above the target.
+		for d := filepath.Dir(mutation.Target(dir, op.To)); !seen[d]; d = filepath.Dir(d) {
 			seen[d] = true
 			if _, err := os.Lstat(d); err == nil {
 				break // there, and so is every folder above it
@@ -327,14 +329,16 @@ func revealName(done mutation.Plan) string {
 
 // summary says what a plan did: "renamed 1, created 2, trashed 1".
 func summary(done mutation.Plan) string {
-	var renamed, created, trashed int
+	var renamed, moved, created, trashed int
 	for _, op := range done {
-		switch op.Kind {
-		case mutation.OpRename:
+		switch {
+		case op.Kind == mutation.OpRename && filepath.Dir(op.From) != filepath.Dir(op.To):
+			moved++ // to another folder, in this one or away: as ctrl+r says
+		case op.Kind == mutation.OpRename:
 			renamed++
-		case mutation.OpCreate:
+		case op.Kind == mutation.OpCreate:
 			created++
-		case mutation.OpDelete:
+		case op.Kind == mutation.OpDelete:
 			trashed++
 		}
 	}
@@ -342,7 +346,7 @@ func summary(done mutation.Plan) string {
 	for _, p := range []struct {
 		verb string
 		n    int
-	}{{"renamed", renamed}, {"created", created}, {"trashed", trashed}} {
+	}{{"renamed", renamed}, {"moved", moved}, {"created", created}, {"trashed", trashed}} {
 		if p.n > 0 {
 			parts = append(parts, fmt.Sprintf("%s %d", p.verb, p.n))
 		}

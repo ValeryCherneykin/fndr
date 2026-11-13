@@ -91,8 +91,8 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
   you found**: every result a line, from as many folders as it takes. See
   below.
 - **Rename or move what you found** (`Ctrl+R`). The query line turns into
-  the entry's path: change the name, or the folders in it, and press
-  `Enter`. Missing folders are made, and nothing is ever overwritten.
+  the entry's path: change the name, or the folders in it, or write where
+  it goes (`~/Documents/notes.md`), and press `Enter`. Missing folders are made, and nothing is ever overwritten.
 - **Show it in Finder** (`Ctrl+G`): a folder opens as its window, a file
   is shown selected in its folder's. An `.app` is shown, never started.
 - **Copy a path** (`Ctrl+Y`, then `Y` the full path, `R` from the folder
@@ -150,6 +150,7 @@ starts, and the rest still works.
 | In the buffer | On disk |
 |---|---|
 | change a line | rename |
+| a line rewritten as `~/Documents/video/Kafka/` | move it there, folders made on the way |
 | `dd` a line | move to the trash |
 | a new line `notes/ideas.md` | create it, with its folders |
 | a line ending in `/` | create a folder |
