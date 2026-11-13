@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
 
 // renameModel is browseModel with "util" searched and RENAME started on
@@ -97,14 +99,34 @@ func TestRenameRefuses(t *testing.T) {
 	}
 }
 
-// TestRenameOutsideTheFolder: a frequent place shown on the empty query
-// may lie outside fndr's folder; ctrl+r says so rather than build "../".
+// TestRenameOutsideTheFolder: found outside fndr's folder (GLOBAL, a
+// frequent place), an entry is renamed by its whole path from ~: the name
+// changed at the end renames it where it is; Enter on the path as it was
+// does nothing.
 func TestRenameOutsideTheFolder(t *testing.T) {
-	m, _ := browseModel(t, "src")
-	m.results[0].Entry.Path = filepath.Join(filepath.Dir(m.cwd), "README.md")
+	m, root := browseModel(t, "src")
+	m.home = filepath.Dir(root)
+	readme := filepath.Join(root, "README.md")
+	m.results[0].Entry = indexer.NewEntry(readme, 1, 0, false)
 	key(m, 'r', tea.ModCtrl)
-	if m.rename != nil || !strings.Contains(m.notice, "outside") {
-		t.Errorf("rename on %v, notice %q; want a refusal", m.rename != nil, m.notice)
+	want := "~/" + filepath.Base(root) + "/README.md"
+	if m.rename == nil || m.rename.line.text != want {
+		t.Fatalf("rename %+v; want the line %q", m.rename, want)
+	}
+	key(m, tea.KeyEnter, 0)
+	if m.rename != nil || m.notice != "" || !exists(readme) {
+		t.Fatalf("enter on the path as it was: rename on %v, notice %q", m.rename != nil, m.notice)
+	}
+
+	m.results[0].Entry = indexer.NewEntry(readme, 1, 0, false)
+	key(m, 'r', tea.ModCtrl)
+	for range len("README.md") {
+		key(m, tea.KeyBackspace, 0)
+	}
+	typeText(m, "NOTES.md")
+	key(m, tea.KeyEnter, 0)
+	if !exists(filepath.Join(root, "NOTES.md")) || exists(readme) {
+		t.Errorf("not renamed in place: notice %q", m.notice)
 	}
 }
 
