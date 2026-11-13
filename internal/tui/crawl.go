@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"errors"
-	"runtime/debug"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -201,13 +200,13 @@ func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
 	}
 
 	var cmds []tea.Cmd
-	if complete && s == m.global && m.savedPath != "" {
-		cmds = append(cmds, m.saveIndex())
-	}
 	if complete && s == m.global {
 		// The home's: a crawl of a folder entered is small, and a full
-		// collection after each would be work for nothing.
-		cmds = append(cmds, releaseMemory)
+		// collection after each would be work for nothing. After the save,
+		// not beside it: the save's own buffers (a sorted copy, the encoded
+		// file) are garbage only once it is done, and given back by a
+		// release run alongside, they stayed: 70 MB on a home of 320k.
+		cmds = append(cmds, m.releaseAfter(m.saveIndexOrNil()))
 	}
 	if s == m.current() && !m.browsing() {
 		cmds = append(cmds, m.search())
@@ -226,13 +225,22 @@ func (s *crawlStream) next() tea.Cmd {
 	}
 }
 
-// releaseMemory hands back to the system what a crawl used and no longer
-// holds. A crawl's peak (a saved index read, the index it replaces, a
-// Lstat per file) is gone once it ends, but Go keeps freed memory for
-// minutes in case it is needed again: on a home of 320k files fndr held
-// some 80 MB more than its index for nothing. Once per crawl, in a
-// command: the collection it forces runs beside the interface.
-func releaseMemory() tea.Msg {
-	debug.FreeOSMemory()
-	return nil
+// releaseAfter returns cmd (nil: none) followed, in the same command, by
+// handing back to the system what the crawl and cmd used and no longer
+// hold. A crawl's peak (a saved index read, the index it replaces, a
+// Lstat per file) and a save's buffers are gone once they end, but Go
+// keeps freed memory for minutes in case it is needed again: on a home of
+// 320k files fndr held some 80 MB more than its index for nothing, then
+// 70 MB more while the release ran beside the save instead of after it.
+// In a command: the collection it forces runs beside the interface.
+func (m *Model) releaseAfter(cmd tea.Cmd) tea.Cmd {
+	release := m.release
+	return func() tea.Msg {
+		var msg tea.Msg
+		if cmd != nil {
+			msg = cmd()
+		}
+		release()
+		return msg
+	}
 }

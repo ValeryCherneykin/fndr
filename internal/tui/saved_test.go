@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -309,32 +308,21 @@ func TestTabSharesHome(t *testing.T) {
 	}
 }
 
-// releases reports whether cmd, a crawl's end, gives memory back.
-func releases(cmd tea.Cmd) bool {
-	if cmd == nil {
-		return false
-	}
-	cmds := []tea.Cmd{cmd}
-	if batch, ok := cmd().(tea.BatchMsg); ok {
-		cmds = batch
-	}
-	for _, c := range cmds {
-		if c != nil && reflect.ValueOf(c).Pointer() == reflect.ValueOf(releaseMemory).Pointer() {
-			return true
-		}
-	}
-	return false
-}
-
 // TestReleaseAfterHomeOnly: memory goes back to the system after the
-// home's crawl, the big one, not after every folder entered.
+// home's crawl, the big one, and after its save, not beside it; not after
+// every folder entered.
 func TestReleaseAfterHomeOnly(t *testing.T) {
 	m, _ := savedModel(t)
-	loaded(t, m) // LOCAL is src, GLOBAL the home
-	if releases(m.crawlDone(&crawlDoneMsg{gen: m.local.gen})) {
-		t.Error("released after a folder's crawl")
+	loaded(t, m)        // LOCAL is src, GLOBAL the home
+	var released []bool // whether the index was saved by then, per release
+	m.release = func() { _, err := os.Stat(m.savedPath); released = append(released, err == nil) }
+	os.Remove(m.savedPath) //nolint:errcheck,gosec // gone, so a save can be seen
+	run(m, m.crawlDone(&crawlDoneMsg{gen: m.local.gen}))
+	if len(released) != 0 {
+		t.Fatal("released after a folder's crawl")
 	}
-	if !releases(m.crawlDone(&crawlDoneMsg{gen: m.global.gen})) {
-		t.Error("not released after the home's crawl")
+	run(m, m.crawlDone(&crawlDoneMsg{gen: m.global.gen}))
+	if !slices.Equal(released, []bool{true}) {
+		t.Errorf("releases %v: want one, after the index was saved", released)
 	}
 }

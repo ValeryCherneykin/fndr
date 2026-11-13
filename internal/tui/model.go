@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -80,6 +81,7 @@ type Model struct {
 	copier  copier           // how to copy here (copy.go); none in tests unless set
 	yanking bool             // ctrl+y was pressed: the next key says what to copy (copy.go)
 	narrow  *narrowing       // the last search's matches, for the next key to search within (narrow.go)
+	release func()           // gives freed memory back to the system: debug.FreeOSMemory, a counter in tests (crawl.go)
 	pending []string         // the keys of a chord pressed so far, waiting for the rest
 	results []indexer.Result // what the list shows: the listing or search results
 	total   int              // matches in the index, of which results holds the best
@@ -167,7 +169,8 @@ func New(root string, cfg config.Config, cfgErrs []error) *Model {
 func newModel(root, home string, ix *indexer.Index) *Model {
 	ctx, stop := context.WithCancel(context.Background())
 	return &Model{
-		cwd: root, start: root, home: home, prune: indexer.DefaultPrune(home),
+		release: debug.FreeOSMemory,
+		cwd:     root, start: root, home: home, prune: indexer.DefaultPrune(home),
 		local: &scope{root: root, ix: ix},
 		ctx:   ctx, stop: stop,
 	}

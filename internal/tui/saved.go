@@ -110,6 +110,14 @@ func (m *Model) saveIndex() tea.Cmd {
 	return func() tea.Msg { return indexSavedMsg{err: w.write()} }
 }
 
+// saveIndexOrNil is saveIndex, or nil with no file to save to.
+func (m *Model) saveIndexOrNil() tea.Cmd {
+	if m.savedPath == "" {
+		return nil
+	}
+	return m.saveIndex()
+}
+
 // Close finishes what fndr writes in the background, for the end of the
 // program: the saves of the index handed out, and the history.
 func (m *Model) Close() error {
