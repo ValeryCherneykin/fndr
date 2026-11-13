@@ -446,7 +446,9 @@ func (m *Model) oilRow(l mutation.Line, r, numW int) string {
 		facts = oilFacts(e)
 	}
 
-	nameSt := pick(strings.HasPrefix(name, "."), &stNameHidden, &stName)
+	// Hidden by its name, not its line: in results the line is a path,
+	// "src/.env".
+	nameSt := pick(strings.HasPrefix(filepath.Base(strings.TrimSuffix(name, "/")), "."), &stNameHidden, &stName)
 	left := stDir.Render(num) + " " + iconFor(strings.TrimSuffix(name, "/"), isDir) + " " + nameSt.Render(name)
 	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(facts) - 1
 	if facts == "" || gap < 2 {

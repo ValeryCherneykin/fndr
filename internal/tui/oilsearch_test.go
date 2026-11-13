@@ -218,7 +218,10 @@ func TestOilResultsHidden(t *testing.T) {
 	typeText(m, ".env")
 	key(m, 'o', tea.ModCtrl)
 	if m.oil == nil || !slices.Contains(m.oilTexts(), "src/.env") {
-		t.Errorf("lines %q, want src/.env", m.oilTexts())
+		t.Fatalf("lines %q, want src/.env", m.oilTexts())
+	}
+	if !strings.Contains(m.View().Content, stNameHidden.Render("src/.env")) {
+		t.Error("src/.env is not dimmed: hidden is told by the name, not the path")
 	}
 }
 

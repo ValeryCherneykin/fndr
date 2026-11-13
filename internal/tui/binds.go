@@ -78,6 +78,9 @@ func (m *Model) checkBind(b config.Bind) error {
 	if slices.Contains(ownKeys, first) {
 		return fmt.Errorf("%s is fndr's own", first)
 	}
+	if slices.Contains(b.Keys[1:], "esc") {
+		return fmt.Errorf("%s could never be pressed: esc in a chord gives it up", chord(b.Keys))
+	}
 	for _, o := range m.binds {
 		n := min(len(o.keys), len(b.Keys))
 		if slices.Equal(o.keys[:n], b.Keys[:n]) {

@@ -93,6 +93,7 @@ bind = ctrl+g = tag:dirs>1mb
 bind = alt+d = tag:dirs
 bind = f5 = tag:.go
 bind = f1 = tag:.go
+bind = ctrl+f>esc = tag:.go
 `)
 	lines := make([]int, 0, len(errs))
 	for _, err := range errs {
@@ -102,7 +103,7 @@ bind = f1 = tag:.go
 		}
 		lines = append(lines, e.Line)
 	}
-	if !slices.Equal(lines, []int{1, 2, 3, 5, 6, 7, 8, 11}) {
+	if !slices.Equal(lines, []int{1, 2, 3, 5, 6, 7, 8, 11, 12}) {
 		t.Errorf("refused lines %v: %v", lines, errs)
 	}
 	if len(m.binds) != 3 {
@@ -163,5 +164,17 @@ func TestBindCtrlHeld(t *testing.T) {
 	key(m, 'f', tea.ModCtrl)
 	if !slices.Equal(m.tagTexts(), []string{".go"}) {
 		t.Errorf("both bound, ctrl+f ctrl+f: tags %q, want .go", m.tagTexts())
+	}
+}
+
+// TestBindPasteEndsTheWait: a paste after ctrl+f is typing, and so is
+// what follows it, not the end of a chord.
+func TestBindPasteEndsTheWait(t *testing.T) {
+	m, _ := bindModel(t, "bind = ctrl+f>f = tag:dirs\n")
+	key(m, 'f', tea.ModCtrl)
+	send(m, tea.PasteMsg{Content: "ma"})
+	key(m, 'f', 0)
+	if len(m.tags) != 0 || len(m.pending) != 0 {
+		t.Errorf("tags %q, pending %q; want no chord after a paste", m.tagTexts(), m.pending)
 	}
 }

@@ -220,6 +220,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.PasteMsg:
+		m.pending = nil // a chord is pressed, not pasted: what follows is typing again
 		if m.oil != nil {
 			m.oilPaste(msg.Content)
 			return m, nil
