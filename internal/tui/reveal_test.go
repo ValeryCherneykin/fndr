@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 	"github.com/ValeryCherneykin/fndr/internal/opener"
 )
 
@@ -96,5 +97,32 @@ func TestOilRevealEditedFolder(t *testing.T) {
 	got := revealed(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"}, tea.KeyPressMsg{Code: 'x', Text: "x"})
 	if want := wantReveal(t, filepath.Join(root, "docs"), true); !slices.Equal(got, want) {
 		t.Errorf("gx on docs: %q, want %q", got, want)
+	}
+}
+
+// TestEnterStartsApp: Enter on an application starts it, as Finder and
+// Spotlight do, on macOS; elsewhere x.app is a folder, and Enter goes in.
+// The command is looked at, never run: the test must not start an app.
+func TestEnterStartsApp(t *testing.T) {
+	m := testModel(t, "/r/main.go")
+	app := "/Applications/Ghostty.app"
+	m.results = []indexer.Result{{Entry: indexer.NewEntry(app, 0, 0, true)}}
+	m.cursor = 0
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	var opened []string
+	for _, c := range flatten(cmd) {
+		if msg, ok := c().(openMsg); ok {
+			opened = msg.argv
+		}
+	}
+	if !opener.IsApp(app, true) {
+		if opened != nil || m.cwd != app {
+			t.Errorf("not macOS: opened %q, cwd %q; want to go in", opened, m.cwd)
+		}
+		return
+	}
+	want, _ := opener.System(app)
+	if !slices.Equal(opened, want) || m.cwd != "/r" {
+		t.Errorf("opened %q, cwd %q; want %q and fndr where it was", opened, m.cwd, want)
 	}
 }

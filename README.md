@@ -219,7 +219,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Tab` | Search your whole home instead (GLOBAL), and back; the query stays |
 | `Ctrl+N` / `Ctrl+P`, `↓` / `↑` | Move through the list |
 | `PgDn` / `PgUp`, `End` / `Home` | Move by a page, to the end |
-| `Enter` | Open a file · enter a folder |
+| `Enter` | Open a file · enter a folder · start an app (`.app`, on macOS) |
 | `-` · `Backspace` on an empty query | Go up a folder; with tags on, `Backspace` takes the last one off |
 | `Ctrl+H` / `Ctrl+L`, `←` / `→` | Move through the query |
 | `Ctrl+W` · `Ctrl+U` | Delete a word · delete to the start; on an empty query, `Ctrl+U` takes every tag off |
@@ -282,7 +282,9 @@ noticeably slower is treated as a bug.
 
 - **Enter never runs a program.** Native binaries are recognized by their
   magic bytes (ELF, Mach-O, Windows `.exe`), not by the `+x` bit, which FAT
-  and exFAT set on every file.
+  and exFAT set on every file. An application (`Ghostty.app`) is started,
+  as a double click in Finder would: it is made to be opened so, a build's
+  output is not.
 - **Files can't drive your terminal.** Not their contents, not their names:
   a file named with an escape sequence cannot clear the screen, write your
   clipboard or retitle the window, and an invisible bidi character cannot

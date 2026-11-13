@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // ErrNoOpener means the system has no known way to open a file in its
@@ -72,4 +73,15 @@ func (e env) reveal(goos, path string, isDir bool) ([]string, error) {
 		path = filepath.Dir(path)
 	}
 	return e.system(goos, path)
+}
+
+// IsApp reports whether a folder is an application to start rather than
+// go into: Ghostty.app on macOS, as a double click in Finder or Spotlight
+// starts it. Not a raw program (bin/fndr), which Enter never runs: an app
+// is made to be opened so, a build's output is not. Elsewhere x.app is a
+// folder like any other.
+func IsApp(path string, isDir bool) bool { return isApp(runtime.GOOS, path, isDir) }
+
+func isApp(goos, path string, isDir bool) bool {
+	return goos == "darwin" && isDir && strings.EqualFold(filepath.Ext(path), ".app")
 }

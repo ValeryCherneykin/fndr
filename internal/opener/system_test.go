@@ -86,3 +86,22 @@ func TestReveal(t *testing.T) {
 		t.Errorf("linux with nothing: %v, want ErrNoOpener", err)
 	}
 }
+
+func TestIsApp(t *testing.T) {
+	for _, tc := range []struct {
+		goos, path string
+		isDir      bool
+		want       bool
+	}{
+		{"darwin", "/Applications/Ghostty.app", true, true},
+		{"darwin", "/Applications/Some.APP", true, true},
+		{"darwin", "/u/dev/x.app", false, false}, // a file named so
+		{"darwin", "/u/Pictures/Photos Library.photoslibrary", true, false},
+		{"darwin", "/u/dev/fndr/bin/fndr", false, false},
+		{"linux", "/opt/x.app", true, false},
+	} {
+		if got := isApp(tc.goos, tc.path, tc.isDir); got != tc.want {
+			t.Errorf("%s %s dir=%v: %v, want %v", tc.goos, tc.path, tc.isDir, got, tc.want)
+		}
+	}
+}

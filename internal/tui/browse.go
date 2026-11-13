@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/opener"
 )
 
 // Browsing works like Finder: an empty query shows the contents of cwd,
@@ -120,6 +121,10 @@ func (m *Model) activate() tea.Cmd {
 	save := m.learn(e.Path)
 	if !e.IsDir {
 		return tea.Batch(save, m.openSelected())
+	}
+	if opener.IsApp(e.Path, e.IsDir) {
+		// Started, as Finder and Spotlight do; OIL still goes inside.
+		return tea.Batch(save, m.launch(e.Path))
 	}
 	dir, err := realDir(e.Path)
 	if err != nil {

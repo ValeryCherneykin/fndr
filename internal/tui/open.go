@@ -136,3 +136,15 @@ func (m *Model) showInFiles(path string, isDir bool) tea.Cmd {
 func (m *Model) setNotice(text string, isErr bool) {
 	m.notice, m.noticeErr = safeText(text), isErr
 }
+
+// launch starts an application (opener.IsApp) by the system's opener, off
+// the UI goroutine, as any file opened in its app; fndr stays open.
+func (m *Model) launch(path string) tea.Cmd {
+	name := filepath.Base(path)
+	argv, err := opener.System(path)
+	if err != nil {
+		m.setNotice("cannot open "+name+": "+err.Error(), true)
+		return nil
+	}
+	return func() tea.Msg { return openMsg{name: name, argv: argv} }
+}
