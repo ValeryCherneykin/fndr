@@ -97,7 +97,11 @@ func Parse(r io.Reader) (Config, []error) {
 	)
 	sc := bufio.NewScanner(r)
 	for n := 1; sc.Scan(); n++ {
-		line := strings.TrimSpace(sc.Text())
+		line := sc.Text()
+		if n == 1 {
+			line = strings.TrimPrefix(line, "\ufeff") // a byte order mark some editors write first
+		}
+		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -137,6 +141,12 @@ func parseBind(s string) (Bind, error) {
 			return Bind{}, err
 		}
 		b.Keys = append(b.Keys, ks)
+	}
+	// Comments go on a line of their own, as in Ghostty. One after a bind
+	// would be read into the tag, "dirs # folders", which finds nothing:
+	// a bind that silently does nothing is worse than an error.
+	if strings.Contains(action, " #") {
+		return Bind{}, errors.New("comments go on a line of their own")
 	}
 	name, arg, _ := strings.Cut(strings.TrimSpace(action), ":")
 	switch name {

@@ -23,6 +23,7 @@ bind = ctrl+q = tag:
 bind = ctrl+fx = tag:.go
 bind = cmd+f = tag:.go
 preview = on
+bind = ctrl+g = tag:dirs   # folders
 `))
 	want := []Bind{
 		{Keys: []string{"ctrl+f", "f"}, Action: "tag", Arg: "dirs", Line: 3},
@@ -47,7 +48,7 @@ preview = on
 		}
 		lines = append(lines, e.Line)
 	}
-	if !slices.Equal(lines, []int{7, 8, 9, 10, 11, 12, 13}) {
+	if !slices.Equal(lines, []int{7, 8, 9, 10, 11, 12, 13, 14}) {
 		t.Errorf("errors on lines %v: %v", lines, errs)
 	}
 }
@@ -119,4 +120,12 @@ func FuzzParse(f *testing.F) {
 			}
 		}
 	})
+}
+
+// TestParseByteOrderMark: a mark some editors put first is not a setting.
+func TestParseByteOrderMark(t *testing.T) {
+	c, errs := Parse(strings.NewReader("\ufeffbind = ctrl+f>f = tag:dirs\n"))
+	if len(errs) != 0 || len(c.Binds) != 1 {
+		t.Errorf("binds %+v, errors %v", c.Binds, errs)
+	}
 }
