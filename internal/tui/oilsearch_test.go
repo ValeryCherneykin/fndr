@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/ValeryCherneykin/fndr/internal/mutation"
+	"github.com/ValeryCherneykin/fndr/internal/oil"
 )
 
 // resultsModel is browseModel (README.md, src/main.go, src/util.go,
@@ -237,5 +240,58 @@ func TestOilResultsMoveIntoNewFolder(t *testing.T) {
 	typeText(m, "y")
 	if !exists(filepath.Join(root, "pkg", "util.go")) || !m.indexed(filepath.Join(root, "pkg")) {
 		t.Errorf("pkg made: %v, indexed: %v", exists(filepath.Join(root, "pkg")), m.indexed(filepath.Join(root, "pkg")))
+	}
+}
+
+// TestOilResultsHalfWritten: a plan that stops halfway leaves the buffer
+// true to the disk: the line trashed is gone, the move that failed shows
+// where the file still is, not the path that was written.
+func TestOilResultsHalfWritten(t *testing.T) {
+	m, root := resultsModel(t)
+	ro := filepath.Join(root, "ro")
+	if err := os.Mkdir(ro, 0o500); err != nil { //nolint:gosec // read-only on purpose
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec,errcheck // so TempDir can remove it
+	goTo(t, m, "src/util.go")
+	typeText(m, "dd")
+	goTo(t, m, "src/main.go")
+	typeText(m, "ccro/main.go")
+	key(m, tea.KeyEscape, 0)
+	command(m, "w")
+	typeText(m, "y")
+
+	if !m.noticeErr || !strings.Contains(m.notice, "1 of 2 done") {
+		t.Fatalf("notice %q, want 1 of 2 done", m.notice)
+	}
+	if exists(filepath.Join(root, "src", "util.go")) || !exists(filepath.Join(root, "src", "main.go")) {
+		t.Fatal("the disk is not what the test means: util.go trashed, main.go not moved")
+	}
+	if got := m.oilTexts(); !slices.Equal(got, []string{"src/main.go"}) {
+		t.Errorf("buffer %q, want only main.go, where it still is", got)
+	}
+	if m.oil.changes != 0 {
+		t.Errorf("%d changes: the buffer is the disk now, nothing to write", m.oil.changes)
+	}
+}
+
+// TestOilRereadKeepsWhatStayed: read again, a buffer shows an entry whose
+// line was deleted if it is still on the disk (its trash failed), and not
+// one that is gone.
+func TestOilRereadKeepsWhatStayed(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stayed.go"))
+	st := &oilState{
+		dir:    root,
+		search: &oilSearch{},
+		items:  []mutation.Item{{ID: 1, Name: "stayed.go"}, {ID: 2, Name: "gone.go"}},
+		buf:    oil.New([]mutation.Line{{ID: 0, Text: ""}}),
+	}
+	msg, ok := st.oilReread()().(oilMsg)
+	if !ok {
+		t.Fatal("not an oilMsg")
+	}
+	if len(msg.entries) != 1 || msg.entries[0].Path != filepath.Join(root, "stayed.go") {
+		t.Errorf("entries %v, want stayed.go alone", msg.entries)
 	}
 }
