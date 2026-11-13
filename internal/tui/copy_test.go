@@ -129,9 +129,9 @@ func TestCopyNeverSilent(t *testing.T) {
 // the status says so.
 func TestCopyOverSSH(t *testing.T) {
 	m := tagModel(t)
-	m.copier = copier{osc52: true}
+	m.copier = copier{osc52: true, tools: []clipboard.Tool{{Name: "tmux", Argv: []string{"true"}}}}
 	yank(m, 'y', 0)
-	if m.noticeErr || !strings.Contains(m.notice, "· osc52") {
+	if m.noticeErr || !strings.HasSuffix(m.notice, "· tmux, osc52 (unconfirmed)") {
 		t.Errorf("notice %q", m.notice)
 	}
 }

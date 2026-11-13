@@ -92,7 +92,9 @@ func (m *Model) copyText(text string) tea.Cmd {
 	// is no answer to tell whether the terminal did it.
 	return tea.Batch(tea.SetClipboard(text), func() tea.Msg {
 		msg, _ := run().(copiedMsg)
-		msg.copied = append([]string{"osc52"}, msg.copied...)
+		// Last, and said to be unconfirmed: OSC 52 is a request with no
+		// answer, and tmux without set-clipboard drops it unseen.
+		msg.copied = append(msg.copied, "osc52 (unconfirmed)")
 		return msg
 	})
 }
@@ -104,8 +106,8 @@ func (m *Model) copied(msg *copiedMsg) {
 	case len(msg.copied) == 0 && len(msg.errs) > 0:
 		m.setNotice("cannot copy: "+msg.errs[0].Error(), true)
 	case len(msg.errs) > 0:
-		m.setNotice("copied "+text+" · "+strings.Join(msg.copied, " ")+" ("+msg.errs[0].Error()+")", true)
+		m.setNotice("copied "+text+" · "+strings.Join(msg.copied, ", ")+" ("+msg.errs[0].Error()+")", true)
 	default:
-		m.setNotice("copied "+text+" · "+strings.Join(msg.copied, " "), false)
+		m.setNotice("copied "+text+" · "+strings.Join(msg.copied, ", "), false)
 	}
 }
