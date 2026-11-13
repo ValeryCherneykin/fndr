@@ -12,7 +12,7 @@ import (
 
 // testModel returns a model over a fixed index, sized like a small terminal.
 // No crawl runs: tests control exactly what is indexed.
-func testModel(t *testing.T, paths ...string) *Model {
+func testModel(t testing.TB, paths ...string) *Model {
 	t.Helper()
 	var ix indexer.Index
 	es := make([]indexer.Entry, len(paths))

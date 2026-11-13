@@ -79,7 +79,13 @@ func runTUI(root, configPath string) (string, error) {
 	if configPath != "" {
 		cfg, errs = config.Load(configPath)
 	}
-	final, err := tea.NewProgram(tui.New(root, cfg, errs)).Run()
+	// 120 frames a second, Bubble Tea's most: a frame is ready as soon as a
+	// key is handled, but goes out on the next tick, and a key that
+	// searches waits for two (the letter, then the results). At 60, that
+	// was some 5 ms more per key than the terminal's own echo; at 120,
+	// measured through tmux, as quick as the echo. Idle, the ticker costs
+	// about 0.35% more of one core.
+	final, err := tea.NewProgram(tui.New(root, cfg, errs), tea.WithFPS(120)).Run()
 	if err != nil {
 		return "", err
 	}
