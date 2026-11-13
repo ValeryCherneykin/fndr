@@ -60,21 +60,39 @@ const (
 // match, not always the best one: fzf's optimal algorithm costs
 // O(len(path) * len(query)) per entry, which is not worth it for paths.
 func fuzzyScore(e *Entry, from int, lowerQuery string, pos []int) (score int, ok bool) {
-	if lowerQuery == "" {
+	return scoreRunes(e, from, []rune(lowerQuery), pos)
+}
+
+// scoreRunes is fuzzyScore with the query already decoded, as Search
+// passes it: decoded once per search, not again at every byte of every
+// path, where it cost a fifth of a search.
+func scoreRunes(e *Entry, from int, q []rune, pos []int) (score int, ok bool) {
+	if len(q) == 0 {
 		return 0, true
 	}
 	s := e.Path
 
-	// Pass 1: find the latest start.
+	// Pass 1: find the latest start. ASCII bytes, most of any path, are
+	// read and lowered in place, with no call per byte.
 	start := -1
-	qi := len(lowerQuery) // lowerQuery[:qi] is still unmatched
+	qi := len(q) // q[:qi] is still unmatched
 	for i := len(s); i > from && qi > 0; {
-		r, size := lastRune(s[:i])
-		i -= size // i is now the start of r
-		qr, qsize := lastRune(lowerQuery[:qi])
-		if foldRune(r) == qr {
-			qi -= qsize
-			start = i
+		var r rune
+		if c := s[i-1]; c < utf8.RuneSelf {
+			if 'A' <= c && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			r = rune(c)
+			i--
+		} else {
+			var size int
+			r, size = utf8.DecodeLastRuneInString(s[:i])
+			r = foldRune(r)
+			i -= size
+		}
+		if r == q[qi-1] {
+			qi--
+			start = i // i is now the start of the rune matched
 		}
 	}
 	if qi > 0 {
@@ -86,11 +104,10 @@ func fuzzyScore(e *Entry, from int, lowerQuery string, pos []int) (score int, ok
 	nameOff := int(e.nameOff)
 	prevEnd := -1 // byte offset just past the previous match, -1 if none
 	k := 0        // next free slot in pos
-	for i := start; qi < len(lowerQuery); {
+	for i := start; qi < len(q); {
 		r, size := firstRune(s[i:])
-		qr, qsize := firstRune(lowerQuery[qi:])
-		if foldRune(r) == qr {
-			qi += qsize
+		if foldRune(r) == q[qi] {
+			qi++
 
 			score += scoreMatch + positionBonus(s, i, r)
 			if i >= nameOff {
@@ -139,21 +156,29 @@ func firstRune(s string) (r rune, size int) {
 	return utf8.DecodeRuneInString(s)
 }
 
-// lastRune decodes the last rune of s, with an ASCII fast path.
-func lastRune(s string) (r rune, size int) {
-	if c := s[len(s)-1]; c < utf8.RuneSelf {
-		return rune(c), 1
-	}
-	return utf8.DecodeLastRuneInString(s)
-}
-
-// foldRune lowercases r the way strings.ToLower does, with an ASCII fast path.
+// foldRune lowercases r the way strings.ToLower does: ASCII by
+// arithmetic, the next scripts (Latin with accents, Greek, Cyrillic) from
+// lowerTable, the rest by unicode.ToLower.
 func foldRune(r rune) rune {
-	if r < utf8.RuneSelf {
+	switch {
+	case r < utf8.RuneSelf:
 		if 'A' <= r && r <= 'Z' {
 			r += 'a' - 'A'
 		}
 		return r
+	case r < rune(len(lowerTable)):
+		return lowerTable[r]
 	}
 	return unicode.ToLower(r)
 }
+
+// lowerTable is unicode.ToLower of every rune below it, worked out once:
+// unicode.ToLower searches its tables for every rune, and on a home with
+// Cyrillic names that was a sixth of a search. Up to U+0590 covers Latin
+// with accents, Greek and Cyrillic, in 5.7 KB.
+var lowerTable = func() (t [0x590]rune) {
+	for r := range t {
+		t[r] = unicode.ToLower(rune(r))
+	}
+	return t
+}()

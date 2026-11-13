@@ -1,7 +1,6 @@
 package indexer
 
 import (
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -53,7 +52,7 @@ func hasSubsequenceFold(s, lowerQuery string) bool {
 		// sides. Still no allocation, just a few more instructions.
 		r, size := utf8.DecodeRuneInString(s[i:])
 		qr, qsize := utf8.DecodeRuneInString(lowerQuery[qi:])
-		if unicode.ToLower(r) == qr {
+		if foldRune(r) == qr {
 			qi += qsize
 			if qi == len(lowerQuery) {
 				return true

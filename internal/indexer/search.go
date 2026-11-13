@@ -120,6 +120,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int, collect boo
 		limit = DefaultLimit
 	}
 	lq := strings.ToLower(q.Text)
+	qr := []rune(lq) // decoded once, for every entry scored
 	from := tailStart(q.Under)
 
 	// What is looked at: all of snap, or the positions in Within.
@@ -184,7 +185,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int, collect boo
 					if q.Keep != nil && !q.Keep(*e) {
 						continue
 					}
-					score, _ := fuzzyScore(e, from, lq, nil)
+					score, _ := scoreRunes(e, from, qr, nil)
 					score += q.Boost[e.Path]                                 // a nil map reads as 0
 					top.offer(candidate{idx: int32(i), score: int32(score)}) //nolint:gosec // see candidate
 					if collect {
@@ -233,7 +234,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int, collect boo
 	for i, c := range all {
 		e := &snap[c.idx]
 		pos := buf[i*nq : (i+1)*nq : (i+1)*nq] // capped, so appending to one result cannot overwrite the next
-		fuzzyScore(e, from, lq, pos)
+		scoreRunes(e, from, qr, pos)
 		results[i] = Result{Entry: *e, Score: int(c.score), Positions: pos}
 	}
 	return results, total, matched, nil
