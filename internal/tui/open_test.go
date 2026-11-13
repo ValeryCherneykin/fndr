@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -99,5 +100,20 @@ func TestOpenOutcomeIsVisible(t *testing.T) {
 	key(m, tea.KeyDown, 0)
 	if m.notice != "" {
 		t.Errorf("notice %q survived a key press", m.notice)
+	}
+}
+
+// TestOpenDoesNotWaitForTheApp: an opener that starts an app and exits,
+// the app keeping its output open, as xdg-open's often do, is done when
+// the opener is: the status must not wait until the app is quit.
+func TestOpenDoesNotWaitForTheApp(t *testing.T) {
+	msg := openMsg{name: "x.pdf", argv: []string{"sh", "-c", "(sleep 5) &"}}
+	start := time.Now()
+	got, ok := msg.run()().(openedMsg)
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("took %v: waited for the app", took)
+	}
+	if !ok || got.err != nil || !got.viaApp {
+		t.Errorf("%+v: want opened, no error", got)
 	}
 }

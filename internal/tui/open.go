@@ -2,9 +2,11 @@ package tui
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -76,6 +78,10 @@ func resolveOpen(path, editor string) tea.Msg {
 	return openMsg{name: name, argv: argv}
 }
 
+// openWaitDelay is how long a system opener's output is waited for once it
+// has exited: what its children hold open is theirs.
+const openWaitDelay = 500 * time.Millisecond
+
 // run carries out an openMsg.
 func (msg openMsg) run() tea.Cmd {
 	cmd := exec.Command(msg.argv[0], msg.argv[1:]...)
@@ -91,7 +97,16 @@ func (msg openMsg) run() tea.Cmd {
 		// Output is captured, never let through: a stray line from
 		// xdg-open would be drawn over the UI. On failure it is the most
 		// useful part of the error.
+		//
+		// xdg-open starts the app and returns, but the app inherits the
+		// pipe, and Wait would wait for it to close: until the app is
+		// quit. WaitDelay stops waiting once the opener itself is done;
+		// ErrWaitDelay then says only that, not a failure.
+		cmd.WaitDelay = openWaitDelay
 		out, err := cmd.CombinedOutput()
+		if errors.Is(err, exec.ErrWaitDelay) {
+			err = nil
+		}
 		if err != nil {
 			if line, _, _ := bytes.Cut(bytes.TrimSpace(out), []byte("\n")); len(line) > 0 {
 				err = fmt.Errorf("%s: %s", msg.argv[0], line)
