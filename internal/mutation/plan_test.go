@@ -192,3 +192,51 @@ func TestDiffNested(t *testing.T) {
 		}
 	}
 }
+
+// TestDiffMoveAway: a whole path moves an entry out of the folder, as mv
+// would; a new line is never made elsewhere, and "~" is never a name.
+func TestDiffMoveAway(t *testing.T) {
+	items := []Item{{1, "Kafka/"}, {2, "notes.md"}}
+	for _, tc := range []struct {
+		name  string
+		lines []Line
+		want  Plan
+		err   error
+	}{
+		{"a folder moved away", []Line{{1, "/home/me/Documents/video/Kafka/"}, {2, "notes.md"}},
+			Plan{{Kind: OpRename, From: "Kafka", To: "/home/me/Documents/video/Kafka"}}, nil},
+		{"cleaned", []Line{{1, "Kafka/"}, {2, "/home/me//Documents/./n.md"}},
+			Plan{{Kind: OpRename, From: "notes.md", To: "/home/me/Documents/n.md"}}, nil},
+		{"a new line elsewhere", []Line{{1, "Kafka/"}, {2, "notes.md"}, {0, "/tmp/x.md"}}, nil, ErrMakeAway},
+		{"~ as a name", []Line{{1, "a/~/Kafka/"}, {2, "notes.md"}}, nil, ErrTilde},
+		{"~ as a name, away", []Line{{1, "/home/me/~/Kafka/"}, {2, "notes.md"}}, nil, ErrTilde},
+		{"../ still refused", []Line{{1, "../Kafka/"}, {2, "notes.md"}}, nil, ErrOutside},
+	} {
+		got, err := Diff(items, tc.lines)
+		if tc.err != nil {
+			if !errors.Is(err, tc.err) {
+				t.Errorf("%s: %v, want %v", tc.name, err, tc.err)
+			}
+			continue
+		}
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %v, %v\nwant %v", tc.name, got, err, tc.want)
+		}
+	}
+}
+
+// TestExpandHome: ~/ at the start of a line written is home; a line as it
+// was shown, a folder named "~" among them, is left alone, and the
+// buffer's lines are never written to.
+func TestExpandHome(t *testing.T) {
+	items := []Item{{1, "~/"}, {2, "Kafka/"}}
+	lines := []Line{{1, "~/"}, {2, "~/Documents/video/Kafka/"}, {0, "~/new.md"}}
+	got := ExpandHome(items, lines, "/home/me")
+	want := []Line{{1, "~/"}, {2, "/home/me/Documents/video/Kafka/"}, {0, "/home/me/new.md"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("%v\nwant %v", got, want)
+	}
+	if lines[1].Text != "~/Documents/video/Kafka/" {
+		t.Error("ExpandHome wrote into the lines it was given")
+	}
+}

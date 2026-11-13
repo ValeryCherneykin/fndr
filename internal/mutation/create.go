@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -23,6 +24,10 @@ import (
 var (
 	ErrEmptyName = errors.New("empty name")
 	ErrOutside   = errors.New("name leaves the folder")
+	// ErrTilde is a name with a part that is "~": always a home that was
+	// meant (write ~/ at the start of a line to move there), never a
+	// folder to make.
+	ErrTilde     = errors.New(`"~" is not a name: ~/ at the start moves an entry there`)
 	ErrExists    = errors.New("already exists")
 	ErrNotFolder = errors.New("not a folder")
 )
@@ -69,6 +74,8 @@ func resolve(dir, name string) (Created, error) {
 	switch {
 	case name == "" || clean == "." || clean == string(filepath.Separator):
 		return Created{}, ErrEmptyName
+	case hasTilde(clean):
+		return Created{}, ErrTilde
 	case !filepath.IsLocal(clean): // "../x", "/etc/x", and on Windows "NUL"
 		return Created{}, ErrOutside
 	}
@@ -102,4 +109,46 @@ func makeFile(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+// hasTilde reports whether a part of the cleaned path is "~".
+func hasTilde(clean string) bool {
+	return slices.Contains(strings.Split(clean, string(filepath.Separator)), "~")
+}
+
+// Target returns where name, a name of a plan, is on the disk: in dir, or,
+// for a move away (an absolute path, see Diff), where it says.
+func Target(dir, name string) string {
+	if filepath.IsAbs(name) {
+		return filepath.Clean(name)
+	}
+	return filepath.Join(dir, name)
+}
+
+// ExpandHome returns lines with "~/" at the start of a line the user wrote
+// read as home, for Diff: a line moved away. Lines as the buffer was
+// filled are left alone: a folder named "~" there is untouched, not a move.
+func ExpandHome(items []Item, lines []Line, home string) []Line {
+	if home == "" {
+		return lines
+	}
+	shown := make(map[int]string, len(items))
+	for _, it := range items {
+		shown[it.ID] = it.Name
+	}
+	out, cloned := lines, false
+	for i, l := range lines {
+		text := strings.TrimSpace(l.Text)
+		if !strings.HasPrefix(text, "~/") || (l.ID > 0 && l.Text == shown[l.ID]) {
+			continue
+		}
+		if !cloned {
+			out, cloned = slices.Clone(lines), true // never write into the buffer's lines
+		}
+		out[i].Text = filepath.Join(home, text[2:])
+		if strings.HasSuffix(text, "/") {
+			out[i].Text += "/" // a folder's line keeps saying so
+		}
+	}
+	return out
 }

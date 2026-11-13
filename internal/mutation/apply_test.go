@@ -252,3 +252,67 @@ func TestUndoNamesWhatItLeaves(t *testing.T) {
 		t.Errorf("folder holds %q: want a back, b's temporary name kept", got)
 	}
 }
+
+// TestApplyMoveAway: a whole path moves an entry to another folder, made
+// on the way; a name taken there stops the plan before any step.
+func TestApplyMoveAway(t *testing.T) {
+	home := t.TempDir()
+	dl := filepath.Join(home, "Downloads")
+	writeTestFile(t, filepath.Join(dl, "Kafka", "lesson1.mp4"))
+	to := filepath.Join(home, "Documents", "video", "Kafka")
+	plan, err := Diff([]Item{{1, "Kafka/"}}, []Line{{1, to + "/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := Apply(dl, plan, nil); err != nil || n != 1 {
+		t.Fatalf("Apply: %d, %v", n, err)
+	}
+	if _, err := os.Stat(filepath.Join(to, "lesson1.mp4")); err != nil {
+		t.Errorf("not moved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dl, "Kafka")); err == nil {
+		t.Error("still in Downloads")
+	}
+
+	writeTestFile(t, filepath.Join(dl, "Kafka", "x"))
+	if n, err := Apply(dl, plan, nil); !errors.Is(err, ErrExists) || n != 0 {
+		t.Errorf("onto a taken name: %d, %v; want ErrExists before any step", n, err)
+	}
+}
+
+func writeTestFile(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestApplyMoveAwayCheckedFirst: a move away onto a taken name is found
+// before any step, so a delete in the same plan has not happened yet.
+func TestApplyMoveAwayCheckedFirst(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", "")
+	dl := filepath.Join(home, "Downloads")
+	writeTestFile(t, filepath.Join(dl, "Kafka", "a"))
+	writeTestFile(t, filepath.Join(dl, "junk.txt"))
+	to := filepath.Join(home, "Documents", "Kafka")
+	writeTestFile(t, filepath.Join(to, "b")) // taken
+	plan, err := Diff([]Item{{1, "Kafka/"}, {2, "junk.txt"}}, []Line{{1, to + "/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trash, err := HomeTrash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := Apply(dl, plan, trash); !errors.Is(err, ErrExists) || n != 0 {
+		t.Errorf("%d, %v; want nothing done and ErrExists", n, err)
+	}
+	if _, err := os.Stat(filepath.Join(dl, "junk.txt")); err != nil {
+		t.Error("junk.txt was trashed before the move failed")
+	}
+}

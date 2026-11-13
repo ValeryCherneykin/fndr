@@ -44,6 +44,7 @@ var (
 	ErrConflict = errors.New("two entries would have the same name")
 	ErrUnknown  = errors.New("line refers to no item of this folder")
 	ErrNested   = errors.New("inside a folder that changes too: one at a time")
+	ErrMakeAway = errors.New("a new line is made in this folder; ~/ and / move an entry that is here")
 )
 
 // LineError says which line of the buffer is wrong, counting from 1, so
@@ -128,14 +129,29 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 		}
 
 		// The name must be one Create would accept, whatever the line does:
-		// a rename to "../x" leaves the folder just as a create would.
-		r, err := resolve("", op.To)
-		if err != nil {
-			return nil, lineErr(err)
+		// a rename to "../x" leaves the folder just as a create would. The
+		// one way out is a whole path, "/Users/me/Documents/x" (the TUI
+		// reads "~/" as home before): a move the user wrote out in full,
+		// never a step that slips. Only an entry is moved so; a new line
+		// is made in this folder.
+		var final string
+		if filepath.IsAbs(op.To) && op.Kind == OpCreate {
+			return nil, lineErr(ErrMakeAway)
 		}
-		// Two lines may not end on one name: a rename would replace the
-		// other entry. resolve cleans, so "a//b" and "a/b" are one name.
-		final := r.Path
+		if filepath.IsAbs(op.To) {
+			final = filepath.Clean(op.To)
+			if hasTilde(final) {
+				return nil, lineErr(ErrTilde)
+			}
+		} else {
+			r, err := resolve("", op.To)
+			if err != nil {
+				return nil, lineErr(err)
+			}
+			// Two lines may not end on one name: a rename would replace
+			// the other entry. resolve cleans: "a//b" and "a/b" are one.
+			final = r.Path
+		}
 		if prev, dup := taken[final]; dup {
 			return nil, lineErr(fmt.Errorf("%w: %q, as on line %d", ErrConflict, final, prev))
 		}
@@ -157,7 +173,9 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 	// not, depending on the order of the lines.
 	through := map[string]bool{}
 	for _, op := range slices.Concat(renames, creates) {
-		for d := filepath.Dir(filepath.Clean(op.To)); d != "."; d = filepath.Dir(d) {
+		// Up to "." for a name in the folder, "/" for a move away: Dir("/")
+		// is "/" again, and a loop waiting for "." would never end.
+		for d := filepath.Dir(filepath.Clean(op.To)); d != "." && d != string(filepath.Separator); d = filepath.Dir(d) {
 			through[d] = true
 		}
 	}

@@ -107,8 +107,12 @@ func check(dir string, p Plan) error {
 // each part may be missing (then the rest is made new), leaving, or a
 // folder to go through; the last part must not be there at all.
 func free(dir, name string, leaving []os.FileInfo) error {
-	parts := strings.Split(filepath.Clean(name), string(filepath.Separator))
-	path := dir
+	// A move away (an absolute name) is walked from the root.
+	path, rel := dir, filepath.Clean(name)
+	if filepath.IsAbs(rel) {
+		path, rel = string(filepath.Separator), rel[1:]
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
 	for i, part := range parts {
 		path = filepath.Join(path, part)
 		info, err := os.Lstat(path)
@@ -143,7 +147,7 @@ func renameAll(dir string, ops []Op) (done int, err error) {
 	}
 
 	for i, op := range ops {
-		to := filepath.Join(dir, op.To)
+		to := Target(dir, op.To)
 		err := os.MkdirAll(filepath.Dir(to), 0o755) //nolint:gosec // the user's own folder: their umask decides
 		if err == nil {
 			err = noReplace(temps[i], to)
