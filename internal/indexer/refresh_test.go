@@ -101,6 +101,34 @@ func TestRefreshSeesWritesInPlace(t *testing.T) {
 	}
 }
 
+// TestRefreshForgetsWhatIsGone: a file gone while its folder's time was
+// set back (rsync, an archive unpacked) is left out, as a crawl would,
+// not kept as a ghost that Enter cannot open.
+func TestRefreshForgetsWhatIsGone(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "src")
+	writeFile(t, filepath.Join(dir, "main.go"), "x")
+	writeFile(t, filepath.Join(dir, "old.go"), "x")
+	saved, _ := crawlSorted(t, root, nil, nil)
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "old.go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(dir, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	got, stats := crawlSorted(t, root, nil, saved)
+	if stats.Reused != 1 {
+		t.Fatalf("%d folders reused, want src: the case is a folder that looks unchanged", stats.Reused)
+	}
+	if _, ok := find(got, filepath.Join(dir, "old.go")); ok {
+		t.Error("old.go is gone but still indexed")
+	}
+}
+
 // TestRefreshFindsWhatCrawlFinds: after random edits of every kind, a
 // refresh finds exactly what a fresh crawl does, round after round, each
 // refreshing the one before, as starts would.

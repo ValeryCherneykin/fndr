@@ -147,10 +147,17 @@ func (w *walker) reuse(j *dirJob, batch *[]Entry) ([]dirJob, bool) {
 			if !w.prune.Prunes(e.Path, e.Name()) && !ignores.ignores(e.Path) {
 				subdirs = append(subdirs, subJob(j, e.Path, mod, ignores))
 			}
-		} else if info, err := os.Lstat(e.Path); err == nil && !info.IsDir() {
+		} else {
 			// Written in place since, maybe: the folder's time cannot tell.
-			// Gone or a folder now, with the folder's time the same, is a
-			// clock gone back; as above, the next change brings the truth.
+			// Gone, unreadable or a folder now, with the folder's time the
+			// same, is a clock gone back, or a time set back (rsync, an
+			// archive unpacked): left out as a crawl leaves out what it
+			// cannot Lstat, never kept as a ghost that Enter cannot open.
+			info, err := os.Lstat(e.Path)
+			if err != nil || info.IsDir() {
+				w.skipped.Add(1)
+				continue
+			}
 			e = NewEntry(e.Path, info.Size(), info.ModTime().UnixNano(), false)
 		}
 		*batch = append(*batch, e)
