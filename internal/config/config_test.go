@@ -231,3 +231,16 @@ func errLines(t *testing.T, errs []error) []int {
 	}
 	return lines
 }
+
+// TestEditorGUINeedsEditor: a window of its own is said of a named editor,
+// never of $EDITOR, which would be started with no terminal.
+func TestEditorGUINeedsEditor(t *testing.T) {
+	c, errs := Parse(strings.NewReader("images = off\neditor_gui = on\n"))
+	if c.EditorGUI || !slices.Equal(errLines(t, errs), []int{2}) {
+		t.Errorf("gui %v, errors %v", c.EditorGUI, errs)
+	}
+	c, errs = Parse(strings.NewReader("editor_gui = on\neditor = code\n"))
+	if !c.EditorGUI || len(errs) != 0 {
+		t.Errorf("with an editor: gui %v, errors %v", c.EditorGUI, errs)
+	}
+}

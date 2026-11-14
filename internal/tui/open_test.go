@@ -29,14 +29,20 @@ func TestResolveOpen(t *testing.T) {
 	// Text goes to the editor, in the terminal. A configured editor wins
 	// over the environment, which keeps this test independent of the
 	// machine.
-	got, ok := resolveOpen(text, "ed -s").(openMsg)
+	got, ok := resolveOpen(text, "ed -s", false).(openMsg)
 	if !ok || !got.terminal || !slices.Equal(got.argv, []string{"ed", "-s", text}) {
 		t.Errorf("text file: got %+v, want the editor in the terminal", got)
+	}
+	// An editor with a window of its own is started as an app: fndr does
+	// not hand it the terminal, nor wait for it.
+	got, ok = resolveOpen(text, "code", true).(openMsg)
+	if !ok || got.terminal || !slices.Equal(got.argv, []string{"code", text}) {
+		t.Errorf("text file, GUI editor: got %+v, want it started outside the terminal", got)
 	}
 
 	// Anything else goes to the system opener, outside the terminal. A CI
 	// machine may have none installed; then the error must say so.
-	switch msg := resolveOpen(binary, "ed").(type) {
+	switch msg := resolveOpen(binary, "ed", false).(type) {
 	case openMsg:
 		if msg.terminal || msg.argv[len(msg.argv)-1] != binary {
 			t.Errorf("binary file: got %+v, want the system opener", msg)
@@ -52,12 +58,12 @@ func TestResolveOpen(t *testing.T) {
 	if err := os.WriteFile(program, []byte("\xcf\xfa\xed\xfe\x0c\x00"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if msg, ok := resolveOpen(program, "ed").(openedMsg); !ok || !msg.program {
+	if msg, ok := resolveOpen(program, "ed", false).(openedMsg); !ok || !msg.program {
 		t.Errorf("program: got %+v, want it reported, not opened", msg)
 	}
 
 	// A file deleted since it was indexed is reported, not ignored.
-	if msg, ok := resolveOpen(filepath.Join(dir, "gone.txt"), "ed").(openedMsg); !ok || msg.err == nil {
+	if msg, ok := resolveOpen(filepath.Join(dir, "gone.txt"), "ed", false).(openedMsg); !ok || msg.err == nil {
 		t.Errorf("missing file: got %+v, want an error", msg)
 	}
 }

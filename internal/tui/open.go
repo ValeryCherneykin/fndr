@@ -49,13 +49,16 @@ func (m *Model) openSelected() tea.Cmd {
 func (m *Model) open(path string) tea.Cmd {
 	// Copied out of m: the command runs on another goroutine and must not
 	// touch the model.
-	editor := m.editor
-	return func() tea.Msg { return resolveOpen(path, editor) }
+	editor, gui := m.editor, m.editorGUI
+	return func() tea.Msg { return resolveOpen(path, editor, gui) }
 }
 
 // resolveOpen decides how to open path. It reads the start of the file,
-// so it must run in a command, never in Update.
-func resolveOpen(path, editor string) tea.Msg {
+// so it must run in a command, never in Update. gui says the editor opens
+// a window of its own (VS Code, PyCharm): it is started as an app is, and
+// fndr goes on, rather than handing it a terminal it does not use and
+// waiting for it to quit.
+func resolveOpen(path, editor string, gui bool) tea.Msg {
 	name := filepath.Base(path)
 	kind, err := opener.Classify(path)
 	if err != nil {
@@ -69,7 +72,7 @@ func resolveOpen(path, editor string) tea.Msg {
 		if err != nil {
 			return openedMsg{name: name, err: err}
 		}
-		return openMsg{name: name, argv: append(argv, path), terminal: true}
+		return openMsg{name: name, argv: append(argv, path), terminal: !gui}
 	}
 	argv, err := opener.System(path)
 	if err != nil {

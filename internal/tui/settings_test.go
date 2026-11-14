@@ -38,10 +38,18 @@ func TestSettingsAsComeIn(t *testing.T) {
 	}
 
 	cfg := config.Default()
-	cfg.Preview, cfg.Images, cfg.Editor, cfg.Icons = true, false, "hx", false
+	cfg.Preview, cfg.Images, cfg.Editor, cfg.Icons, cfg.EditorGUI = true, false, "code", false, true
 	m = New(home, cfg, nil)
-	if !m.preview || m.graphics || m.editor != "hx" || m.icons {
+	if !m.preview || m.graphics || m.editor != "code" || m.icons {
 		t.Errorf("set: preview %v, graphics %v, editor %q, icons %v", m.preview, m.graphics, m.editor, m.icons)
+	}
+	// The command is looked at, never run: it would open VS Code.
+	text := filepath.Join(home, "notes.md")
+	if err := os.WriteFile(text, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if msg, ok := m.open(text)().(openMsg); !ok || msg.terminal || !slices.Equal(msg.argv, []string{"code", text}) {
+		t.Errorf("editor_gui: %+v, want code started outside the terminal", msg)
 	}
 }
 

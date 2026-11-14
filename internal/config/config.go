@@ -135,6 +135,13 @@ func Parse(r io.Reader) (Config, []error) {
 	if err := sc.Err(); err != nil {
 		errs = append(errs, err) // a line longer than 64 KB: not a settings file
 	}
+	// A window of its own is said of the editor the file names. Of
+	// $EDITOR, most often a terminal one, it would start nvim with no
+	// terminal, where it hangs out of sight.
+	if c.EditorGUI && c.Editor == "" {
+		c.EditorGUI = false
+		errs = append(errs, &Error{setOn["editor_gui"], errors.New("editor_gui needs an editor = line: which editor has the window?")})
+	}
 	return c, append(errs, c.settle(keyOn)...)
 }
 

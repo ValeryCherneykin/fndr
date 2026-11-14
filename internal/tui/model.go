@@ -34,6 +34,8 @@ type Model struct {
 	editor string         // editor command line; empty means $VISUAL, $EDITOR, then a fallback
 	icons  bool           // Nerd Font icons; off, a "/" after a folder says what it is
 
+	editorGUI bool // the editor opens its own window: started, not waited for (open.go)
+
 	// local is what LOCAL search runs on: the index of the folder fndr
 	// started in, or of wherever the user went that it does not cover.
 	local *scope
@@ -158,7 +160,7 @@ func New(root string, cfg config.Config, cfgErrs []error) *Model {
 	home, _ := os.UserHomeDir() // best effort: without it paths just are not shortened
 	m := newModel(root, home, &indexer.Index{})
 	m.local.crawling = true // Init starts it
-	m.preview, m.editor, m.icons = cfg.Preview, cfg.Editor, cfg.Icons
+	m.preview, m.editor, m.icons, m.editorGUI = cfg.Preview, cfg.Editor, cfg.Icons, cfg.EditorGUI
 
 	// Pictures off is the terminal's lack of them: a card for every file,
 	// and nothing sent to tmux to let them through.
