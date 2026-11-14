@@ -684,3 +684,62 @@ func TestRulesSeeKeep(t *testing.T) {
 		t.Errorf("the same rules either way: %s", after)
 	}
 }
+
+// TestCrawlSkipInclude: a skipped folder is listed, not gone into; an
+// included one is gone into whatever would leave it out, its dot, its
+// name or a .gitignore, and what is inside it is judged as anywhere. The
+// crawl, the catching up and Reaches agree; the rules say both.
+func TestCrawlSkipInclude(t *testing.T) {
+	home := t.TempDir()
+	for _, f := range []string{
+		"Movies/film.mkv", ".ssh/config", ".ssh/.hidden/x", "dev/node_modules/pkg/a.js",
+		"dev/dist/out.js", "dev/.gitignore", ".cache/y",
+	} {
+		writeFile(t, filepath.Join(home, f), "")
+	}
+	writeFile(t, filepath.Join(home, "dev", ".gitignore"), "dist/\n")
+	p := DefaultPrune(home)
+	before := p.Rules()
+	p.Skip(filepath.Join(home, "Movies"))
+	p.Include(filepath.Join(home, ".ssh") + "/")
+	p.Include(filepath.Join(home, "dev", "node_modules"))
+	p.Include(filepath.Join(home, "dev", "dist"))
+	if p.Rules() == before {
+		t.Error("the rules do not say skip and include: a saved index would be trusted")
+	}
+
+	entries, _, err := crawlPruned(t, home, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := byRel(t, home, entries)
+	for f, want := range map[string]bool{
+		"Movies": true, "Movies/film.mkv": false,
+		".ssh/config": true, ".ssh/.hidden": true, ".ssh/.hidden/x": false,
+		"dev/node_modules/pkg/a.js": true, "dev/dist/out.js": true,
+		".cache/y": false,
+	} {
+		if _, ok := got[f]; ok != want {
+			t.Errorf("%s indexed %v, want %v", f, ok, want)
+		}
+	}
+	for dir, want := range map[string]bool{"Movies": false, ".ssh": true, "dev/dist": true, ".cache": false} {
+		if got := p.Reaches(home, filepath.Join(home, dir)); got != want {
+			t.Errorf("Reaches %s = %v, want %v", dir, got, want)
+		}
+	}
+
+	// Caught up from what was saved, the same.
+	out := make(chan []Entry)
+	go func() {
+		defer close(out)
+		_, _ = Refresh(context.Background(), home, p, SortedByPath(entries), out)
+	}()
+	var again []Entry
+	for b := range out {
+		again = append(again, b...)
+	}
+	if len(again) != len(entries) {
+		t.Errorf("refresh found %d, the crawl %d", len(again), len(entries))
+	}
+}

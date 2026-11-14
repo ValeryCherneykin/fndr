@@ -305,7 +305,7 @@ func (w *walker) read(j *dirJob, batch *[]Entry) ([]dirJob, bool) {
 			*batch = make([]Entry, 0, batchSize)
 		}
 		// A pruned folder is listed, as above, and not entered.
-		if d.IsDir() && !w.prune.Prunes(path, d.Name()) && !ignores.ignores(path) {
+		if d.IsDir() && w.prune.enters(path, d.Name(), ignores) {
 			subdirs = append(subdirs, subJob(j, path, info.ModTime().UnixNano(), ignores))
 		}
 	}

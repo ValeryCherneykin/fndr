@@ -119,7 +119,7 @@ func (p *Prune) Reaches(root, dir string) bool {
 	at := root
 	for name := range strings.SplitSeq(rel, string(filepath.Separator)) {
 		at = filepath.Join(at, name)
-		if p.Prunes(at, name) || stack.ignores(at) {
+		if !p.enters(at, name, stack) {
 			return false
 		}
 		stack = p.ignoresIn(stack, at)
@@ -134,6 +134,25 @@ func (p *Prune) ignoresIn(stack ignoreStack, dir string) ignoreStack {
 		return nil
 	}
 	return stack.with(loadGitignore(dir))
+}
+
+// Skip makes the crawl list the folder at path, absolute, without going
+// in, as ~/Library: the user's "skip = ~/Movies".
+func (p *Prune) Skip(path string) { p.paths[filepath.Clean(path)] = true }
+
+// Include makes the crawl go into the folder at path, absolute, whatever
+// would leave it out: its dot, its name, a .gitignore. The user's
+// "include = ~/.ssh". Folders inside it are judged as anywhere else.
+func (p *Prune) Include(path string) { p.keep[filepath.Clean(path)] = true }
+
+// enters reports whether a crawl goes into the folder at path, named name,
+// under the .gitignore files in ignores: what the user included always,
+// otherwise what neither p nor a .gitignore leaves out.
+func (p *Prune) enters(path, name string, ignores ignoreStack) bool {
+	if p != nil && p.keep[path] {
+		return true
+	}
+	return !p.Prunes(path, name) && !ignores.ignores(path)
 }
 
 // Prunes reports whether a crawl lists the folder at path, named name,

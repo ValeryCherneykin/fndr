@@ -144,7 +144,7 @@ func (w *walker) reuse(j *dirJob, batch *[]Entry) ([]dirJob, bool) {
 			}
 			mod := info.ModTime().UnixNano()
 			e = NewEntry(e.Path, info.Size(), mod, true)
-			if !w.prune.Prunes(e.Path, e.Name()) && !ignores.ignores(e.Path) {
+			if w.prune.enters(e.Path, e.Name(), ignores) {
 				subdirs = append(subdirs, subJob(j, e.Path, mod, ignores))
 			}
 		} else {
