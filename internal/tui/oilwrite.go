@@ -70,13 +70,13 @@ type trashCountedMsg struct {
 	counts map[string]int // by the name in the plan
 }
 
-// countTrash counts what each folder the plan trashes holds, off the UI
-// goroutine. The plan is shown at once; the counts join it when ready,
-// within milliseconds for a usual folder.
+// countTrash counts what each folder the plan trashes or copies holds, off
+// the UI goroutine. The plan is shown at once; the counts join it when
+// ready, within milliseconds for a usual folder.
 func countTrash(dir string, plan mutation.Plan) tea.Cmd {
 	var names []string
 	for _, op := range plan {
-		if op.Kind == mutation.OpDelete {
+		if op.Kind == mutation.OpDelete || op.Kind == mutation.OpCopy {
 			names = append(names, op.From)
 		}
 	}
@@ -186,6 +186,8 @@ func indexChanges(dir string, done mutation.Plan, snap []indexer.Entry, prune *i
 		case mutation.OpRename:
 			remove = append(remove, filepath.Join(dir, op.From))
 			add = append(add, tree(mutation.Target(dir, op.To), prune)...)
+		case mutation.OpCopy:
+			add = append(add, tree(mutation.Target(dir, op.To), prune)...) // found at once, as anything made
 		case mutation.OpCreate:
 			path := filepath.Join(dir, op.To)
 			first, _, _ := strings.Cut(filepath.ToSlash(filepath.Clean(op.To)), "/")
@@ -204,7 +206,7 @@ func madeOnTheWay(dir string, plan mutation.Plan) []string {
 	var made []string
 	seen := map[string]bool{}
 	for _, op := range plan {
-		if op.Kind != mutation.OpRename {
+		if op.Kind != mutation.OpRename && op.Kind != mutation.OpCopy {
 			continue
 		}
 		// Up to the first folder that is there: in dir, or, for a move away,
@@ -319,7 +321,7 @@ func (m *Model) leaveOil(reveal string) tea.Cmd {
 // created or renamed, by its name in the folder ("bin/" for "bin/run.sh").
 func revealName(done mutation.Plan) string {
 	for _, op := range done {
-		if op.Kind == mutation.OpCreate || op.Kind == mutation.OpRename {
+		if op.Kind == mutation.OpCreate || op.Kind == mutation.OpRename || op.Kind == mutation.OpCopy {
 			first, _, _ := strings.Cut(filepath.ToSlash(filepath.Clean(op.To)), "/")
 			return first
 		}
@@ -329,13 +331,15 @@ func revealName(done mutation.Plan) string {
 
 // summary says what a plan did: "renamed 1, created 2, trashed 1".
 func summary(done mutation.Plan) string {
-	var renamed, moved, created, trashed int
+	var renamed, moved, copied, created, trashed int
 	for _, op := range done {
 		switch {
 		case op.Kind == mutation.OpRename && filepath.Dir(op.From) != filepath.Dir(op.To):
 			moved++ // to another folder, in this one or away: as ctrl+r says
 		case op.Kind == mutation.OpRename:
 			renamed++
+		case op.Kind == mutation.OpCopy:
+			copied++
 		case op.Kind == mutation.OpCreate:
 			created++
 		case op.Kind == mutation.OpDelete:
@@ -346,7 +350,7 @@ func summary(done mutation.Plan) string {
 	for _, p := range []struct {
 		verb string
 		n    int
-	}{{"renamed", renamed}, {"moved", moved}, {"created", created}, {"trashed", trashed}} {
+	}{{"renamed", renamed}, {"moved", moved}, {"copied", copied}, {"created", created}, {"trashed", trashed}} {
 		if p.n > 0 {
 			parts = append(parts, fmt.Sprintf("%s %d", p.verb, p.n))
 		}

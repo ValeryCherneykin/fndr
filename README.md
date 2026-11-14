@@ -156,12 +156,14 @@ starts, and the rest still works.
 | change a line | rename |
 | a line rewritten as `~/Documents/video/Kafka/` | move it there, folders made on the way |
 | `dd` a line | move to the trash |
+| `yy` `p`, the copy's name changed (or a path, `~/backup/x`) | copy it, folders too |
 | a new line `notes/ideas.md` | create it, with its folders |
 | a line ending in `/` | create a folder |
 
 Nothing touches the disk until you write. `:w` shows the plan, with
 trashed entries in red and how much a folder holds (`trash node_modules/
-(10000+ items)`), and `y` applies it. Afterwards the buffer is read again
+(10000+ items)`), and `y` applies it. A copy never overwrites: a name
+already taken stops the plan before anything is done. Afterwards the buffer is read again
 from disk, and the status bar says what was done.
 
 The keys are Vim's: `hjkl`, `0 ^ $ gg G`, counts (`3j`, `2dd`), `i a I A
@@ -333,6 +335,7 @@ noticeably slower is treated as a bug.
 - [x] Every day: copy a path, show it in Finder, move anything anywhere
   with `~/`, start apps, scroll the preview
 - [x] bash and fish integration
+- [x] Copy files and folders: `yy p` in the buffer, never over anything
 - [ ] Config: rebind any key, choose your editor, folders to search or
   skip, a commented default written for you, help on `F1`
 

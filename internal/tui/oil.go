@@ -396,6 +396,16 @@ func (st *oilState) planBox(maxW, maxH int) []string {
 				verb = "move    " // to another folder: as the status says after y
 			}
 			steps = append(steps, stPlanVerb.Render(verb)+stName.Render(name(op.From)+" → "+to))
+		case mutation.OpCopy:
+			to := safeText(tildePath(st.home, op.To))
+			if dirs[op.From] {
+				to += "/"
+			}
+			step := name(op.From) + " → " + to
+			if n, ok := st.trashCounts[op.From]; ok {
+				step += " " + itemCount(n)
+			}
+			steps = append(steps, stPlanVerb.Render("copy    ")+stName.Render(step))
 		case mutation.OpCreate:
 			steps = append(steps, stPlanVerb.Render("create  ")+stName.Render(safeText(op.To)))
 		case mutation.OpDelete:
