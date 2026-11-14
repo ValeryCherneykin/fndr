@@ -260,7 +260,7 @@ func TestApplyMoveAway(t *testing.T) {
 	dl := filepath.Join(home, "Downloads")
 	writeTestFile(t, filepath.Join(dl, "Kafka", "lesson1.mp4"))
 	to := filepath.Join(home, "Documents", "video", "Kafka")
-	plan, err := Diff([]Item{{1, "Kafka/"}}, []Line{{1, to + "/"}})
+	plan, err := Diff([]Item{{ID: 1, Name: "Kafka/"}}, []Line{{1, to + "/"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestApplyMoveAwayCheckedFirst(t *testing.T) {
 	writeTestFile(t, filepath.Join(dl, "junk.txt"))
 	to := filepath.Join(home, "Documents", "Kafka")
 	writeTestFile(t, filepath.Join(to, "b")) // taken
-	plan, err := Diff([]Item{{1, "Kafka/"}, {2, "junk.txt"}}, []Line{{1, to + "/"}})
+	plan, err := Diff([]Item{{ID: 1, Name: "Kafka/"}, {ID: 2, Name: "junk.txt"}}, []Line{{1, to + "/"}})
 	if err != nil {
 		t.Fatal(err)
 	}

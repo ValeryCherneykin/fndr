@@ -10,7 +10,7 @@ import (
 
 // folder is the buffer fndr would show for a folder with src/, main.go and
 // README.md.
-var folder = []Item{{1, "src/"}, {2, "main.go"}, {3, "README.md"}}
+var folder = []Item{{ID: 1, Name: "src/"}, {ID: 2, Name: "main.go"}, {ID: 3, Name: "README.md"}}
 
 // untouched is that buffer as it was filled.
 func untouched() []Line {
@@ -105,7 +105,7 @@ func TestDiffRefuses(t *testing.T) {
 // must not be renamed, nor " " trashed as a blank line, because another
 // line was edited.
 func TestDiffOddNamesStayPut(t *testing.T) {
-	items := []Item{{1, "Icon\r"}, {2, "notes "}, {3, " "}, {4, " lead/"}, {5, "ok"}}
+	items := []Item{{ID: 1, Name: "Icon\r"}, {ID: 2, Name: "notes "}, {ID: 3, Name: " "}, {ID: 4, Name: " lead/"}, {ID: 5, Name: "ok"}}
 	lines := []Line{{1, "Icon\r"}, {2, "notes "}, {3, " "}, {4, " lead/"}, {5, "ok2"}}
 	p, err := Diff(items, lines)
 	want := Plan{{Kind: OpRename, From: "ok", To: "ok2"}}
@@ -137,7 +137,7 @@ func FuzzDiff(f *testing.F) {
 		if a == b || strings.TrimSuffix(a, "/") == strings.TrimSuffix(b, "/") || a == "" || b == "" {
 			return // names in one folder are unique and never empty
 		}
-		items := []Item{{1, a}, {2, b}}
+		items := []Item{{ID: 1, Name: a}, {ID: 2, Name: b}}
 		p, err := Diff(items, []Line{{1, a}, {2, b}})
 		if err != nil || len(p) != 0 {
 			t.Fatalf("untouched: plan %v, err %v", p, err)
@@ -164,7 +164,7 @@ func FuzzDiff(f *testing.F) {
 // inside it. Deleted along with the folder, the inside goes with it; any
 // other step on both would act on a path the folder's step has moved.
 func TestDiffNested(t *testing.T) {
-	items := []Item{{1, "fndr/"}, {2, "fndr/debug.log"}, {3, "fndr/cmd/trace.log"}, {4, "site/x.log"}}
+	items := []Item{{ID: 1, Name: "fndr/"}, {ID: 2, Name: "fndr/debug.log"}, {ID: 3, Name: "fndr/cmd/trace.log"}, {ID: 4, Name: "site/x.log"}}
 	all := func(edit func([]Line) []Line) []Line {
 		ls := []Line{{1, "fndr/"}, {2, "fndr/debug.log"}, {3, "fndr/cmd/trace.log"}, {4, "site/x.log"}}
 		return edit(ls)
@@ -202,7 +202,7 @@ func TestDiffNested(t *testing.T) {
 // TestDiffMoveAway: a whole path moves an entry out of the folder, as mv
 // would; a new line is never made elsewhere, and "~" is never a name.
 func TestDiffMoveAway(t *testing.T) {
-	items := []Item{{1, "Kafka/"}, {2, "notes.md"}}
+	items := []Item{{ID: 1, Name: "Kafka/"}, {ID: 2, Name: "notes.md"}}
 	for _, tc := range []struct {
 		name  string
 		lines []Line
@@ -235,7 +235,7 @@ func TestDiffMoveAway(t *testing.T) {
 // was shown, a folder named "~" among them, is left alone, and the
 // buffer's lines are never written to.
 func TestExpandHome(t *testing.T) {
-	items := []Item{{1, "~/"}, {2, "Kafka/"}}
+	items := []Item{{ID: 1, Name: "~/"}, {ID: 2, Name: "Kafka/"}}
 	lines := []Line{{1, "~/"}, {2, "~/Documents/video/Kafka/"}, {0, "~/new.md"}}
 	got := ExpandHome(items, lines, "/home/me")
 	want := []Line{{1, "~/"}, {2, "/home/me/Documents/video/Kafka/"}, {0, "/home/me/new.md"}}
@@ -273,7 +273,7 @@ func TestDiffCopies(t *testing.T) {
 	}
 
 	// Inside a folder trashed in the same plan, there is nothing to copy.
-	nested := []Item{{1, "fndr/"}, {2, "fndr/a.go"}}
+	nested := []Item{{ID: 1, Name: "fndr/"}, {ID: 2, Name: "fndr/a.go"}}
 	_, err := Diff(nested, []Line{{2, "fndr/a.go"}, {2, "b.go"}})
 	var le *LineError
 	if !errors.As(err, &le) || le.Line != 2 || !errors.Is(err, ErrNested) {

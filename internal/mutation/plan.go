@@ -32,9 +32,14 @@ import (
 // folder into a file.
 
 // Item is an entry of the folder as the buffer was filled with it.
+//
+// An Away item is not in the folder: it was yanked in another buffer, to
+// be put here, and Name is its whole path. Every line of it is a copy,
+// and with no line it is left alone: it was never this buffer's to trash.
 type Item struct {
 	ID   int // > 0, unique within the folder
 	Name string
+	Away bool
 }
 
 // Line is a line of the buffer as the user left it.
@@ -91,7 +96,9 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 	shown := make(map[int]string, len(items)) // the line as the buffer was filled
 	for _, it := range items {
 		byID[it.ID] = strings.TrimSuffix(it.Name, "/")
-		shown[it.ID] = it.Name
+		if !it.Away { // no line of it is the item itself: all are copies
+			shown[it.ID] = it.Name
+		}
 	}
 
 	// The line of each item that is the item itself, the others its
@@ -105,7 +112,10 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 		}
 	}
 	for i, l := range lines {
-		if _, set := primary[l.ID]; !set && l.ID != 0 && strings.TrimSpace(l.Text) != "" {
+		if _, here := shown[l.ID]; !here {
+			continue // a new line, or one of an Away item
+		}
+		if _, set := primary[l.ID]; !set && strings.TrimSpace(l.Text) != "" {
 			primary[l.ID] = i
 		}
 	}
@@ -146,8 +156,8 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 			}
 			seen[l.ID] = true
 			op = Op{Kind: OpRename, From: old, To: strings.TrimSuffix(text, "/")}
-			if primary[l.ID] != i {
-				op.Kind = OpCopy // one more line of the item: yy then p
+			if at, ok := primary[l.ID]; !ok || at != i {
+				op.Kind = OpCopy // one more line of the item (yy then p), or of an Away one
 			}
 		}
 
@@ -213,7 +223,7 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 	// Whatever has no line left is deleted, in the folder's order.
 	var deletes Plan
 	for _, it := range items {
-		if !seen[it.ID] {
+		if !seen[it.ID] && !it.Away {
 			deletes = append(deletes, Op{Kind: OpDelete, From: byID[it.ID]})
 		}
 	}

@@ -12,7 +12,7 @@ import (
 )
 
 // Apply carries out a plan from Diff in dir, in the plan's order: deletes
-// to trash, then renames, then creates. It stops at the first failure and
+// to trash, then copies, then renames, then creates. It stops at the first failure and
 // returns how many operations were done, so the interface can say exactly
 // what happened: a half-applied plan the user cannot see is worse than an
 // error.
@@ -47,7 +47,7 @@ func Apply(dir string, p Plan, trash *Trash) (done int, err error) {
 		if op.Kind != OpCopy {
 			continue
 		}
-		if err := copyEntry(filepath.Join(dir, op.From), Target(dir, op.To)); err != nil {
+		if err := copyEntry(Target(dir, op.From), Target(dir, op.To)); err != nil {
 			return done, fmt.Errorf("copy %q to %q: %w", op.From, op.To, err)
 		}
 		done++
@@ -90,11 +90,12 @@ func check(dir string, p Plan) error {
 	// renames after them. A copy's name must be free once the deletes are
 	// done; the others' once the renames are too.
 	var leaving, deleted []os.FileInfo
+	var trashed []string // the paths deleted, which a copy may not come from
 	for _, op := range p {
 		if op.Kind == OpCreate {
 			continue
 		}
-		info, err := os.Lstat(filepath.Join(dir, op.From))
+		info, err := os.Lstat(Target(dir, op.From))
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				err = fs.ErrNotExist // the path is in the message already, short
@@ -105,11 +106,21 @@ func check(dir string, p Plan) error {
 		case OpDelete:
 			deleted = append(deleted, info)
 			leaving = append(leaving, info)
+			trashed = append(trashed, filepath.Join(dir, op.From))
 		case OpRename:
 			leaving = append(leaving, info)
 		case OpCopy: // stays where it is
-			if src, dst := filepath.Join(dir, op.From), Target(dir, op.To); info.IsDir() && isWithin(dst, src) {
+			src, dst := Target(dir, op.From), Target(dir, op.To)
+			if info.IsDir() && isWithin(dst, src) {
 				return fmt.Errorf("copy %q to %q: %w", op.From, op.To, ErrIntoItself)
+			}
+			// Yanked elsewhere, it may lie in a folder this plan trashes,
+			// which Diff cannot see from names: deletes run first, and the
+			// copy would find nothing.
+			for _, t := range trashed {
+				if isWithin(src, t) {
+					return fmt.Errorf("copy %q: %w", op.From, ErrNested)
+				}
 			}
 		}
 	}

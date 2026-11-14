@@ -2,8 +2,10 @@ package mutation
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -44,7 +46,7 @@ func TestCopyFile(t *testing.T) {
 	if err := os.Chtimes(src, old, old); err != nil {
 		t.Fatal(err)
 	}
-	p := mustPlan(t, []Item{{1, "notes.md"}}, []Line{{1, "notes.md"}, {1, "notes copy.md"}})
+	p := mustPlan(t, []Item{{ID: 1, Name: "notes.md"}}, []Line{{1, "notes.md"}, {1, "notes copy.md"}})
 	if n, err := Apply(dir, p, nil); err != nil || n != 1 {
 		t.Fatalf("Apply: %d, %v", n, err)
 	}
@@ -68,7 +70,7 @@ func TestCopyFolder(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "src", "pkg"), 0o750); err != nil { //nolint:gosec // a mode to keep
 		t.Fatal(err)
 	}
-	p := mustPlan(t, []Item{{1, "src/"}}, []Line{{1, "src/"}, {1, "lib/"}})
+	p := mustPlan(t, []Item{{ID: 1, Name: "src/"}}, []Line{{1, "src/"}, {1, "lib/"}})
 	if _, err := Apply(dir, p, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func TestCopyRefusedFirst(t *testing.T) {
 	// .hidden is on the disk but not in the buffer, as a hidden name is
 	// when hidden names are not shown.
 	dir := tree(t, "a.txt", "b.txt", "junk.txt", ".hidden", "src/x.go")
-	items := []Item{{1, "a.txt"}, {2, "b.txt"}, {3, "junk.txt"}, {4, "src/"}}
+	items := []Item{{ID: 1, Name: "a.txt"}, {ID: 2, Name: "b.txt"}, {ID: 3, Name: "junk.txt"}, {ID: 4, Name: "src/"}}
 	all := func(more ...Line) []Line {
 		return append([]Line{{1, "a.txt"}, {2, "b.txt"}, {3, "junk.txt"}, {4, "src/"}}, more...)
 	}
@@ -135,7 +137,7 @@ func TestCopyStoppedLeavesNothing(t *testing.T) {
 		if !unreadable {
 			_ = os.Chmod(locked, 0o600) //nolint:errcheck,gosec // now only the pipe stops it
 		}
-		p := mustPlan(t, []Item{{1, "src/"}}, []Line{{1, "src/"}, {1, "lib/"}})
+		p := mustPlan(t, []Item{{ID: 1, Name: "src/"}}, []Line{{1, "src/"}, {1, "lib/"}})
 		n, err := Apply(dir, p, nil)
 		if err == nil || n != 0 {
 			t.Fatalf("unreadable %v: %d, %v; want the copy refused", unreadable, n, err)
@@ -153,7 +155,7 @@ func TestCopyStoppedLeavesNothing(t *testing.T) {
 // is of the entry as it was, made before it moves.
 func TestCopyThenRename(t *testing.T) {
 	dir := tree(t, "main.go")
-	p := mustPlan(t, []Item{{1, "main.go"}}, []Line{{1, "a.go"}, {1, "b.go"}})
+	p := mustPlan(t, []Item{{ID: 1, Name: "main.go"}}, []Line{{1, "a.go"}, {1, "b.go"}})
 	if _, err := Apply(dir, p, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +174,7 @@ func TestCopyOntoNameFreedLater(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", "")
 	dir := tree(t, "a.txt", "b.txt", "junk.txt")
-	p := mustPlan(t, []Item{{1, "a.txt"}, {2, "b.txt"}, {3, "junk.txt"}},
+	p := mustPlan(t, []Item{{ID: 1, Name: "a.txt"}, {ID: 2, Name: "b.txt"}, {ID: 3, Name: "junk.txt"}},
 		[]Line{{1, "c.txt"}, {2, "b.txt"}, {2, "a.txt"}}) // junk.txt trashed, a → c, b copied to a
 	trash, err := HomeTrash()
 	if err != nil {
@@ -183,5 +185,71 @@ func TestCopyOntoNameFreedLater(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "junk.txt")); err != nil {
 		t.Error("junk.txt was trashed before the refusal")
+	}
+}
+
+// TestDiffAway: an item yanked in another folder is copied in by each of
+// its lines, under the name written there, and left alone with none.
+func TestDiffAway(t *testing.T) {
+	items := []Item{{ID: 1, Name: "main.go"}, {ID: 2, Name: "/home/me/a/notes.md", Away: true}}
+	cases := []struct {
+		name  string
+		lines []Line
+		want  Plan
+	}{
+		{"not put", []Line{{1, "main.go"}}, nil},
+		{"put", []Line{{1, "main.go"}, {2, "notes.md"}},
+			Plan{{Kind: OpCopy, From: "/home/me/a/notes.md", To: "notes.md"}}},
+		{"put first", []Line{{2, "notes.md"}, {1, "main.go"}},
+			Plan{{Kind: OpCopy, From: "/home/me/a/notes.md", To: "notes.md"}}},
+		{"renamed, twice", []Line{{1, "main.go"}, {2, "a.md"}, {2, "b/c.md"}}, Plan{
+			{Kind: OpCopy, From: "/home/me/a/notes.md", To: "a.md"},
+			{Kind: OpCopy, From: "/home/me/a/notes.md", To: "b/c.md"}}},
+	}
+	for _, c := range cases {
+		p, err := Diff(items, c.lines)
+		if err != nil || !slices.Equal(p, c.want) {
+			t.Errorf("%s: %v, %v; want %v", c.name, p, err, c.want)
+		}
+	}
+}
+
+// TestCopyFromAway: what was yanked in one folder is copied into another,
+// and stays where it was.
+func TestCopyFromAway(t *testing.T) {
+	from, to := tree(t, "a/notes.md", "a/src/x.go"), tree(t, "main.go")
+	items := []Item{{ID: 1, Name: "main.go"},
+		{ID: 2, Name: filepath.Join(from, "a", "notes.md"), Away: true},
+		{ID: 3, Name: filepath.Join(from, "a", "src") + "/", Away: true}}
+	p := mustPlan(t, items, []Line{{1, "main.go"}, {2, "notes.md"}, {3, "src/"}})
+	if n, err := Apply(to, p, nil); err != nil || n != 2 {
+		t.Fatalf("Apply: %d, %v", n, err)
+	}
+	if content(t, filepath.Join(to, "notes.md")) != "a/notes.md" || content(t, filepath.Join(to, "src", "x.go")) != "a/src/x.go" {
+		t.Error("the copies do not hold the bytes")
+	}
+	if content(t, filepath.Join(from, "a", "notes.md")) != "a/notes.md" {
+		t.Error("the original left")
+	}
+}
+
+// TestCopyFromAwayRefusedFirst: a copy whose source is gone, or lies in a
+// folder the same plan trashes, stops the plan before anything is done.
+func TestCopyFromAwayRefusedFirst(t *testing.T) {
+	dir := tree(t, "old/notes.md", "keep.txt")
+	gone := []Item{{ID: 1, Name: "keep.txt"}, {ID: 2, Name: filepath.Join(dir, "nowhere.md"), Away: true}}
+	p := mustPlan(t, gone, []Line{{1, "keep.txt"}, {2, "x.md"}})
+	if _, err := Apply(dir, p, nil); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("source gone: %v, want ErrNotExist", err)
+	}
+
+	trashed := []Item{{ID: 1, Name: "old/"}, {ID: 2, Name: filepath.Join(dir, "old", "notes.md"), Away: true}}
+	p = mustPlan(t, trashed, []Line{{2, "notes.md"}}) // dd old/, p notes.md
+	trash := &Trash{files: t.TempDir()}
+	if n, err := Apply(dir, p, trash); !errors.Is(err, ErrNested) || n != 0 {
+		t.Errorf("source trashed: %d, %v; want 0, ErrNested", n, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "old", "notes.md")); err != nil {
+		t.Error("the folder went to the trash anyway")
 	}
 }
