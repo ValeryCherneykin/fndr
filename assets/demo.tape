@@ -248,3 +248,41 @@ Sleep 300ms
 Type "ls ~/Documents/video/Kafka"
 Enter
 Sleep 2.5s
+
+# 12. Copy across folders: yy in Downloads, Esc, find a folder anywhere
+#     with Tab, go in, p in its buffer. :w shows where the copy comes from;
+#     y makes it, and the original stays.
+Type "fndr"
+Enter
+Sleep 1s
+Ctrl+O
+Sleep 1.2s
+Type "yy"
+Sleep 800ms
+Escape
+Sleep 500ms
+Tab
+Sleep 600ms
+Type "video"
+Sleep 1.5s
+Enter
+Sleep 1.2s
+Ctrl+O
+Sleep 1.2s
+Type "p"
+Sleep 1s
+Type ":w"
+Enter
+Sleep 2.5s
+Type "y"
+Sleep 2s
+
+# 13. Out of fndr (Esc leaves OIL, then fndr): the copy is there, the
+#     original too.
+Escape
+Sleep 400ms
+Escape
+Sleep 400ms
+Type "cd ~ && ls Downloads Documents/video"
+Enter
+Sleep 3s
