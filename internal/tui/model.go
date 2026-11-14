@@ -231,6 +231,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(learn, m.oilWritten(&msg))
 	case trashCountedMsg:
 		m.trashCounted(&msg)
+	case progressTickMsg:
+		cmd := m.progressTicked()
+		return m, cmd
 	case renamedMsg:
 		learn := m.relearn(msg.dir, msg.done)
 		return m, tea.Batch(learn, m.renamed(&msg))
