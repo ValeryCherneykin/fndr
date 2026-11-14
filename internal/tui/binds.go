@@ -31,6 +31,7 @@ type binding struct {
 func (m *Model) useConfig(cfg config.Config, errs []error) {
 	m.useKeys(cfg.Keys) // first: a chord may not start on an action's key
 	errs = append(errs, m.useBinds(cfg.Binds)...)
+	errs = append(errs, m.useFolders(cfg.Skip, cfg.Include)...)
 	if len(errs) == 0 {
 		return
 	}

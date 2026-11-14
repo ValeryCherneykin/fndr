@@ -11,7 +11,7 @@
 // its line, "key.<action>", as in lazygit: whoever wants another key for
 // it changes that line, and the key it had is free; there is no unbind to
 // learn. A line that leaves out a setting or an action leaves its default.
-// Only bind comes again, once per chord.
+// Only bind, skip and include come again, once per chord or folder.
 //
 // A line that is wrong is reported with its number and skipped; the lines
 // around it still count. A typo must not cost the rest of the file, nor
@@ -52,6 +52,18 @@ type Config struct {
 	Keys map[string][]string
 
 	Binds []Bind
+
+	// Skip and Include are folders the crawl leaves out, or goes into
+	// whatever would leave them out ("skip = ~/Movies", "include =
+	// ~/.ssh"), as written: "~/" is the interface's to read, which knows
+	// the home.
+	Skip, Include []Folder
+}
+
+// Folder is a "skip" or "include" line.
+type Folder struct {
+	Path string // "~/x" or "/x"
+	Line int
 }
 
 // Bind is one "bind = keys = action:arg" line.
@@ -158,6 +170,18 @@ func (c *Config) parseLine(line string, n int, setOn, keyOn map[string]int) erro
 	// or something else, is worse than an error.
 	if strings.Contains(value, " #") {
 		return errors.New("comments go on a line of their own")
+	}
+	if key == "skip" || key == "include" { // as many lines as folders
+		if !strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "~/") {
+			return fmt.Errorf("%q: want a whole folder, ~/Movies or /Volumes/x", value)
+		}
+		f := Folder{Path: value, Line: n}
+		if key == "skip" {
+			c.Skip = append(c.Skip, f)
+		} else {
+			c.Include = append(c.Include, f)
+		}
+		return nil
 	}
 	if key == "bind" { // the one key that comes again: once per chord
 		b, err := parseBind(value)

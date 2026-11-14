@@ -263,3 +263,15 @@ key.first = ctrl+j
 		t.Errorf("down %q, parent %q", c.Keys["down"], c.Keys["parent"])
 	}
 }
+
+// TestFolders: skip and include come once per folder, a whole path each.
+func TestFolders(t *testing.T) {
+	c, errs := Parse(strings.NewReader("skip = ~/Movies\nskip = /Volumes/x\ninclude = ~/.ssh\nskip = Movies\ninclude = ~\n"))
+	want := []Folder{{"~/Movies", 1}, {"/Volumes/x", 2}}
+	if !slices.Equal(c.Skip, want) || !slices.Equal(c.Include, []Folder{{"~/.ssh", 3}}) {
+		t.Errorf("skip %v, include %v", c.Skip, c.Include)
+	}
+	if got := errLines(t, errs); !slices.Equal(got, []int{4, 5}) {
+		t.Errorf("errors on lines %v: %v", got, errs)
+	}
+}

@@ -4,6 +4,7 @@
 //
 //	fndr [flags]
 //	fndr init zsh|bash|fish
+//	fndr config
 //
 // Without flags it opens the interface on the current directory: type to
 // search, Ctrl+N and Ctrl+P (or up and down) to move through the list,
@@ -19,10 +20,9 @@
 //		Print the version and exit.
 //	-config path
 //		Read settings from path instead of ~/.config/fndr/config (or
-//		$XDG_CONFIG_HOME/fndr/config). There, for now, tags a chord away:
-//
-//			bind = ctrl+f>f = tag:dirs
-//			bind = ctrl+f>t = tag:@today
+//		$XDG_CONFIG_HOME/fndr/config). With no file there on the first
+//		start, fndr writes one: every setting and key, at its default,
+//		each with a line on what it does.
 //	-cwd-file path
 //		On exit with Ctrl+E, write the folder to jump to to path, for a shell
 //		function to cd into. A program cannot change its parent shell's
@@ -35,6 +35,11 @@
 // to ~/.bashrc, the same with bash; to ~/.config/fish/config.fish:
 //
 //	fndr init fish | source
+//
+// "fndr config" prints the settings file as this fndr would write it, to
+// see what a newer version knows, or to start over:
+//
+//	fndr config > ~/.config/fndr/config
 package main
 
 import (
@@ -69,23 +74,19 @@ func main() {
 // runTUI runs the interface on root, with the settings at configPath (""
 // for the usual place), until the user quits.
 func runTUI(root, configPath string) (string, error) {
-	var (
-		cfg  = config.Default()
-		errs []error
-	)
+	cfg, errs, written := loadConfig(configPath)
+	model := tui.New(root, cfg, errs)
 	if configPath == "" {
-		configPath, _ = config.DefaultPath() // no home: no settings, like no file
+		configPath, _ = config.DefaultPath()
 	}
-	if configPath != "" {
-		cfg, errs = config.Load(configPath)
-	}
+	model.SetConfigPath(configPath, written != "")
 	// 120 frames a second, Bubble Tea's most: a frame is ready as soon as a
 	// key is handled, but goes out on the next tick, and a key that
 	// searches waits for two (the letter, then the results). At 60, that
 	// was some 5 ms more per key than the terminal's own echo; at 120,
 	// measured through tmux, as quick as the echo. Idle, the ticker costs
 	// about 0.35% more of one core.
-	final, err := tea.NewProgram(tui.New(root, cfg, errs), tea.WithFPS(120)).Run()
+	final, err := tea.NewProgram(model, tea.WithFPS(120)).Run()
 	if err != nil {
 		return "", err
 	}
@@ -99,6 +100,28 @@ func runTUI(root, configPath string) (string, error) {
 		_, _ = fmt.Fprintf(os.Stderr, "fndr: %v\n", err)
 	}
 	return m.ExitDir(), nil
+}
+
+// loadConfig reads the settings at configPath, "" for the usual place. On
+// the first start there is no file in the usual place, and it is written,
+// for the settings to be found where they are changed: written is its
+// path then. A file named by -config is the user's, kept where they like:
+// none there is the defaults, and nothing is written.
+func loadConfig(configPath string) (cfg config.Config, errs []error, written string) {
+	if configPath == "" {
+		configPath, _ = config.DefaultPath() // no home: no settings, like no file
+		if configPath == "" {
+			return config.Default(), nil, ""
+		}
+		switch wrote, err := config.WriteNew(configPath); {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("could not write %s: %w", configPath, err))
+		case wrote:
+			written = configPath
+		}
+	}
+	cfg, loadErrs := config.Load(configPath)
+	return cfg, append(errs, loadErrs...), written
 }
 
 // runInit prints the shell integration for the shell named in args.
@@ -129,6 +152,16 @@ type ui func(root, configPath string) (exitDir string, err error)
 func run(args []string, stdout, stderr io.Writer, ui ui) int {
 	if len(args) > 0 && args[0] == "init" {
 		return runInit(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "config" {
+		if len(args) > 1 {
+			_, _ = fmt.Fprintln(stderr, "usage: fndr config")
+			return 2
+		}
+		if _, err := io.WriteString(stdout, config.Template()); err != nil {
+			return 1
+		}
+		return 0
 	}
 
 	fs := flag.NewFlagSet("fndr", flag.ContinueOnError)

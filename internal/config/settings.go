@@ -13,19 +13,30 @@ import (
 // and the file fndr writes for a new user all read it, so they cannot
 // disagree.
 type setting struct {
-	name string
-	def  string // the default, as it would be written in the file
-	set  func(c *Config, value string) error
+	name  string
+	def   string // the default, as it would be written in the file
+	set   func(c *Config, value string) error
+	doc   string // what it does, for the file: a line or two
+	group string // a heading, on the first setting of a group
 }
 
 var settings = []setting{
-	{"icons", "on", onOff(func(c *Config) *bool { return &c.Icons })},
-	{"preview", "off", onOff(func(c *Config) *bool { return &c.Preview })},
-	{"images", "on", onOff(func(c *Config) *bool { return &c.Images })},
-	{"history", "on", onOff(func(c *Config) *bool { return &c.History })},
-	{"save_index", "on", onOff(func(c *Config) *bool { return &c.SaveIndex })},
-	{"editor", "", func(c *Config, v string) error { c.Editor = v; return nil }},
-	{"editor_gui", "off", onOff(func(c *Config) *bool { return &c.EditorGUI })},
+	{name: "icons", def: "on", set: onOff(func(c *Config) *bool { return &c.Icons }), group: "Look",
+		doc: "Nerd Font icons before names. off: plain names, and a \"/\" after a folder,\nfor a terminal without a Nerd Font."},
+	{name: "preview", def: "off", set: onOff(func(c *Config) *bool { return &c.Preview }),
+		doc: "The preview pane is open at start. ctrl+v opens and closes it anyway."},
+	{name: "images", def: "on", set: onOff(func(c *Config) *bool { return &c.Images }),
+		doc: "Pictures in the preview, where the terminal can show them (Ghostty, kitty).\noff: a card with the size and date, as for any file; lighter over SSH."},
+
+	{name: "history", def: "on", set: onOff(func(c *Config) *bool { return &c.History }), group: "Memory",
+		doc: "Learn where you go, to put it first. Kept in ~/.local/state/fndr.\noff: nothing is read or written; delete the file yourself if you like."},
+	{name: "save_index", def: "on", set: onOff(func(c *Config) *bool { return &c.SaveIndex }),
+		doc: "Keep the index of your home between runs, for an instant start.\nKept in ~/.cache/fndr: the names of your files. off: every start reads\nthe disk again; delete the file yourself if you like."},
+
+	{name: "editor", def: "", set: func(c *Config, v string) error { c.Editor = v; return nil }, group: "Opening files",
+		doc: "The editor for text files, with its flags: nvim, hx, code.\nEmpty: $VISUAL, then $EDITOR, then nvim, vim or vi."},
+	{name: "editor_gui", def: "off", set: onOff(func(c *Config) *bool { return &c.EditorGUI }),
+		doc: "on: the editor above opens a window of its own (VS Code, PyCharm),\nand fndr goes on instead of waiting for it. Write no --wait flag."},
 }
 
 // onOff returns the setter of a switch. "true" and "false" are taken too,
@@ -51,42 +62,45 @@ func onOff(field func(*Config) *bool) func(*Config, string) error {
 type Action struct {
 	Name string
 	Keys []string // the default, as Keystroke names them
+	Doc  string   // what it does, one line: for the file and the help page
 
 	// Typing: its keys may be ones that type, as "-": it acts only while
 	// nothing is typed, and types otherwise. Any other action given such
 	// a key would take a letter away from the query.
 	Typing bool
+
+	Group string // a heading, on the first action of a group
 }
 
 // Actions are fndr's own actions, in the order the file lists them.
 var Actions = []Action{
-	{Name: "down", Keys: []string{"ctrl+n", "down"}},
-	{Name: "up", Keys: []string{"ctrl+p", "up"}},
-	{Name: "page_down", Keys: []string{"pgdown"}},
-	{Name: "page_up", Keys: []string{"pgup"}},
-	{Name: "first", Keys: []string{"home"}},
-	{Name: "last", Keys: []string{"end"}},
+	{Name: "down", Keys: []string{"ctrl+n", "down"}, Doc: "Move down the list.", Group: "Moving"},
+	{Name: "up", Keys: []string{"ctrl+p", "up"}, Doc: "Move up the list."},
+	{Name: "page_down", Keys: []string{"pgdown"}, Doc: "A page down."},
+	{Name: "page_up", Keys: []string{"pgup"}, Doc: "A page up."},
+	{Name: "first", Keys: []string{"home"}, Doc: "To the first row."},
+	{Name: "last", Keys: []string{"end"}, Doc: "To the last row."},
 
-	{Name: "open", Keys: []string{"enter"}},
-	{Name: "parent", Keys: []string{"-"}, Typing: true},
-	{Name: "back", Keys: []string{"esc"}},
-	{Name: "quit", Keys: []string{"ctrl+c"}},
-	{Name: "jump", Keys: []string{"ctrl+e"}},
-	{Name: "global", Keys: []string{"tab"}},
-	{Name: "tag", Keys: []string{"ctrl+t"}},
-	{Name: "clear", Keys: []string{"ctrl+u"}},
-	{Name: "oil", Keys: []string{"ctrl+o"}},
-	{Name: "rename", Keys: []string{"ctrl+r"}},
-	{Name: "copy_path", Keys: []string{"ctrl+y"}},
-	{Name: "reveal", Keys: []string{"ctrl+g"}},
-	{Name: "preview", Keys: []string{"ctrl+v"}},
-	{Name: "preview_down", Keys: []string{"ctrl+j"}},
-	{Name: "preview_up", Keys: []string{"ctrl+k"}},
-	{Name: "help", Keys: []string{"f1"}},
+	{Name: "open", Keys: []string{"enter"}, Doc: "Open: a folder goes in, text goes to the editor, the rest to its app.", Group: "Doing"},
+	{Name: "parent", Keys: []string{"-"}, Typing: true, Doc: "Up one folder, while nothing is typed; in a query the key types."},
+	{Name: "back", Keys: []string{"esc"}, Doc: "One step back: the last tag, the query, GLOBAL, then quit."},
+	{Name: "quit", Keys: []string{"ctrl+c"}, Doc: "Quit; the shell stays where it was."},
+	{Name: "jump", Keys: []string{"ctrl+e"}, Doc: "Quit, and the shell goes to the selected folder (needs fndr init)."},
+	{Name: "global", Keys: []string{"tab"}, Doc: "Search this folder, or the whole home."},
+	{Name: "tag", Keys: []string{"ctrl+t"}, Doc: "Make what is typed a tag: .go, dirs, >1mb, @today, has:.json."},
+	{Name: "clear", Keys: []string{"ctrl+u"}, Doc: "Erase the query before the cursor; with none, take all tags off."},
+	{Name: "oil", Keys: []string{"ctrl+o"}, Doc: "Edit the folder, or what was found, as text with Vim keys."},
+	{Name: "rename", Keys: []string{"ctrl+r"}, Doc: "Rename or move the selected entry by editing its path."},
+	{Name: "copy_path", Keys: []string{"ctrl+y"}, Doc: "Copy, then y the full path, r the path from here, n the name."},
+	{Name: "reveal", Keys: []string{"ctrl+g"}, Doc: "Show the selected entry in Finder, or the file manager."},
+	{Name: "preview", Keys: []string{"ctrl+v"}, Doc: "Open or close the preview pane."},
+	{Name: "preview_down", Keys: []string{"ctrl+j"}, Doc: "Scroll the preview down."},
+	{Name: "preview_up", Keys: []string{"ctrl+k"}, Doc: "Scroll the preview up."},
+	{Name: "help", Keys: []string{"f1"}, Doc: "The help page."},
 
-	{Name: "cursor_left", Keys: []string{"ctrl+h", "left"}},
-	{Name: "cursor_right", Keys: []string{"ctrl+l", "right"}},
-	{Name: "delete_word", Keys: []string{"ctrl+w"}},
+	{Name: "cursor_left", Keys: []string{"ctrl+h", "left"}, Doc: "Move the cursor in the query left.", Group: "Typing"},
+	{Name: "cursor_right", Keys: []string{"ctrl+l", "right"}, Doc: "Move the cursor in the query right."},
+	{Name: "delete_word", Keys: []string{"ctrl+w"}, Doc: "Erase the word before the cursor."},
 }
 
 // keyPrefix starts the line of an action's keys. Without it the action

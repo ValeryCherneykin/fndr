@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ValeryCherneykin/fndr/internal/config"
 )
 
 // noUI stands in for the interface, so tests never take over the terminal.
@@ -126,5 +128,60 @@ func TestRunInit(t *testing.T) {
 		if code := run(args, &bytes.Buffer{}, &bytes.Buffer{}, noUI); code != 2 {
 			t.Errorf("%q: exit code %d, want 2", args, code)
 		}
+	}
+}
+
+// TestRunConfig: fndr config prints the template, which reads as the
+// defaults; anything after it is a mistake.
+func TestRunConfig(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"config"}, &stdout, &stderr, noUI); code != 0 || stdout.String() != config.Template() {
+		t.Fatalf("config: exit code %d, stderr %q", code, stderr.String())
+	}
+	if code := run([]string{"config", "x"}, &bytes.Buffer{}, &bytes.Buffer{}, noUI); code != 2 {
+		t.Errorf("config x: exit code %d, want 2", code)
+	}
+}
+
+// TestFirstStartWritesConfig: no file in the usual place, the first start
+// writes it, says so, and reads it; then it is the user's and left alone.
+// A file named by -config is never written.
+func TestFirstStartWritesConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	path := filepath.Join(dir, "fndr", "config")
+
+	cfg, errs, written := loadConfig("")
+	if written != path || len(errs) != 0 || !cfg.Icons {
+		t.Fatalf("first start: written %q, errors %v", written, errs)
+	}
+	if err := os.WriteFile(path, []byte("images = off\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, errs, written = loadConfig("")
+	if written != "" || len(errs) != 0 || cfg.Images {
+		t.Errorf("second start: written %q, errors %v, images %v", written, errs, cfg.Images)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "images = off\n" {
+		t.Errorf("the user's file is now %q", b)
+	}
+
+	elsewhere := filepath.Join(dir, "mine")
+	if _, _, written := loadConfig(elsewhere); written != "" {
+		t.Error("-config file written")
+	}
+	if _, err := os.Stat(elsewhere); !os.IsNotExist(err) {
+		t.Errorf("-config: %v", err)
+	}
+	if err := os.WriteFile(elsewhere, []byte("icons = off\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, _, _ := loadConfig(elsewhere); cfg.Icons || !cfg.Images {
+		t.Errorf("-config file not the one read: %+v", cfg)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(path, "under-a-file")) // cannot be made
+	if _, errs, _ := loadConfig(""); len(errs) == 0 || !strings.Contains(errs[0].Error(), "could not write") {
+		t.Errorf("a file that cannot be written: %v", errs)
 	}
 }

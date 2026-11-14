@@ -20,6 +20,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.renameKey(msg)
 		return m, cmd
 	}
+	if m.help != nil {
+		return m.helpKey(msg)
+	}
 	if cmd, ok := m.bindKey(msg); ok {
 		return m, cmd
 	}
@@ -71,6 +74,7 @@ func (m *Model) actionOf(msg tea.KeyPressMsg) string {
 // useKeys makes keys, the config's keys of every action, what the keys
 // do: one table from key to action, for the key to look up.
 func (m *Model) useKeys(keys map[string][]string) {
+	m.actionKeys = keys // for the help page, in the file's order
 	m.keys = make(map[string]string, len(keys))
 	for action, ks := range keys {
 		for _, k := range ks {
@@ -172,7 +176,7 @@ var actions = map[string]actionFunc{
 		}
 		return m, m.up(), true
 	},
-	"help": func(m *Model) (tea.Model, tea.Cmd, bool) { return m, nil, true }, // F1: the help page is to come
+	"help": func(m *Model) (tea.Model, tea.Cmd, bool) { m.help = &helpState{}; return m, nil, true },
 }
 
 // moveBy returns the action that moves the selection by delta(m) rows.

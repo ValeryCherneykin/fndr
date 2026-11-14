@@ -144,3 +144,61 @@ func TestIconsOffRoomForName(t *testing.T) {
 		t.Errorf("folder row %q", got)
 	}
 }
+
+// TestTellGivesWayToMistakes: news in the status line never hides a
+// mistake of the config.
+func TestTellGivesWayToMistakes(t *testing.T) {
+	m := tagModel(t)
+	m.Tell("settings: x")
+	if m.notice != "settings: x" || m.noticeErr {
+		t.Errorf("notice %q (err %v)", m.notice, m.noticeErr)
+	}
+	m = tagModel(t)
+	m.home = "/home/me"
+	m.SetConfigPath("/home/me/.config/fndr/config", true)
+	if !strings.HasPrefix(m.notice, "settings: ~/.config/fndr/config ") {
+		t.Errorf("written: notice %q", m.notice)
+	}
+	m = tagModel(t)
+	cfg, errs := config.Parse(strings.NewReader("icons = maybe\n"))
+	m.useConfig(cfg, errs)
+	m.Tell("settings: x")
+	if !m.noticeErr {
+		t.Errorf("the mistake gave way: %q", m.notice)
+	}
+}
+
+// TestFolders: skip and include reach the crawl's rules, ~ read as the
+// home; an include no crawl could reach, or a folder both skipped and
+// included, is a mistake on its line.
+func TestFolders(t *testing.T) {
+	home := t.TempDir()
+	m := newModel(home, home, &indexer.Index{})
+	cfg, errs := config.Parse(strings.NewReader(`skip = ~/Movies
+include = ~/.ssh
+include = ~/.local/share/nvim
+include = ~/.cache
+include = ~/.cache/x/.deep
+skip = ~/dup
+include = ~/dup
+`))
+	m.useConfig(cfg, errs)
+	for dir, want := range map[string]bool{"Movies": false, ".ssh": true, ".cache": true, ".cache/x/.deep": true, ".local": false} {
+		if got := m.prune.Reaches(home, filepath.Join(home, dir)); got != want {
+			t.Errorf("%s reached %v, want %v", dir, got, want)
+		}
+	}
+	if !strings.HasPrefix(m.notice, "config line 3: ~/.local/share/nvim is inside") || !strings.HasSuffix(m.notice, "(and 1 more)") {
+		t.Errorf("notice %q", m.notice)
+	}
+
+	m = newModel(home, "", &indexer.Index{})
+	cfg, errs = config.Parse(strings.NewReader("skip = ~/Movies\nskip = /Volumes/x\n"))
+	m.useConfig(cfg, errs)
+	if m.notice != "config line 1: ~/Movies: no home to read ~ as" {
+		t.Errorf("no home: notice %q", m.notice)
+	}
+	if m.prune.Reaches("/", "/Volumes/x") {
+		t.Error("a whole path not skipped without a home")
+	}
+}

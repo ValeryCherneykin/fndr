@@ -20,6 +20,9 @@ func (m *Model) View() tea.View {
 	if m.oil != nil {
 		return m.viewOil()
 	}
+	if m.help != nil {
+		return m.viewHelp()
+	}
 
 	var b strings.Builder
 	b.WriteString(finish(m.viewPrompt(), m.width))

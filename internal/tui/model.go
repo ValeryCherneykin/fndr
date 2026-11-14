@@ -78,15 +78,21 @@ type Model struct {
 	listErr error
 	reveal  string // path to select when the listing arrives: the folder just left
 
-	query   string
-	qpos    int               // text cursor: byte offset into query, on a rune boundary
-	tags    filter.Stack      // what the search is narrowed to (tags.go)
-	keys    map[string]string // what each key does while searching: key → action (keys.go)
-	binds   []binding         // the user's chords, from the config (binds.go)
-	copier  copier            // how to copy here (copy.go); none in tests unless set
-	yanking bool              // ctrl+y was pressed: the next key says what to copy (copy.go)
-	narrow  *narrowing        // the last search's matches, for the next key to search within (narrow.go)
-	release func()            // gives freed memory back to the system: debug.FreeOSMemory, a counter in tests (crawl.go)
+	query string
+	qpos  int               // text cursor: byte offset into query, on a rune boundary
+	tags  filter.Stack      // what the search is narrowed to (tags.go)
+	keys  map[string]string // what each key does while searching: key → action (keys.go)
+
+	// actionKeys are the keys of each action, as the config wrote them,
+	// for the help page (help.go); help is that page, nil while closed.
+	actionKeys map[string][]string
+	help       *helpState
+	configPath string     // where the settings are, for the help page to say
+	binds      []binding  // the user's chords, from the config (binds.go)
+	copier     copier     // how to copy here (copy.go); none in tests unless set
+	yanking    bool       // ctrl+y was pressed: the next key says what to copy (copy.go)
+	narrow     *narrowing // the last search's matches, for the next key to search within (narrow.go)
+	release    func()     // gives freed memory back to the system: debug.FreeOSMemory, a counter in tests (crawl.go)
 
 	// caughtUp is when the indexes last caught up with the disk, lastKey
 	// when the last key came (catchup.go).
@@ -345,6 +351,24 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:unparam // t
 		return m, cmd
 	}
 	return m, nil
+}
+
+// SetConfigPath tells the model where its settings came from, for the
+// help page to say where they are changed. written: fndr has just made
+// the file, which the status line says, so it is found.
+func (m *Model) SetConfigPath(path string, written bool) {
+	m.configPath = path
+	if written {
+		m.Tell("settings: " + m.tildify(path) + " — every key and setting, explained")
+	}
+}
+
+// Tell says s in the status line, unless something is said there already:
+// a mistake is worth more than news.
+func (m *Model) Tell(s string) {
+	if m.notice == "" {
+		m.setNotice(s, false)
+	}
 }
 
 // ExitDir returns the folder the shell should change to after the program

@@ -134,18 +134,36 @@ going into a folder drops them, since they were how you found it.
 ### ⚙️ Config
 
 `~/.config/fndr/config` (or `$XDG_CONFIG_HOME/fndr/config`, or `-config
-path`), written like Ghostty's. For now it puts tags a chord away:
+path`), written like Ghostty's. **The first start writes it for you:**
+every setting and every key, at its default, each with a line on what it
+does. Nothing to look up: to turn pictures off, find `images = on` and
+write `off`.
 
 ```
-bind = ctrl+f>f = tag:dirs
-bind = ctrl+f>t = tag:@today
-bind = ctrl+f>p = tag:has:go.mod
+# Pictures in the preview, where the terminal can show them.
+images = on
+
+# Move down the list.
+key.down = ctrl+n down
+
+# Show the selected entry in Finder, or the file manager.
+key.reveal = ctrl+g
 ```
 
-`Ctrl+F` shows what can follow in the status bar, so there is nothing to
-remember; `Ctrl+F` again with `Ctrl` still held works too, and so does any
-keyboard layout. A line that is wrong is reported by its number when fndr
-starts, and the rest still works.
+- **Settings:** `icons`, `preview`, `images`, `history`, `save_index`
+  (`off`: nothing read or written), `editor`, `editor_gui` (VS Code,
+  PyCharm: fndr goes on instead of waiting).
+- **Keys:** one line per action holds all its keys, as in lazygit. Change
+  the line and the old key is free again; `none` turns the action off.
+- **Folders:** `skip = ~/Movies` to leave one out, `include = ~/.ssh` to go
+  into one fndr would skip.
+- **Tags a chord away:** `bind = ctrl+f>f = tag:dirs`. `Ctrl+F` shows
+  what can follow in the status bar; `Ctrl` still held works too, and so
+  does any keyboard layout.
+
+A line that is wrong is reported by its number when fndr starts, and the
+rest still works. `F1` shows the keys as your file left them; `fndr config`
+prints the file a newer fndr would write.
 
 ### ✏️ Edit the folder as text
 
@@ -243,6 +261,9 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+E` | Quit and jump there |
 | `Esc` | Take off the last tag, then clear the query, then leave GLOBAL, then quit |
 | `Ctrl+C` | Quit |
+| `F1` | Help: every key as your config left it |
+
+Every key here can be changed or turned off in the config.
 
 ---
 
@@ -337,8 +358,8 @@ noticeably slower is treated as a bug.
   with `~/`, start apps, scroll the preview
 - [x] bash and fish integration
 - [x] Copy files and folders: `yy p` in the buffer, never over anything
-- [ ] Config: rebind any key, choose your editor, folders to search or
-  skip, a commented default written for you, help on `F1`
+- [x] Config: every key and setting, written out and explained for you on
+  the first start; folders to skip or include; help on `F1`
 
 ---
 
