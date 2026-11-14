@@ -1,6 +1,8 @@
 package mutation
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -252,4 +254,114 @@ func TestCopyFromAwayRefusedFirst(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "old", "notes.md")); err != nil {
 		t.Error("the folder went to the trash anyway")
 	}
+}
+
+// dyingContext is done from its n-th look on: a copy stopped at an exact
+// point, without timing.
+type dyingContext struct {
+	context.Context
+	looks, n int
+}
+
+func (c *dyingContext) Err() error {
+	c.looks++
+	if c.looks >= c.n {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestCopyProgress: Progress counts every entry copied and every byte,
+// a file bigger than a chunk included.
+func TestCopyProgress(t *testing.T) {
+	dir := tree(t, "src/a.txt", "src/deep/b.txt")
+	big := bytes.Repeat([]byte("x"), 2*copyChunk+5)
+	if err := os.WriteFile(filepath.Join(dir, "src", "big.bin"), big, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := mustPlan(t, []Item{{ID: 1, Name: "src/"}}, []Line{{1, "src/"}, {1, "lib/"}})
+	var prog Progress
+	if _, err := ApplyContext(context.Background(), dir, p, nil, &prog); err != nil {
+		t.Fatal(err)
+	}
+	wantBytes := int64(len(big) + len("src/a.txt") + len("src/deep/b.txt"))
+	// a.txt, big.bin, b.txt, deep/, and src/ itself.
+	if e, b := prog.Entries.Load(), prog.Bytes.Load(); e != 5 || b != wantBytes {
+		t.Errorf("progress: %d entries, %d bytes; want 5, %d", e, b, wantBytes)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "lib", "big.bin")); !bytes.Equal(got, big) { //nolint:errcheck // compared below
+		t.Error("the big file was not copied whole")
+	}
+}
+
+// TestCopyStopped: a copy stopped at any point leaves nothing of itself,
+// the original whole, and says it was stopped; stopped before the first
+// step, nothing is done at all.
+func TestCopyStopped(t *testing.T) {
+	for n := 1; n <= 12; n++ {
+		dir := tree(t, "src/a.txt", "src/deep/b.txt", "src/deep/c.txt", "junk.txt")
+		if err := os.WriteFile(filepath.Join(dir, "src", "big.bin"), bytes.Repeat([]byte("x"), 2*copyChunk), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		p := mustPlan(t, []Item{{ID: 1, Name: "src/"}, {ID: 2, Name: "junk.txt"}}, []Line{{1, "src/"}, {1, "lib/"}, {2, "junk.txt"}})
+		ctx := &dyingContext{Context: context.Background(), n: n}
+		_, err := ApplyContext(ctx, dir, p, nil, nil)
+		if ctx.looks < n {
+			continue // finished before it died: nothing to stop
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("n=%d: %v, want Canceled", n, err)
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "lib")); err == nil || len(leftovers(t, dir)) > 0 {
+			t.Errorf("n=%d: a part of the copy is left: %v", n, leftovers(t, dir))
+		}
+		if content(t, filepath.Join(dir, "src", "deep", "c.txt")) != "src/deep/c.txt" {
+			t.Errorf("n=%d: the original was touched", n)
+		}
+	}
+}
+
+// TestStopPoints: each place a copy looks at its context is the one that
+// stops it somewhere: before the first step, between entries of a tree of
+// folders only, and inside one file.
+func TestStopPoints(t *testing.T) {
+	t.Run("before the first step", func(t *testing.T) {
+		dir := tree(t, "a.txt")
+		p := mustPlan(t, []Item{{ID: 1, Name: "a.txt"}}, []Line{{1, "b.txt"}})
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if n, err := ApplyContext(ctx, dir, p, nil, nil); n != 0 || !errors.Is(err, context.Canceled) {
+			t.Errorf("%d, %v; want 0, Canceled", n, err)
+		}
+		if _, err := os.Lstat(filepath.Join(dir, "a.txt")); err != nil {
+			t.Error("renamed though stopped before")
+		}
+	})
+	t.Run("between folders", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "src", "a", "b", "c"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		p := mustPlan(t, []Item{{ID: 1, Name: "src/"}}, []Line{{1, "src/"}, {1, "lib/"}})
+		ctx := &dyingContext{Context: context.Background(), n: 3}
+		if _, err := ApplyContext(ctx, dir, p, nil, nil); !errors.Is(err, context.Canceled) {
+			t.Errorf("%v, want Canceled", err)
+		}
+	})
+	t.Run("inside a file", func(t *testing.T) {
+		dir := t.TempDir()
+		size := 3 * copyChunk
+		if err := os.WriteFile(filepath.Join(dir, "big.bin"), make([]byte, size), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		p := mustPlan(t, []Item{{ID: 1, Name: "big.bin"}}, []Line{{1, "big.bin"}, {1, "copy.bin"}})
+		ctx := &dyingContext{Context: context.Background(), n: 4} // ApplyContext, the file, a chunk, the next
+		var prog Progress
+		if _, err := ApplyContext(ctx, dir, p, nil, &prog); !errors.Is(err, context.Canceled) {
+			t.Errorf("%v, want Canceled", err)
+		}
+		if b := prog.Bytes.Load(); b == 0 || b >= int64(size) {
+			t.Errorf("stopped after %d bytes of %d: not inside the file", b, size)
+		}
+	})
 }

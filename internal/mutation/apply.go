@@ -1,6 +1,7 @@
 package mutation
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -26,6 +27,18 @@ import (
 // Before the first step, check makes sure every new name is free, so what
 // can be found out in advance never stops a plan halfway.
 func Apply(dir string, p Plan, trash *Trash) (done int, err error) {
+	return ApplyContext(context.Background(), dir, p, trash, nil)
+}
+
+// ApplyContext is Apply that ctx can stop, and that counts in prog, if not
+// nil, what its copies have done so far, for the interface to show. Only a
+// copy, the one step that can take minutes, is stopped halfway, and leaves
+// nothing of itself; a rename is never left with half its names. Done
+// before the first step, the plan is not started.
+func ApplyContext(ctx context.Context, dir string, p Plan, trash *Trash, prog *Progress) (done int, err error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	if err := check(dir, p); err != nil {
 		return 0, err
 	}
@@ -47,7 +60,7 @@ func Apply(dir string, p Plan, trash *Trash) (done int, err error) {
 		if op.Kind != OpCopy {
 			continue
 		}
-		if err := copyEntry(Target(dir, op.From), Target(dir, op.To)); err != nil {
+		if err := copyEntry(ctx, Target(dir, op.From), Target(dir, op.To), prog); err != nil {
 			return done, fmt.Errorf("copy %q to %q: %w", op.From, op.To, err)
 		}
 		done++
