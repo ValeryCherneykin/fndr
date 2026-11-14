@@ -288,6 +288,7 @@ func TestOilRereadKeepsWhatStayed(t *testing.T) {
 		dir:    root,
 		search: &oilSearch{},
 		items:  []mutation.Item{{ID: 1, Name: "stayed.go"}, {ID: 2, Name: "gone.go"}},
+		own:    2,
 		buf:    oil.New([]mutation.Line{{ID: 0, Text: ""}}),
 	}
 	msg, ok := st.oilReread()().(oilMsg)

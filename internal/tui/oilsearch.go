@@ -87,19 +87,21 @@ func (m *Model) searchLabel() string {
 // shown only if it is still there, its trash having failed.
 func (st *oilState) oilReread() tea.Cmd {
 	var groups [][]string // per line: the paths to try, in order
-	lined := make([]bool, len(st.items))
+	// Away items (oilyank.go) are not results: put by p, a line of one is
+	// read again by what was written; left out, there is nothing to show.
+	lined := make([]bool, st.own)
 	for _, l := range st.buf.Lines() {
 		var try []string
 		if text := strings.TrimSpace(l.Text); text != "" {
 			try = append(try, filepath.Clean(strings.TrimSuffix(text, "/")))
 		}
-		if l.ID > 0 {
+		if l.ID > 0 && l.ID <= st.own {
 			lined[l.ID-1] = true
 			try = append(try, strings.TrimSuffix(st.items[l.ID-1].Name, "/"))
 		}
 		groups = append(groups, try)
 	}
-	for i, it := range st.items {
+	for i, it := range st.items[:st.own] {
 		if !lined[i] {
 			groups = append(groups, []string{strings.TrimSuffix(it.Name, "/")})
 		}

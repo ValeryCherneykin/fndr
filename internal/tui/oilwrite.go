@@ -86,7 +86,7 @@ func countTrash(dir string, plan mutation.Plan) tea.Cmd {
 	return func() tea.Msg {
 		msg := trashCountedMsg{dir: dir, counts: map[string]int{}}
 		for _, name := range names {
-			path := filepath.Join(dir, name)
+			path := mutation.Target(dir, name) // an Away item's is whole
 			if info, err := os.Lstat(path); err == nil && info.IsDir() {
 				msg.counts[name] = countEntries(path, trashLimit)
 			}
@@ -304,6 +304,7 @@ func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
 // for the list, with reveal, a name in it, selected.
 func (m *Model) leaveOil(reveal string) tea.Cmd {
 	wrote, search := m.oil.wrote, m.oil.search != nil
+	m.yank = m.oil.carry()
 	m.oil = nil
 	if !wrote {
 		return nil

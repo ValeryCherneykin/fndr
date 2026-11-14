@@ -157,6 +157,7 @@ starts, and the rest still works.
 | a line rewritten as `~/Documents/video/Kafka/` | move it there, folders made on the way |
 | `dd` a line | move to the trash |
 | `yy` `p`, the copy's name changed (or a path, `~/backup/x`) | copy it, folders too |
+| `yy` here, `p` in any other buffer (another folder, after `Tab`, a search) | copy it there |
 | a new line `notes/ideas.md` | create it, with its folders |
 | a line ending in `/` | create a folder |
 

@@ -94,6 +94,10 @@ type Model struct {
 	// oil is the folder being edited in OIL mode (oil.go), nil outside it.
 	oil *oilState
 
+	// yank is what was last yanked in OIL, by path, for p in the next
+	// buffer: yy in one folder and p in another copies across (oilyank.go).
+	yank carried
+
 	// rename is the path ctrl+r is editing (rename.go); nil otherwise.
 	rename *renameState
 

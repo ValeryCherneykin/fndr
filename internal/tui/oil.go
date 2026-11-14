@@ -48,6 +48,10 @@ type oilState struct {
 	items   []mutation.Item
 	entries []indexer.Entry
 
+	// own is how many of items are the buffer's own; those after are
+	// Away, yanked in another buffer and put here only by p (oilyank.go).
+	own int
+
 	hidden bool // names starting with "." are shown
 	offset int  // first line on screen
 
@@ -113,6 +117,7 @@ func (m *Model) oilLoaded(msg *oilMsg) tea.Cmd {
 	st := &oilState{dir: msg.dir, hidden: msg.hidden, search: msg.search, home: m.home}
 	if m.oil != nil {
 		st.wrote = m.oil.wrote
+		m.yank = m.oil.carry()
 	}
 	var lines []mutation.Line
 	for _, e := range msg.entries {
@@ -127,6 +132,8 @@ func (m *Model) oilLoaded(msg *oilMsg) tea.Cmd {
 		lines = append(lines, mutation.Line{ID: id, Text: name})
 	}
 	st.buf = oil.New(lines)
+	st.own = len(st.items)
+	st.carryIn(m.yank)
 	if msg.search != nil {
 		st.buf.GoTo(min(msg.row, max(len(lines)-1, 0)))
 		m.oil = st
@@ -314,7 +321,7 @@ func (m *Model) viewOil() tea.View {
 	// the left, as in the status bar.
 	label := ""
 	if st.search != nil {
-		label = "   " + safeText(st.search.label) + "   " + fmt.Sprintf("%d found", len(st.items))
+		label = "   " + safeText(st.search.label) + "   " + fmt.Sprintf("%d found", st.own)
 		if st.search.fuzzyLeft > 0 {
 			label += fmt.Sprintf(" · %d fuzzy left out", st.search.fuzzyLeft)
 		}
@@ -375,7 +382,7 @@ func (st *oilState) planBox(maxW, maxH int) []string {
 		if dirs[n] {
 			n += "/"
 		}
-		return safeText(n)
+		return safeText(tildePath(st.home, n)) // an Away item is a whole path
 	}
 
 	room := max(maxH-5, 1) // borders, a blank line above and below the steps, the keys
