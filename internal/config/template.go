@@ -51,6 +51,8 @@ func Template() string {
 # A key is ctrl+x, alt+x, shift+x, f1 to f24, or one of enter tab esc
 # space backspace up down left right home end pgup pgdown insert delete.
 # A key that types, as j, is for typing, and backspace erases.
+# alt on macOS needs Option to be Alt in the terminal: in Ghostty,
+# macos-option-as-alt = left; otherwise alt+x types a letter.
 # Inside OIL the keys are Vim's; esc, q and ctrl+o go back.
 `)
 	for _, a := range Actions {

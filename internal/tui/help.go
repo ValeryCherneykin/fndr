@@ -61,7 +61,7 @@ func (m *Model) helpLines() []helpLine {
 	say("image audio video", "doc code archive too: by kind")
 	say(">1mb  <10k  .go>1mb", "by size, alone or with the rest")
 	say("@today  @yesterday", "@3d @week: changed since")
-	say("has:.json", "folders holding one, the deepest")
+	say("has:.json", "folders holding one, the deepest; by name: has:docker is a file named so")
 	say("a|b", "either: .go|dirs")
 	say("", "several tags: all of them. The same tag again takes it off.")
 
@@ -82,6 +82,7 @@ func (m *Model) helpLines() []helpLine {
 		say("", m.tildify(m.configPath))
 	}
 	say("", "every key and setting there, explained; fndr config prints a fresh one")
+	say("", "alt keys on macOS need Option to be Alt: in Ghostty, macos-option-as-alt = left")
 	return ls
 }
 
