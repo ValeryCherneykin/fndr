@@ -90,6 +90,26 @@ type register struct {
 	text     string          // charwise
 }
 
+// Register is what p and P would put: whole lines, ids and all
+// (Linewise), or text from inside a line. The interface carries it from
+// one buffer to the next, so yy in one folder and p in another copies
+// across folders; the ids are the old buffer's, and it maps them.
+type Register struct {
+	Linewise bool
+	Lines    []mutation.Line
+	Text     string
+}
+
+// Register returns what p would put.
+func (b *Buffer) Register() Register {
+	return Register{Linewise: b.reg.linewise, Lines: slices.Clone(b.reg.lines), Text: b.reg.text}
+}
+
+// SetRegister makes r what p puts, as if it had been yanked here.
+func (b *Buffer) SetRegister(r Register) {
+	b.reg = register{linewise: r.Linewise && len(r.Lines) > 0, lines: slices.Clone(r.Lines), text: r.Text}
+}
+
 // target is where a motion leads.
 type target struct {
 	row, col int

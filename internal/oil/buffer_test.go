@@ -651,3 +651,33 @@ func TestPaste(t *testing.T) {
 		t.Errorf("command line %q, want the first line pasted only", b.CmdLine())
 	}
 }
+
+// TestRegisterCarries: what was yanked in one buffer is put by p in
+// another, ids and all, and taking it out does not tie the two together.
+func TestRegisterCarries(t *testing.T) {
+	from := folder(3)
+	typeKeys(from, "j2yy")
+	r := from.Register()
+	want := []mutation.Line{{ID: 2, Text: "b"}, {ID: 3, Text: "c"}}
+	if !r.Linewise || !slices.Equal(r.Lines, want) {
+		t.Fatalf("Register = %+v, want lines %v", r, want)
+	}
+	r.Lines[0].Text = "changed" // a copy: the buffer's register stays
+	if got := from.Register().Lines[0].Text; got != "b" {
+		t.Errorf("Register shares its lines: %q", got)
+	}
+
+	to := New([]mutation.Line{{ID: 1, Text: "x"}})
+	to.SetRegister(Register{Linewise: true, Lines: []mutation.Line{{ID: 7, Text: "notes.md"}}})
+	typeKeys(to, "p")
+	if got := to.Lines(); !slices.Equal(got, []mutation.Line{{ID: 1, Text: "x"}, {ID: 7, Text: "notes.md"}}) {
+		t.Errorf("after p: %v", got)
+	}
+
+	empty := New([]mutation.Line{{ID: 1, Text: "x"}})
+	empty.SetRegister(Register{Linewise: true}) // nothing yanked: p puts nothing
+	typeKeys(empty, "p")
+	if got := empty.Lines(); len(got) != 1 {
+		t.Errorf("p of an empty register: %v", got)
+	}
+}
