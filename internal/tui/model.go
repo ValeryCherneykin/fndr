@@ -157,16 +157,25 @@ func New(root string, cfg config.Config, cfgErrs []error) *Model {
 	home, _ := os.UserHomeDir() // best effort: without it paths just are not shortened
 	m := newModel(root, home, &indexer.Index{})
 	m.local.crawling = true // Init starts it
+	m.preview, m.editor = cfg.Preview, cfg.Editor
+
+	// Pictures off is the terminal's lack of them: a card for every file,
+	// and nothing sent to tmux to let them through.
 	m.graphics, m.tmux = detectGraphics(os.Getenv)
-	if path, err := indexer.DefaultSavedPath(); err == nil && home != "" {
+	m.graphics = m.graphics && cfg.Images
+
+	// Off, the index and the history are neither read nor written: what is
+	// on the disk from before is left as it is, for the user to delete.
+	if path, err := indexer.DefaultSavedPath(); err == nil && home != "" && cfg.SaveIndex {
 		m.savedPath = path
 	}
-
-	hist, err := openHistory()
-	if err != nil {
-		m.setNotice("not learning this time: "+err.Error(), true)
+	if cfg.History {
+		hist, err := openHistory()
+		if err != nil {
+			m.setNotice("not learning this time: "+err.Error(), true)
+		}
+		m.useHistory(hist)
 	}
-	m.useHistory(hist)
 
 	m.copier = systemCopier()
 	m.useConfig(cfg, cfgErrs)
