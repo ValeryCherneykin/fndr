@@ -79,13 +79,14 @@ type Model struct {
 	reveal  string // path to select when the listing arrives: the folder just left
 
 	query   string
-	qpos    int          // text cursor: byte offset into query, on a rune boundary
-	tags    filter.Stack // what the search is narrowed to (tags.go)
-	binds   []binding    // the user's keys, from the config (binds.go)
-	copier  copier       // how to copy here (copy.go); none in tests unless set
-	yanking bool         // ctrl+y was pressed: the next key says what to copy (copy.go)
-	narrow  *narrowing   // the last search's matches, for the next key to search within (narrow.go)
-	release func()       // gives freed memory back to the system: debug.FreeOSMemory, a counter in tests (crawl.go)
+	qpos    int               // text cursor: byte offset into query, on a rune boundary
+	tags    filter.Stack      // what the search is narrowed to (tags.go)
+	keys    map[string]string // what each key does while searching: key → action (keys.go)
+	binds   []binding         // the user's chords, from the config (binds.go)
+	copier  copier            // how to copy here (copy.go); none in tests unless set
+	yanking bool              // ctrl+y was pressed: the next key says what to copy (copy.go)
+	narrow  *narrowing        // the last search's matches, for the next key to search within (narrow.go)
+	release func()            // gives freed memory back to the system: debug.FreeOSMemory, a counter in tests (crawl.go)
 
 	// caughtUp is when the indexes last caught up with the disk, lastKey
 	// when the last key came (catchup.go).
@@ -189,13 +190,15 @@ func New(root string, cfg config.Config, cfgErrs []error) *Model {
 // so tests can control exactly what is indexed.
 func newModel(root, home string, ix *indexer.Index) *Model {
 	ctx, stop := context.WithCancel(context.Background())
-	return &Model{
+	m := &Model{
 		release: debug.FreeOSMemory,
 		icons:   true,
 		cwd:     root, start: root, home: home, prune: indexer.DefaultPrune(home),
 		local: &scope{root: root, ix: ix},
 		ctx:   ctx, stop: stop,
 	}
+	m.useKeys(config.Default().Keys)
+	return m
 }
 
 // Init reads the starting directory and starts the crawl.
@@ -225,7 +228,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // update does the work of Update for one event; Update wraps it so the pane
 // check cannot be forgotten on any of its many return paths.
-func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:unparam // the shape of tea.Model.Update, whose work it does
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height

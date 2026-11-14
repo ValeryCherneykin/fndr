@@ -244,3 +244,22 @@ func TestEditorGUINeedsEditor(t *testing.T) {
 		t.Errorf("with an editor: gui %v, errors %v", c.EditorGUI, errs)
 	}
 }
+
+// TestKeysThatType: a key that types is refused, where it would take a
+// letter from the query; parent, which acts only on an empty query, may
+// have one. backspace erases, whatever the file says.
+func TestKeysThatType(t *testing.T) {
+	c, errs := Parse(strings.NewReader(`key.down = j
+key.up = shift+k
+key.global = space
+key.jump = backspace
+key.parent = - shift+h
+key.first = ctrl+j
+`))
+	if got := errLines(t, errs); !slices.Equal(got, []int{1, 2, 3, 4, 6}) {
+		t.Errorf("errors on lines %v: %v", got, errs) // 6: ctrl+j taken from preview_down
+	}
+	if !slices.Equal(c.Keys["down"], []string{"ctrl+n", "down"}) || !slices.Equal(c.Keys["parent"], []string{"-", "shift+h"}) {
+		t.Errorf("down %q, parent %q", c.Keys["down"], c.Keys["parent"])
+	}
+}

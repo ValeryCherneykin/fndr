@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // setting is one "name = value" line fndr understands. The table below is
@@ -50,37 +51,42 @@ func onOff(field func(*Config) *bool) func(*Config, string) error {
 type Action struct {
 	Name string
 	Keys []string // the default, as Keystroke names them
+
+	// Typing: its keys may be ones that type, as "-": it acts only while
+	// nothing is typed, and types otherwise. Any other action given such
+	// a key would take a letter away from the query.
+	Typing bool
 }
 
 // Actions are fndr's own actions, in the order the file lists them.
 var Actions = []Action{
-	{"down", []string{"ctrl+n", "down"}},
-	{"up", []string{"ctrl+p", "up"}},
-	{"page_down", []string{"pgdown"}},
-	{"page_up", []string{"pgup"}},
-	{"first", []string{"home"}},
-	{"last", []string{"end"}},
+	{Name: "down", Keys: []string{"ctrl+n", "down"}},
+	{Name: "up", Keys: []string{"ctrl+p", "up"}},
+	{Name: "page_down", Keys: []string{"pgdown"}},
+	{Name: "page_up", Keys: []string{"pgup"}},
+	{Name: "first", Keys: []string{"home"}},
+	{Name: "last", Keys: []string{"end"}},
 
-	{"open", []string{"enter"}},
-	{"parent", []string{"-"}},
-	{"back", []string{"esc"}},
-	{"quit", []string{"ctrl+c"}},
-	{"jump", []string{"ctrl+e"}},
-	{"global", []string{"tab"}},
-	{"tag", []string{"ctrl+t"}},
-	{"clear", []string{"ctrl+u"}},
-	{"oil", []string{"ctrl+o"}},
-	{"rename", []string{"ctrl+r"}},
-	{"copy_path", []string{"ctrl+y"}},
-	{"reveal", []string{"ctrl+g"}},
-	{"preview", []string{"ctrl+v"}},
-	{"preview_down", []string{"ctrl+j"}},
-	{"preview_up", []string{"ctrl+k"}},
-	{"help", []string{"f1"}},
+	{Name: "open", Keys: []string{"enter"}},
+	{Name: "parent", Keys: []string{"-"}, Typing: true},
+	{Name: "back", Keys: []string{"esc"}},
+	{Name: "quit", Keys: []string{"ctrl+c"}},
+	{Name: "jump", Keys: []string{"ctrl+e"}},
+	{Name: "global", Keys: []string{"tab"}},
+	{Name: "tag", Keys: []string{"ctrl+t"}},
+	{Name: "clear", Keys: []string{"ctrl+u"}},
+	{Name: "oil", Keys: []string{"ctrl+o"}},
+	{Name: "rename", Keys: []string{"ctrl+r"}},
+	{Name: "copy_path", Keys: []string{"ctrl+y"}},
+	{Name: "reveal", Keys: []string{"ctrl+g"}},
+	{Name: "preview", Keys: []string{"ctrl+v"}},
+	{Name: "preview_down", Keys: []string{"ctrl+j"}},
+	{Name: "preview_up", Keys: []string{"ctrl+k"}},
+	{Name: "help", Keys: []string{"f1"}},
 
-	{"cursor_left", []string{"ctrl+h", "left"}},
-	{"cursor_right", []string{"ctrl+l", "right"}},
-	{"delete_word", []string{"ctrl+w"}},
+	{Name: "cursor_left", Keys: []string{"ctrl+h", "left"}},
+	{Name: "cursor_right", Keys: []string{"ctrl+l", "right"}},
+	{Name: "delete_word", Keys: []string{"ctrl+w"}},
 }
 
 // keyPrefix starts the line of an action's keys. Without it the action
@@ -104,7 +110,7 @@ func Default() Config {
 
 // parseKeys reads the keys of a "key.<name>" line: keystrokes apart by
 // spaces, or "none", for an action no key does.
-func parseKeys(value string) ([]string, error) {
+func parseKeys(a *Action, value string) ([]string, error) {
 	if value == "none" {
 		return []string{}, nil
 	}
@@ -120,6 +126,12 @@ func parseKeys(value string) ([]string, error) {
 		}
 		if slices.Contains(keys, k) {
 			return nil, fmt.Errorf("%s twice", k)
+		}
+		if k == "backspace" {
+			return nil, errors.New("backspace erases what is typed: it is the line's own")
+		}
+		if types(k) && !a.Typing {
+			return nil, fmt.Errorf("%s types: %s%s needs a key with ctrl or alt, or it could not be typed in a query", k, keyPrefix, a.Name)
 		}
 		keys = append(keys, k)
 	}
@@ -158,4 +170,12 @@ func (c *Config) settle(setOn map[string]int) []error {
 		}
 	}
 	return errs
+}
+
+// types reports whether the key k types a character into the query: one
+// character, shifted or not, or space. With any other modifier, ctrl+x,
+// what is left is longer than one character.
+func types(k string) bool {
+	rest := strings.TrimPrefix(k, "shift+")
+	return rest == "space" || utf8.RuneCountInString(rest) == 1
 }

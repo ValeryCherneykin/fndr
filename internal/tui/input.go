@@ -20,26 +20,28 @@ type textLine struct {
 	pos  int
 }
 
-// key applies an editing key and reports whether k was one: the arrows
-// and their held-ctrl pair (h and l, as in Vim), backspace, the shell's
-// erase chords (ctrl+w the word before the cursor, ctrl+u everything
-// before it), and printable text. Ctrl and Alt chords are never text.
-func (l *textLine) key(msg tea.KeyPressMsg) bool {
+// key applies an editing key and reports whether it was one. action is
+// what the user's keys make of it (actionOf): moving the cursor (ctrl+h,
+// ctrl+l and the arrows, as h and l in Vim), the shell's erase chords
+// (delete_word the word before the cursor, clear everything before it).
+// backspace erases a character; printable text is typed. Ctrl and Alt
+// chords are never text.
+func (l *textLine) key(action string, msg tea.KeyPressMsg) bool {
 	before, after := l.text[:l.pos], l.text[l.pos:]
-	switch msg.String() {
-	case "left", "ctrl+h":
+	switch {
+	case action == "cursor_left":
 		_, size := utf8.DecodeLastRuneInString(before)
 		l.pos -= size // size is 0 at the start of the line
-	case "right", "ctrl+l":
+	case action == "cursor_right":
 		_, size := utf8.DecodeRuneInString(after)
 		l.pos += size // size is 0 at the end of the line
-	case "backspace":
+	case action == "delete_word":
+		l.set(deleteLastWord(before), after)
+	case action == "clear":
+		l.set("", after)
+	case msg.String() == "backspace":
 		_, size := utf8.DecodeLastRuneInString(before)
 		l.set(before[:len(before)-size], after)
-	case "ctrl+w":
-		l.set(deleteLastWord(before), after)
-	case "ctrl+u":
-		l.set("", after)
 	default:
 		if msg.Text == "" || msg.Mod&(tea.ModCtrl|tea.ModAlt) != 0 {
 			return false

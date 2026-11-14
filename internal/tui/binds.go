@@ -25,19 +25,11 @@ type binding struct {
 	tag  filter.Tag
 }
 
-// ownKeys are the keys fndr itself answers while searching. Binding one
-// would take it away from the user unannounced; rebinding fndr's keys is
-// for later (v0.7), with help that shows what they became. f1 is kept for
-// that help.
-var ownKeys = []string{
-	"ctrl+c", "ctrl+e", "ctrl+h", "ctrl+l", "ctrl+n", "ctrl+o", "ctrl+p",
-	"ctrl+r", "ctrl+t", "ctrl+u", "ctrl+v", "ctrl+w", "ctrl+y", "ctrl+g", "ctrl+j", "ctrl+k", "f1",
-}
-
 // useConfig takes the settings read from the config file, and says its
 // mistakes at once, the file's (errs) and those only the interface can
 // see: a bind that silently does nothing is worse than a line of red.
 func (m *Model) useConfig(cfg config.Config, errs []error) {
+	m.useKeys(cfg.Keys) // first: a chord may not start on an action's key
 	errs = append(errs, m.useBinds(cfg.Binds)...)
 	if len(errs) == 0 {
 		return
@@ -75,8 +67,8 @@ func (m *Model) checkBind(b config.Bind) error {
 	if !modified(first) && !isFKey(first) {
 		return fmt.Errorf("%s would take a key away from typing: start with ctrl or alt", first)
 	}
-	if slices.Contains(ownKeys, first) {
-		return fmt.Errorf("%s is fndr's own", first)
+	if action, ok := m.keys[first]; ok {
+		return fmt.Errorf("%s is key.%s's", first, action)
 	}
 	if slices.Contains(b.Keys[1:], "esc") {
 		return fmt.Errorf("%s could never be pressed: esc in a chord gives it up", chord(b.Keys))

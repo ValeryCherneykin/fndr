@@ -174,10 +174,11 @@ func (c *Config) parseLine(line string, n int, setOn, keyOn map[string]int) erro
 		return fmt.Errorf("%s is set on line %d already", key, prev)
 	}
 	if name, isKey := strings.CutPrefix(key, keyPrefix); isKey {
-		if _, known := c.Keys[name]; !known {
+		i := slices.IndexFunc(Actions, func(a Action) bool { return a.Name == name })
+		if i < 0 {
 			return fmt.Errorf("unknown action %q", name)
 		}
-		keys, err := parseKeys(value)
+		keys, err := parseKeys(&Actions[i], value)
 		if err != nil {
 			return err
 		}

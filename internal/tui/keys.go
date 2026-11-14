@@ -29,117 +29,158 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	switch msg.String() {
-	case "ctrl+c":
-		return m.quit()
-	case "esc":
-		// Esc is always one step back: the last tag, the query, then
-		// GLOBAL, then fndr.
+	action := m.actionOf(msg)
+	if do, ok := actions[action]; ok {
+		if model, cmd, done := do(m); done {
+			return model, cmd
+		}
+	}
+	// With nothing typed, backspace steps back: it takes the last tag off,
+	// as it erases the chip before the cursor, then goes out of the folder,
+	// having nothing left to erase.
+	if msg.String() == "backspace" && m.query == "" {
 		if len(m.tags) > 0 {
 			cmd := m.popTag()
 			return m, cmd
 		}
-		if m.query != "" {
-			cmd := m.setQuery("")
-			return m, cmd
-		}
-		if m.globalOn {
-			cmd := m.toggleGlobal()
-			return m, cmd
-		}
-		return m.quit()
-	case "tab":
-		cmd := m.toggleGlobal()
+		cmd := m.up()
 		return m, cmd
-	case "ctrl+t":
-		cmd := m.addTag()
+	}
+
+	// The rest edits the query. The arrows left and right belong to the
+	// text, as in any input field; folders are entered with Enter and left
+	// with "-" or backspace.
+	if l := m.queryLine(); l.key(action, msg) {
+		cmd := m.setQueryLine(l)
 		return m, cmd
-	case "ctrl+j":
-		m.scrollPane(1)
-		return m, nil
-	case "ctrl+k":
-		m.scrollPane(-1)
-		return m, nil
-	case "ctrl+g":
+	}
+	return m, nil
+}
+
+// actionOf returns the action the user's keys give msg, or "". The key is
+// looked up as Bubble Tea writes it ("ctrl+n", "J"), then as a keystroke
+// ("shift+j", and on another keyboard layout the key's place, not its
+// letter), the way the config names keys.
+func (m *Model) actionOf(msg tea.KeyPressMsg) string {
+	if a, ok := m.keys[msg.String()]; ok {
+		return a
+	}
+	return m.keys[msg.Keystroke()]
+}
+
+// useKeys makes keys, the config's keys of every action, what the keys
+// do: one table from key to action, for the key to look up.
+func (m *Model) useKeys(keys map[string][]string) {
+	m.keys = make(map[string]string, len(keys))
+	for action, ks := range keys {
+		for _, k := range ks {
+			m.keys[k] = action
+		}
+	}
+}
+
+// actionFunc does an action. done false lets the key go on to the query
+// line: the action has nothing to do here ("-" with text typed is a dash),
+// or the line does the rest (ctrl+u with no tags erases the text).
+type actionFunc func(m *Model) (model tea.Model, cmd tea.Cmd, done bool)
+
+// lineActions are the actions the query line does itself (textLine.key);
+// they need no entry in actions, but may have one.
+var lineActions = []string{"cursor_left", "cursor_right", "delete_word", "clear"}
+
+// actions are what the keys do while searching, by the config's names
+// (config.Actions). A test sees that every name there is done here.
+var actions = map[string]actionFunc{
+	"down":      moveBy(func(*Model) int { return 1 }),
+	"up":        moveBy(func(*Model) int { return -1 }),
+	"page_down": moveBy(func(m *Model) int { return m.listHeight() }),
+	"page_up":   moveBy(func(m *Model) int { return -m.listHeight() }),
+	"first":     moveBy(func(m *Model) int { return -len(m.results) }),
+	"last":      moveBy(func(m *Model) int { return len(m.results) }),
+
+	"quit": func(m *Model) (tea.Model, tea.Cmd, bool) {
+		model, cmd := m.quit()
+		return model, cmd, true
+	},
+	"back": func(m *Model) (tea.Model, tea.Cmd, bool) {
+		// Esc is always one step back: the last tag, the query, then
+		// GLOBAL, then fndr.
+		switch {
+		case len(m.tags) > 0:
+			return m, m.popTag(), true
+		case m.query != "":
+			return m, m.setQuery(""), true
+		case m.globalOn:
+			return m, m.toggleGlobal(), true
+		}
+		model, cmd := m.quit()
+		return model, cmd, true
+	},
+	"global": func(m *Model) (tea.Model, tea.Cmd, bool) { return m, m.toggleGlobal(), true },
+	"tag":    func(m *Model) (tea.Model, tea.Cmd, bool) { return m, m.addTag(), true },
+	"clear": func(m *Model) (tea.Model, tea.Cmd, bool) {
+		// It erases the line before the cursor; with nothing typed, what
+		// is before it is the chips, all of them.
+		if m.query == "" && len(m.tags) > 0 {
+			m.tags = nil
+			return m, m.tagsChanged(), true
+		}
+		return m, nil, false
+	},
+	"preview_down": func(m *Model) (tea.Model, tea.Cmd, bool) { m.scrollPane(1); return m, nil, true },
+	"preview_up":   func(m *Model) (tea.Model, tea.Cmd, bool) { m.scrollPane(-1); return m, nil, true },
+	"preview": func(m *Model) (tea.Model, tea.Cmd, bool) {
+		// A switch, not a mode: every other key works the same with the
+		// pane on or off.
+		m.preview = !m.preview
+		return m, nil, true
+	},
+	"reveal": func(m *Model) (tea.Model, tea.Cmd, bool) {
 		// The selected entry, or, with nothing in the list, the folder.
 		path, isDir := m.cwd, true
 		if len(m.results) > 0 {
 			e := &m.results[m.cursor].Entry
 			path, isDir = e.Path, e.IsDir
 		}
-		cmd := m.showInFiles(path, isDir)
-		return m, cmd
-	case "ctrl+y":
+		return m, m.showInFiles(path, isDir), true
+	},
+	"copy_path": func(m *Model) (tea.Model, tea.Cmd, bool) {
 		m.yanking = true
 		m.setNotice(copyHint, false)
-		return m, nil
-	case "ctrl+u":
-		// It erases the line before the cursor; with nothing typed, what is
-		// before it is the chips, all of them. ctrl+l, once meant for this,
-		// moves the cursor (as l in Vim).
-		if m.query == "" && len(m.tags) > 0 {
-			m.tags = nil
-			cmd := m.tagsChanged()
-			return m, cmd
-		}
-	case "ctrl+e":
+		return m, nil, true
+	},
+	"jump": func(m *Model) (tea.Model, tea.Cmd, bool) {
 		m.exitDir = m.jumpTarget()
 		_ = m.learn(m.exitDir) // its save never runs, quitting: SaveHistory writes it once the interface has closed
-		return m.quit()
-	case "ctrl+v":
-		// A switch, not a mode: every other key works the same with the pane
-		// on or off.
-		m.preview = !m.preview
-
-	case "enter":
-		cmd := m.activate()
-		return m, cmd
-	case "ctrl+o":
+		model, cmd := m.quit()
+		return model, cmd, true
+	},
+	"open": func(m *Model) (tea.Model, tea.Cmd, bool) { return m, m.activate(), true },
+	"oil": func(m *Model) (tea.Model, tea.Cmd, bool) {
 		// Browsing, the folder; searching, what was found (oilsearch.go).
 		if m.browsing() {
-			return m, loadOil(m.cwd, false, "")
+			return m, loadOil(m.cwd, false, ""), true
 		}
-		cmd := m.oilFromSearch()
-		return m, cmd
-	case "ctrl+r":
-		m.startRename()
+		return m, m.oilFromSearch(), true
+	},
+	"rename": func(m *Model) (tea.Model, tea.Cmd, bool) { m.startRename(); return m, nil, true },
+	"parent": func(m *Model) (tea.Model, tea.Cmd, bool) {
+		// Up as in Oil.nvim, with nothing typed; in a query its key types
+		// ("vless-tun").
+		if m.query != "" {
+			return m, nil, false
+		}
+		return m, m.up(), true
+	},
+	"help": func(m *Model) (tea.Model, tea.Cmd, bool) { return m, nil, true }, // F1: the help page is to come
+}
 
-	case "up", "ctrl+p":
-		m.move(-1)
-	case "down", "ctrl+n":
-		m.move(1)
-	case "pgup":
-		m.move(-m.listHeight())
-	case "pgdown":
-		m.move(m.listHeight())
-	case "home":
-		m.move(-len(m.results))
-	case "end":
-		m.move(len(m.results))
-
-	case "backspace", "-":
-		// With nothing typed, both step back: backspace takes the last tag
-		// off, as it erases the chip before the cursor, then out of the
-		// folder, having nothing left to erase; "-" goes up as in
-		// Oil.nvim. In a query they edit it ("vless-tun").
-		if m.query == "" && len(m.tags) > 0 && msg.String() == "backspace" {
-			cmd := m.popTag()
-			return m, cmd
-		}
-		if m.query == "" {
-			cmd := m.up()
-			return m, cmd
-		}
+// moveBy returns the action that moves the selection by delta(m) rows.
+func moveBy(delta func(*Model) int) actionFunc {
+	return func(m *Model) (tea.Model, tea.Cmd, bool) {
+		m.move(delta(m))
+		return m, nil, true
 	}
-
-	// The rest edits the query. The arrows left and right belong to the
-	// text, as in any input field; folders are entered with Enter and left
-	// with "-" or backspace.
-	if l := m.queryLine(); l.key(msg) {
-		cmd := m.setQueryLine(l)
-		return m, cmd
-	}
-	return m, nil
 }
 
 // jumpTarget is where ctrl+e takes the shell.

@@ -80,7 +80,7 @@ func (m *Model) renameKey(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		return m.applyRename()
 	default:
-		st.line.key(msg)
+		st.line.key(m.actionOf(msg), msg)
 	}
 	return nil
 }
