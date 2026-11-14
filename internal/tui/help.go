@@ -66,9 +66,9 @@ func (m *Model) helpLines() []helpLine {
 	say("", "several tags: all of them. The same tag again takes it off.")
 
 	head("OIL · " + m.keysOf("oil") + ", the folder or what was found as text")
-	say("hjkl w b 0 $ gg G", "move, as in Vim; counts too: 3j")
+	say("hjkl 0 ^ $ gg G", "move, as in Vim; counts too: 3j, 2dd")
 	say("i a o O", "type; esc back to normal")
-	say("cc  cw", "rename: change the line")
+	say("cc  C  x", "rename: change the line, or part of it")
 	say("dd", "to the trash")
 	say("yy p", "copy, here or in any other folder")
 	say("~/x  /x", "a line starting so moves the entry there")
