@@ -32,6 +32,7 @@ type Model struct {
 	home   string         // $HOME, shown as "~"
 	prune  *indexer.Prune // what the crawl lists without going in
 	editor string         // editor command line; empty means $VISUAL, $EDITOR, then a fallback
+	icons  bool           // Nerd Font icons; off, a "/" after a folder says what it is
 
 	// local is what LOCAL search runs on: the index of the folder fndr
 	// started in, or of wherever the user went that it does not cover.
@@ -157,7 +158,7 @@ func New(root string, cfg config.Config, cfgErrs []error) *Model {
 	home, _ := os.UserHomeDir() // best effort: without it paths just are not shortened
 	m := newModel(root, home, &indexer.Index{})
 	m.local.crawling = true // Init starts it
-	m.preview, m.editor = cfg.Preview, cfg.Editor
+	m.preview, m.editor, m.icons = cfg.Preview, cfg.Editor, cfg.Icons
 
 	// Pictures off is the terminal's lack of them: a card for every file,
 	// and nothing sent to tmux to let them through.
@@ -188,6 +189,7 @@ func newModel(root, home string, ix *indexer.Index) *Model {
 	ctx, stop := context.WithCancel(context.Background())
 	return &Model{
 		release: debug.FreeOSMemory,
+		icons:   true,
 		cwd:     root, start: root, home: home, prune: indexer.DefaultPrune(home),
 		local: &scope{root: root, ix: ix},
 		ctx:   ctx, stop: stop,

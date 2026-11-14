@@ -210,7 +210,7 @@ func (m *Model) paneLines(h int) []string {
 		case e.err != nil:
 			body = []string{stPaneDim.Render(ansi.Truncate("cannot preview: "+safeText(e.err.Error()), cw, "…"))}
 		case e.p.Kind == preview.Dir:
-			body = paneDir(e.p.Entries[min(m.paneScroll, len(e.p.Entries)):], cw, h)
+			body = paneDir(e.p.Entries[min(m.paneScroll, len(e.p.Entries)):], cw, h, m.icons)
 		case e.p.Kind == preview.Text:
 			body = paneText(e.code[min(m.paneScroll, len(e.code)):], cw, h)
 		case e.p.Kind == preview.Image && e.img != nil:
@@ -232,8 +232,8 @@ func (m *Model) paneLines(h int) []string {
 }
 
 // paneDir draws a folder's contents the way the list draws rows: icon, then
-// name, hidden entries dimmed.
-func paneDir(es []indexer.Entry, cw, h int) []string {
+// name, hidden entries dimmed; with icons off, a "/" after a folder.
+func paneDir(es []indexer.Entry, cw, h int, icons bool) []string {
 	if len(es) == 0 {
 		return []string{stPaneDim.Render("empty folder")}
 	}
@@ -242,6 +242,13 @@ func paneDir(es []indexer.Entry, cw, h int) []string {
 	for i := range es {
 		name := safeText(es[i].Name())
 		st := pick(strings.HasPrefix(name, "."), &stNameHidden, &stName)
+		if !icons {
+			if es[i].IsDir {
+				name += "/"
+			}
+			out[i] = st.Render(ansi.Truncate(name, cw, "…"))
+			continue
+		}
 		out[i] = iconFor(name, es[i].IsDir) + " " + st.Render(ansi.Truncate(name, max(cw-2, 0), "…"))
 	}
 	return out

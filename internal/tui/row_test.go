@@ -16,7 +16,7 @@ func result(path string, positions ...int) indexer.Result {
 
 // plain renders a row and strips the colours, leaving what the user reads.
 func plain(r indexer.Result, root string, width int, selected bool) string {
-	return ansi.Strip(renderRow(&r, root, width, selected, false, &accentLocal))
+	return ansi.Strip(renderRow(&r, root, width, rowLook{selected: selected, icons: true}, &accentLocal))
 }
 
 func TestRenderRowLayout(t *testing.T) {
@@ -82,12 +82,15 @@ func TestRenderRowExactWidth(t *testing.T) {
 		"/r/" + strings.Repeat("x", 200),
 	}
 	for _, p := range paths {
-		for _, w := range []int{1, 5, 6, 10, 20, 37, 80, 200} {
-			for _, sel := range []bool{false, true} {
-				r := result(p, len(p)-1) // highlight the last byte
-				row := renderRow(&r, "/r", w, sel, sel, &accentLocal)
-				if got := ansi.StringWidth(row); got != w {
-					t.Errorf("path %q, width %d: row is %d cells: %q", p, w, got, ansi.Strip(row))
+		for _, w := range []int{1, 3, 4, 5, 6, 10, 20, 37, 80, 200} {
+			for _, look := range []rowLook{{icons: true}, {selected: true, habit: true, icons: true}, {}, {selected: true}} {
+				for _, dir := range []bool{false, true} { // with icons off, a folder's "/" takes a cell
+					r := result(p, len(p)-1) // highlight the last byte
+					r.Entry = indexer.NewEntry(p, 0, 0, dir)
+					row := renderRow(&r, "/r", w, look, &accentLocal)
+					if got := ansi.StringWidth(row); got != w {
+						t.Errorf("path %q, width %d, %+v, dir %v: row is %d cells: %q", p, w, look, dir, got, ansi.Strip(row))
+					}
 				}
 			}
 		}
@@ -114,7 +117,7 @@ func BenchmarkRenderRow(b *testing.B) {
 	}
 	for b.Loop() {
 		for i := range rs {
-			renderRow(&rs[i], "/home/v/dev", 100, i == 0, false, &accentLocal)
+			renderRow(&rs[i], "/home/v/dev", 100, rowLook{selected: i == 0, icons: true}, &accentLocal)
 		}
 	}
 }

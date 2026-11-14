@@ -227,7 +227,7 @@ func TestEnterFolderDropsTags(t *testing.T) {
 func TestRowOfTheRootItself(t *testing.T) {
 	r := indexer.Result{Entry: indexer.NewEntry("/r/a", 0, 0, true)}
 	for _, root := range []string{"/r/a", "/r/a/b"} {
-		if row := renderRow(&r, root, 40, false, false, &accentLocal); ansi.StringWidth(row) != 40 {
+		if row := renderRow(&r, root, 40, rowLook{icons: true}, &accentLocal); ansi.StringWidth(row) != 40 {
 			t.Errorf("root %s: row %q is not 40 cells", root, row)
 		}
 	}

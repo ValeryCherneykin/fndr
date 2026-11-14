@@ -16,14 +16,25 @@ import (
 //
 //	▎ <icon> <name>     <dir>␠
 //
+// With icons off, a folder is told by a "/" after its name, as ls -F
+// writes it: "▎ src/".
+//
 // The marker column is always reserved, so rows do not shift sideways when
 // the selection moves. The directory is shown relative to the search root and
 // right-aligned, dim, so the eye goes to the name first.
 const (
 	rowFixed  = 5 // marker, space, icon, space, right padding
+	iconCells = 2 // of rowFixed, the icon and its space: none with icons off
 	rowMinGap = 2 // minimum spaces between name and directory
 	ellipsis  = "…"
 )
+
+// rowLook is how a row is drawn, apart from what it shows.
+type rowLook struct {
+	selected bool // under the cursor: the marker, bright
+	habit    bool // a place the user often goes: a clock instead of its type
+	icons    bool // Nerd Font icons; off, a "/" after a folder
+}
 
 // renderRow renders one search result as exactly width cells.
 //
@@ -37,39 +48,47 @@ const (
 //
 // A habit row (a place the user often goes, shown above a folder's contents)
 // carries a clock instead of its type icon: it says why the row is there.
-func renderRow(r *indexer.Result, root string, width int, selected, habit bool, a *accent) string {
+func renderRow(r *indexer.Result, root string, width int, look rowLook, a *accent) string {
 	path := safeText(r.Entry.Path) // same length: offsets and positions still fit
 	nameLo := len(path) - len(r.Entry.Name())
 	dirLo, dirHi := relDir(path, nameLo, root)
 
 	nameSt, dirSt := &stName, &stDir
 	switch {
-	case selected:
+	case look.selected:
 		nameSt, dirSt = &stNameSel, &stDirSel
 	case strings.HasPrefix(r.Entry.Name(), "."):
 		nameSt = &stNameHidden // there when looked for, never competing with the rest
 	}
 
 	avail := width - rowFixed
+	var slash string
+	if !look.icons {
+		avail += iconCells
+		if r.Entry.IsDir {
+			slash = nameSt.Render("/")
+		}
+	}
 	if avail <= 0 {
 		return strings.Repeat(" ", max(width, 0))
 	}
 
 	var b strings.Builder
-	if selected {
+	if look.selected {
 		b.WriteString(a.marker.Render("▎"))
 	} else {
 		b.WriteByte(' ')
 	}
 	b.WriteByte(' ')
-	if habit {
-		b.WriteString(iconHabitStyled)
-	} else {
-		b.WriteString(iconFor(r.Entry.Name(), r.Entry.IsDir))
+	switch {
+	case !look.icons:
+	case look.habit:
+		b.WriteString(iconHabitStyled + " ")
+	default:
+		b.WriteString(iconFor(r.Entry.Name(), r.Entry.IsDir) + " ")
 	}
-	b.WriteByte(' ')
 
-	nameW := ansi.StringWidth(path[nameLo:])
+	nameW := ansi.StringWidth(path[nameLo:]) + lipgloss.Width(slash)
 	if nameW > avail {
 		// The name alone overflows: cut it and show no directory.
 		hi := cutRight(path, nameLo, len(path), avail-1)
@@ -78,6 +97,7 @@ func renderRow(r *indexer.Result, root string, width int, selected, habit bool, 
 		return finish(b.String(), width)
 	}
 	b.WriteString(styleRange(path, nameLo, len(path), r.Positions, nameSt, &a.nameHit))
+	b.WriteString(slash)
 
 	// What is left for the gap and the directory.
 	room := avail - nameW - rowMinGap
