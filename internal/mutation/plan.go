@@ -19,8 +19,13 @@ import (
 //
 //	ID of an item, same name    nothing happens
 //	ID of an item, new name     rename (a path moves it: "old/x.go")
+//	ID on one more line         copy, to that line's name (yy then p)
 //	ID 0                        create, by Create's rules ("a/b/", "x.txt")
 //	ID on no line               delete: the item goes to the trash
+//
+// An item on several lines is the original on one, kept or renamed, and
+// copied on the others: the original is the line left as it was, or, with
+// none, the first.
 //
 // Names are relative to the folder; a folder's name may carry a trailing
 // "/", as the buffer shows it, which a rename ignores: it cannot turn a
@@ -40,7 +45,6 @@ type Line struct {
 
 // Errors of Diff, wrapped in a *LineError where a line is to blame.
 var (
-	ErrCopy     = errors.New("the same item is on two lines; copying is not supported yet")
 	ErrConflict = errors.New("two entries would have the same name")
 	ErrUnknown  = errors.New("line refers to no item of this folder")
 	ErrNested   = errors.New("inside a folder that changes too: one at a time")
@@ -66,16 +70,18 @@ const (
 	OpDelete Kind = iota
 	OpRename
 	OpCreate
+	OpCopy // Apply runs copies after deletes, before renames: see Apply
 )
 
-// Op is one change. From is the old name (OpDelete, OpRename), To the new
-// one (OpRename, OpCreate).
+// Op is one change. From is the old name (OpDelete, OpRename, OpCopy), To
+// the new one (OpRename, OpCreate, OpCopy).
 type Op struct {
 	Kind     Kind
 	From, To string
 }
 
-// Plan is the list of changes, deletes first, then renames, then creates.
+// Plan is the list of changes, deletes first, then copies, then renames,
+// then creates.
 // An empty plan means the buffer was not changed.
 type Plan []Op
 
@@ -88,13 +94,30 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 		shown[it.ID] = it.Name
 	}
 
-	var renames, creates Plan
+	// The line of each item that is the item itself, the others its
+	// copies: the first left as it was, or else the first not blank.
+	primary := make(map[int]int, len(items))
+	for i, l := range lines {
+		if name, ok := shown[l.ID]; ok && l.Text == name {
+			if _, set := primary[l.ID]; !set || lines[primary[l.ID]].Text != name {
+				primary[l.ID] = i
+			}
+		}
+	}
+	for i, l := range lines {
+		if _, set := primary[l.ID]; !set && l.ID != 0 && strings.TrimSpace(l.Text) != "" {
+			primary[l.ID] = i
+		}
+	}
+
+	var renames, copies, creates Plan
+	var copiedOn []int            // the line of each copy, for its errors
 	renamedOn := map[string]int{} // old name → the line renaming it
 	seen := make(map[int]bool, len(lines))
 	taken := map[string]int{} // final name → the line that claims it
 	for i, l := range lines {
 		n := i + 1
-		if name, ok := shown[l.ID]; ok && l.Text == name && !seen[l.ID] {
+		if name, ok := shown[l.ID]; ok && l.Text == name && primary[l.ID] == i {
 			// Untouched: the entry stays as it is, whatever its name. What
 			// follows cleans what the user typed, and would rename "notes "
 			// to "notes", or macOS's "Icon\r" (a folder's custom icon) to
@@ -118,14 +141,14 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 			op = Op{Kind: OpCreate, To: text}
 		} else {
 			old, ok := byID[l.ID]
-			switch {
-			case !ok:
+			if !ok {
 				return nil, lineErr(ErrUnknown)
-			case seen[l.ID]:
-				return nil, lineErr(ErrCopy)
 			}
 			seen[l.ID] = true
 			op = Op{Kind: OpRename, From: old, To: strings.TrimSuffix(text, "/")}
+			if primary[l.ID] != i {
+				op.Kind = OpCopy // one more line of the item: yy then p
+			}
 		}
 
 		// The name must be one Create would accept, whatever the line does:
@@ -160,6 +183,10 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 		switch {
 		case op.Kind == OpCreate:
 			creates = append(creates, op)
+		case op.Kind == OpCopy:
+			op.To = final
+			copies = append(copies, op)
+			copiedOn = append(copiedOn, n)
 		case final != op.From:
 			op.To = final
 			renames = append(renames, op)
@@ -172,7 +199,7 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 	// Created again, it would be found there and stop Apply halfway, or
 	// not, depending on the order of the lines.
 	through := map[string]bool{}
-	for _, op := range slices.Concat(renames, creates) {
+	for _, op := range slices.Concat(renames, copies, creates) {
 		// Up to "." for a name in the folder, "/" for a move away: Dir("/")
 		// is "/" again, and a loop waiting for "." would never end.
 		for d := filepath.Dir(filepath.Clean(op.To)); d != "." && d != string(filepath.Separator); d = filepath.Dir(d) {
@@ -194,7 +221,16 @@ func Diff(items []Item, lines []Line) (Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(append(deletes, renames...), creates...), nil
+	// A copy runs after the deletes: of an entry inside a folder trashed
+	// in the same plan, there would be nothing left to copy.
+	for i, op := range copies {
+		for _, d := range deletes {
+			if op.From == d.From || strings.HasPrefix(op.From, d.From+"/") {
+				return nil, &LineError{Line: copiedOn[i], Err: ErrNested}
+			}
+		}
+	}
+	return slices.Concat(deletes, copies, renames, creates), nil
 }
 
 // nested settles items inside a folder the plan also moves, which a buffer

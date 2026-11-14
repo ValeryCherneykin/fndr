@@ -41,6 +41,17 @@ func Apply(dir string, p Plan, trash *Trash) (done int, err error) {
 			renames = append(renames, op)
 		}
 	}
+	// Copies after the deletes, before the renames: a copy of an entry
+	// also renamed in the plan is of the entry as it was, still there.
+	for _, op := range p {
+		if op.Kind != OpCopy {
+			continue
+		}
+		if err := copyEntry(filepath.Join(dir, op.From), Target(dir, op.To)); err != nil {
+			return done, fmt.Errorf("copy %q to %q: %w", op.From, op.To, err)
+		}
+		done++
+	}
 
 	n, err := renameAll(dir, renames)
 	done += n
@@ -75,7 +86,10 @@ func Apply(dir string, p Plan, trash *Trash) (done int, err error) {
 // does a check close the gap before the step itself; that is noReplace's
 // and O_EXCL's job.
 func check(dir string, p Plan) error {
-	var leaving []os.FileInfo
+	// What leaves its name, and by when: deletes run before the copies,
+	// renames after them. A copy's name must be free once the deletes are
+	// done; the others' once the renames are too.
+	var leaving, deleted []os.FileInfo
 	for _, op := range p {
 		if op.Kind == OpCreate {
 			continue
@@ -87,20 +101,43 @@ func check(dir string, p Plan) error {
 			}
 			return fmt.Errorf("%q: %w", op.From, err)
 		}
-		leaving = append(leaving, info)
+		switch op.Kind {
+		case OpDelete:
+			deleted = append(deleted, info)
+			leaving = append(leaving, info)
+		case OpRename:
+			leaving = append(leaving, info)
+		case OpCopy: // stays where it is
+			if src, dst := filepath.Join(dir, op.From), Target(dir, op.To); info.IsDir() && isWithin(dst, src) {
+				return fmt.Errorf("copy %q to %q: %w", op.From, op.To, ErrIntoItself)
+			}
+		}
 	}
 	for _, op := range p {
-		if op.Kind == OpDelete {
+		var err error
+		switch op.Kind {
+		case OpDelete:
 			continue
-		}
-		if err := free(dir, op.To, leaving); err != nil {
-			if op.Kind == OpRename {
+		case OpCopy:
+			if err = free(dir, op.To, deleted); err != nil {
+				return fmt.Errorf("copy %q to %q: %w", op.From, op.To, err)
+			}
+		case OpRename:
+			if err = free(dir, op.To, leaving); err != nil {
 				return fmt.Errorf("rename %q to %q: %w", op.From, op.To, err)
 			}
-			return fmt.Errorf("create %q: %w", op.To, err)
+		default:
+			if err = free(dir, op.To, leaving); err != nil {
+				return fmt.Errorf("create %q: %w", op.To, err)
+			}
 		}
 	}
 	return nil
+}
+
+// isWithin reports whether path is dir or lies below it; both cleaned.
+func isWithin(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
 }
 
 // free says whether name can be taken in dir. Walking it from the top,

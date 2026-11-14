@@ -83,7 +83,7 @@ func TestDiffRefuses(t *testing.T) {
 		line  int
 		want  error
 	}{
-		{"yy p is a copy", append(untouched(), Line{2, "main.go"}), 4, ErrCopy},
+		{"yy p, the name kept: one name twice", append(untouched(), Line{2, "main.go"}), 4, ErrConflict},
 		{"two lines, one name", []Line{{1, "src/"}, {2, "README.md"}, {3, "README.md"}}, 3, ErrConflict},
 		{"a new line on an old name", append(untouched(), Line{0, "main.go"}), 4, ErrConflict},
 		{"same name, different spelling", append(untouched(), Line{0, "src//"}), 4, ErrConflict},
@@ -152,7 +152,7 @@ func FuzzDiff(f *testing.F) {
 			}
 			// In the folder, or, only for a rename, a whole path written
 			// out: a move away (Diff), cleaned, never through "~".
-			away := op.Kind == OpRename && filepath.IsAbs(op.To) && filepath.Clean(op.To) == op.To && !hasTilde(op.To)
+			away := (op.Kind == OpRename || op.Kind == OpCopy) && filepath.IsAbs(op.To) && filepath.Clean(op.To) == op.To && !hasTilde(op.To)
 			if op.To != "" && !filepath.IsLocal(filepath.Clean(op.To)) && !away {
 				t.Fatalf("%q leaves the folder: %v", op.To, p)
 			}
@@ -244,5 +244,39 @@ func TestExpandHome(t *testing.T) {
 	}
 	if lines[1].Text != "~/Documents/video/Kafka/" {
 		t.Error("ExpandHome wrote into the lines it was given")
+	}
+}
+
+// TestDiffCopies: an item on more lines than one is the original on one,
+// the line left as it was or else the first, and a copy on each other.
+func TestDiffCopies(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		lines []Line
+		want  Plan
+	}{
+		{"yy p, renamed", append(untouched(), Line{2, "main copy.go"}),
+			Plan{{Kind: OpCopy, From: "main.go", To: "main copy.go"}}},
+		{"the line left as it was is the original", []Line{{1, "src/"}, {2, "app.go"}, {2, "main.go"}, {3, "README.md"}},
+			Plan{{Kind: OpCopy, From: "main.go", To: "app.go"}}},
+		{"both changed: the first is a rename, the copy of the file as it was", []Line{{1, "src/"}, {2, "a.go"}, {2, "b.go"}, {3, "README.md"}},
+			Plan{{Kind: OpCopy, From: "main.go", To: "b.go"}, {Kind: OpRename, From: "main.go", To: "a.go"}}},
+		{"to a whole path", append(untouched(), Line{2, "/home/me/Documents/main.go"}),
+			Plan{{Kind: OpCopy, From: "main.go", To: "/home/me/Documents/main.go"}}},
+		{"a folder", append(untouched(), Line{1, "lib/"}),
+			Plan{{Kind: OpCopy, From: "src", To: "lib"}}},
+	} {
+		got, err := Diff(folder, tc.lines)
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %v, %v\nwant %v", tc.name, got, err, tc.want)
+		}
+	}
+
+	// Inside a folder trashed in the same plan, there is nothing to copy.
+	nested := []Item{{1, "fndr/"}, {2, "fndr/a.go"}}
+	_, err := Diff(nested, []Line{{2, "fndr/a.go"}, {2, "b.go"}})
+	var le *LineError
+	if !errors.As(err, &le) || le.Line != 2 || !errors.Is(err, ErrNested) {
+		t.Errorf("copy out of a trashed folder: %v, want ErrNested on line 2", err)
 	}
 }
