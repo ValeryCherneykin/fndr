@@ -342,6 +342,7 @@ func (m *Model) viewOil() tea.View {
 	b.WriteString(m.oilStatus())
 
 	v := tea.NewView(b.String())
+	v.ReportFocus = true // back in fndr: catch up with the disk (catchup.go)
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
 	if st.plan == nil { // the plan is read, not edited: no cursor

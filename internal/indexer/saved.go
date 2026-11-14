@@ -365,6 +365,15 @@ func DefaultSavedPath() (string, error) {
 	return filepath.Join(dir, "fndr", "index"), nil
 }
 
+// SortedByPath returns a copy of es sorted by path, as Refresh and Under
+// take entries: an index in crawl order made sortable for a catch-up.
+// es is left as it is: a snapshot is read by searches meanwhile.
+func SortedByPath(es []Entry) []Entry {
+	sorted := slices.Clone(es)
+	slices.SortFunc(sorted, func(a, b Entry) int { return strings.Compare(a.Path, b.Path) })
+	return sorted
+}
+
 // Under returns the entries of sorted, sorted by path as Load returns
 // them, that are below dir: a part of sorted, not a copy, found by binary
 // search in microseconds where a scan of a home would take milliseconds.

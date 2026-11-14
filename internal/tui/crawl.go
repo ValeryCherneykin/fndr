@@ -42,6 +42,7 @@ type scope struct {
 	stream   *crawlStream
 	crawling bool
 	skipped  int   // paths the crawl could not read
+	reused   int   // folders the last crawl took from the index, unread: a catch-up's
 	err      error // why the crawl failed, if it did
 
 	// A crawl of a scope that already has entries (a saved index, see
@@ -60,6 +61,10 @@ type scope struct {
 	// is a crawl of the home, and a crawl from another root sees other
 	// .gitignore files above it, so would not agree with it.
 	seed []indexer.Entry
+
+	// catchUp asks the next crawl to catch up with what ix holds, sorted
+	// for it off the UI goroutine (catchup.go), not to crawl afresh.
+	catchUp bool
 }
 
 // crawlStream connects the crawl goroutine to the UI. Batches are pulled one
@@ -85,7 +90,12 @@ func (m *Model) startCrawl(s *scope) tea.Cmd {
 	if s.ix.Len() > 0 {
 		s.next = &indexer.Index{}
 	}
-	return runCrawl(ctx, s.gen, s.root, m.prune, s.seed)
+	var unsorted []indexer.Entry
+	if s.catchUp && s.seed == nil {
+		unsorted = s.ix.Snapshot()
+	}
+	s.catchUp = false
+	return runCrawl(ctx, s.gen, s.root, m.prune, s.seed, unsorted)
 }
 
 // scopes returns the scopes there are, each once. LOCAL and GLOBAL are one
@@ -113,7 +123,7 @@ func (m *Model) crawled(gen int) *scope {
 // the crawl run a few batches ahead of the UI instead of waiting on every
 // handoff. The goroutine always ends: Crawl returns when ctx is canceled, and
 // done has room for its one result even if nobody reads it.
-func runCrawl(ctx context.Context, gen int, root string, prune *indexer.Prune, seed []indexer.Entry) tea.Cmd {
+func runCrawl(ctx context.Context, gen int, root string, prune *indexer.Prune, seed, unsorted []indexer.Entry) tea.Cmd {
 	return func() tea.Msg {
 		s := &crawlStream{
 			gen:     gen,
@@ -125,6 +135,12 @@ func runCrawl(ctx context.Context, gen int, root string, prune *indexer.Prune, s
 				stats indexer.Stats
 				err   error
 			)
+			if unsorted != nil {
+				// A catch-up of an index in crawl order: sorted here, off
+				// the UI goroutine, a copy, the snapshot itself being read
+				// by searches meanwhile.
+				seed = indexer.SortedByPath(unsorted)
+			}
 			if seed != nil {
 				stats, err = indexer.Refresh(ctx, root, prune, seed, s.batches)
 			} else {
@@ -178,7 +194,7 @@ func (m *Model) crawlDone(msg *crawlDoneMsg) tea.Cmd {
 		return nil
 	}
 	s.crawling = false
-	s.skipped = msg.stats.Skipped
+	s.skipped, s.reused = msg.stats.Skipped, msg.stats.Reused
 	if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
 		s.err = msg.err
 	}

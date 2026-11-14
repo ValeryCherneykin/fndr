@@ -30,6 +30,7 @@ func (m *Model) View() tea.View {
 	b.WriteString(m.viewStatus())
 
 	v := tea.NewView(b.String())
+	v.ReportFocus = true // back in fndr: catch up with the disk (catchup.go)
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
 	line, color, x := m.queryLine(), colLocal, promptWidth+ansi.StringWidth(m.viewChips())

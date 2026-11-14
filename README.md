@@ -52,7 +52,9 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
   back. With nothing typed, `Tab` shows the places you go most.
 - **Instant start.** The index of your home is kept between runs, so
   search works the moment fndr opens. What changed while it was closed
-  is caught up in the background, reading only the folders that changed.
+  is caught up in the background, reading only the folders that changed,
+  and so is what changed while you were in another window or tmux pane:
+  a file saved in nvim is found the moment you switch back.
 - **Only what you would look for.** Caches, package stores, `node_modules`,
   hidden folders, app bundles and the folders a project's `.gitignore`
   names (`bin/`, `dist/`, `target/`) are listed, so you can find them by
