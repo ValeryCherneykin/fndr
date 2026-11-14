@@ -134,9 +134,9 @@ func TestBindOnlyWhileSearching(t *testing.T) {
 // said together, the first in full, the rest counted.
 func TestConfigMistakesSaid(t *testing.T) {
 	m := tagModel(t)
-	cfg, errs := config.Parse(strings.NewReader("preview = on\nbind = ctrl+n = tag:dirs\nbind = alt+d = tag:dirs\n"))
+	cfg, errs := config.Parse(strings.NewReader("preview = maybe\nbind = ctrl+n = tag:dirs\nbind = alt+d = tag:dirs\n"))
 	m.useConfig(cfg, errs)
-	if !m.noticeErr || m.notice != `config line 1: unknown setting "preview" (and 1 more)` {
+	if !m.noticeErr || m.notice != `config line 1: "maybe": want on or off (and 1 more)` {
 		t.Errorf("notice %q (err %v)", m.notice, m.noticeErr)
 	}
 	if len(m.binds) != 1 {

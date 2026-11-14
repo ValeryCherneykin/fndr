@@ -22,7 +22,7 @@ bind = ctrl+q = open:x
 bind = ctrl+q = tag:
 bind = ctrl+fx = tag:.go
 bind = cmd+f = tag:.go
-preview = on
+preview = maybe
 bind = ctrl+g = tag:dirs   # folders
 `))
 	want := []Bind{
@@ -40,15 +40,7 @@ bind = ctrl+g = tag:dirs   # folders
 		}
 	}
 	// Every bad line is reported, by number, and the good ones still count.
-	lines := make([]int, 0, len(errs))
-	for _, err := range errs {
-		var e *Error
-		if !errors.As(err, &e) {
-			t.Fatalf("%v is not an *Error", err)
-		}
-		lines = append(lines, e.Line)
-	}
-	if !slices.Equal(lines, []int{7, 8, 9, 10, 11, 12, 13, 14}) {
+	if lines := errLines(t, errs); !slices.Equal(lines, []int{7, 8, 9, 10, 11, 12, 13, 14}) {
 		t.Errorf("errors on lines %v: %v", lines, errs)
 	}
 }
@@ -78,8 +70,8 @@ func TestKeystroke(t *testing.T) {
 
 func TestLoad(t *testing.T) {
 	dir := t.TempDir()
-	if c, errs := Load(filepath.Join(dir, "none")); len(c.Binds) != 0 || errs != nil {
-		t.Errorf("no file: %+v, %v; want nothing, no error", c, errs)
+	if c, errs := Load(filepath.Join(dir, "none")); len(c.Binds) != 0 || !c.Icons || len(c.Keys["down"]) == 0 || errs != nil {
+		t.Errorf("no file: %+v, %v; want the defaults, no error", c, errs)
 	}
 	path := filepath.Join(dir, "config")
 	if err := os.WriteFile(path, []byte("bind = ctrl+f>f = tag:dirs\n"), 0o600); err != nil {
@@ -105,13 +97,26 @@ func TestDefaultPath(t *testing.T) {
 	}
 }
 
-// FuzzParse: any file at all, Parse never panics, and every key it keeps
-// reads back as itself.
+// FuzzParse: any file at all, Parse never panics, every key it keeps reads
+// back as itself, and no key does two actions.
 func FuzzParse(f *testing.F) {
 	f.Add("bind = ctrl+f>f = tag:dirs\n# x\nbind=alt+x=tag:.go")
 	f.Add("bind = > = tag:x")
+	f.Add("key.down = ctrl+j\nkey.up = ctrl+j ctrl+n\nkey.quit = none")
 	f.Fuzz(func(t *testing.T, s string) {
 		c, _ := Parse(strings.NewReader(s))
+		owner := map[string]string{}
+		for name, keys := range c.Keys {
+			for _, k := range keys {
+				if again, err := Keystroke(k); err != nil || again != k {
+					t.Fatalf("%s: %q reads back as %q, %v", name, k, again, err)
+				}
+				if prev, ok := owner[k]; ok {
+					t.Fatalf("%s does %s and %s", k, prev, name)
+				}
+				owner[k] = name
+			}
+		}
 		for _, b := range c.Binds {
 			for _, k := range b.Keys {
 				if again, err := Keystroke(k); err != nil || again != k {
@@ -128,4 +133,101 @@ func TestParseByteOrderMark(t *testing.T) {
 	if len(errs) != 0 || len(c.Binds) != 1 {
 		t.Errorf("binds %+v, errors %v", c.Binds, errs)
 	}
+}
+
+// TestDefault: a file that sets nothing is fndr as it comes; the table's
+// keys are written as the interface names them, and none does two actions.
+func TestDefault(t *testing.T) {
+	c, errs := Parse(strings.NewReader("# nothing\n"))
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if !c.Icons || c.Preview || !c.Images || !c.History || !c.SaveIndex || c.Editor != "" || c.EditorGUI {
+		t.Errorf("defaults %+v", c)
+	}
+	owner := map[string]string{}
+	for _, a := range Actions {
+		if !slices.Equal(c.Keys[a.Name], a.Keys) {
+			t.Errorf("%s: %q, want %q", a.Name, c.Keys[a.Name], a.Keys)
+		}
+		for _, k := range a.Keys {
+			if again, err := Keystroke(k); err != nil || again != k {
+				t.Errorf("%s: %q is written as %q, %v", a.Name, k, again, err)
+			}
+			if prev, ok := owner[k]; ok {
+				t.Errorf("%s does %s and %s", k, prev, a.Name)
+			}
+			owner[k] = a.Name
+		}
+	}
+	c.Keys["down"][0] = "x" // the table stays as it was
+	if Default().Keys["down"][0] != "ctrl+n" {
+		t.Error("Default hands out the table itself")
+	}
+}
+
+// TestSettings: a switch is on or off (true, false, as Ghostty writes
+// them), a text is taken as is, and every mistake names its line.
+func TestSettings(t *testing.T) {
+	c, errs := Parse(strings.NewReader(`images = off
+preview = ON
+history = false
+editor = code --wait
+editor_gui = true
+icons = no
+images = on
+imagez = off
+save_index = off # keep it
+`))
+	if c.Images || !c.Preview || c.History || c.Editor != "code --wait" || !c.EditorGUI || !c.Icons || !c.SaveIndex {
+		t.Errorf("settings %+v", c)
+	}
+	if got := errLines(t, errs); !slices.Equal(got, []int{6, 7, 8, 9}) {
+		t.Errorf("errors on lines %v: %v", got, errs)
+	}
+}
+
+// TestKeys: an action's line is all its keys; "none" turns it off; a key
+// written for one action is taken from the one that had it, which is said.
+func TestKeys(t *testing.T) {
+	c, errs := Parse(strings.NewReader(`key.down = ctrl+j Down
+key.reveal = none
+key.nope = ctrl+x
+key.up = ctrl+x ctrl+x
+key.up =
+key.quit = ctrl+q
+key.jump = ctrl+q
+key.down = ctrl+n
+`))
+	for name, want := range map[string][]string{
+		"down":         {"ctrl+j", "down"},
+		"preview_down": {},               // ctrl+j went to down
+		"reveal":       {},               // none
+		"up":           {"ctrl+p", "up"}, // both lines wrong: the default
+		"quit":         {},               // ctrl+q went to jump, a line below
+		"jump":         {"ctrl+q"},
+	} {
+		if !slices.Equal(c.Keys[name], want) {
+			t.Errorf("%s: %q, want %q", name, c.Keys[name], want)
+		}
+	}
+	// 3 unknown, 4 a key twice, 5 no keys, 8 down twice; then what was
+	// taken: ctrl+j by down (line 1), ctrl+q by jump (line 7).
+	if got := errLines(t, errs); !slices.Equal(got, []int{3, 4, 5, 8, 1, 7}) {
+		t.Errorf("errors on lines %v: %v", got, errs)
+	}
+}
+
+// errLines returns the line of every error, which must all be *Error.
+func errLines(t *testing.T, errs []error) []int {
+	t.Helper()
+	lines := make([]int, 0, len(errs))
+	for _, err := range errs {
+		var e *Error
+		if !errors.As(err, &e) {
+			t.Fatalf("%v is not an *Error", err)
+		}
+		lines = append(lines, e.Line)
+	}
+	return lines
 }

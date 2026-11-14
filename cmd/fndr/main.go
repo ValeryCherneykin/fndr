@@ -70,7 +70,7 @@ func main() {
 // for the usual place), until the user quits.
 func runTUI(root, configPath string) (string, error) {
 	var (
-		cfg  config.Config
+		cfg  = config.Default()
 		errs []error
 	)
 	if configPath == "" {
