@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // Trash moves files and folders to the user's trash instead of deleting
@@ -68,12 +69,12 @@ func (t *Trash) Put(path string) (string, error) {
 		ext = ""
 	}
 	stem := strings.TrimSuffix(base, ext)
+	room := nameMax
+	if t.info != "" {
+		room -= len(".trashinfo") // the info file is named after it
+	}
 	for i := 1; i < 10000; i++ {
-		name := base
-		if i > 1 {
-			name = stem + " " + strconv.Itoa(i) + ext
-		}
-		dst, err := t.put(path, name)
+		dst, err := t.put(path, trashName(stem, ext, i, room))
 		if errors.Is(err, fs.ErrExist) {
 			continue
 		}
@@ -83,6 +84,34 @@ func (t *Trash) Put(path string) (string, error) {
 		return dst, nil
 	}
 	return "", fmt.Errorf("trash %s: no free name", base)
+}
+
+// nameMax is the longest name, in bytes, that the file systems fndr meets
+// take: ext4, APFS, NTFS (in UTF-16 units, more than enough here).
+const nameMax = 255
+
+// trashName is the name the i-th try trashes stem+ext under: as it is,
+// then "stem 2.ext", "stem 3.ext". It is at most room bytes: a name of 255
+// bytes is legal where it was, but not with " 2" added, nor beside its
+// .trashinfo; the trash would refuse it and stop the whole plan. So the
+// stem is cut, never in the middle of a letter, and the extension kept:
+// the real name is in the .trashinfo (and, on macOS, the user sees it
+// cut). An "extension" too long to keep is part of the stem.
+func trashName(stem, ext string, i, room int) string {
+	var number string
+	if i > 1 {
+		number = " " + strconv.Itoa(i)
+	}
+	if len(ext)+len(number) > room/2 {
+		stem, ext = stem+ext, ""
+	}
+	if cut := room - len(number) - len(ext); len(stem) > cut {
+		for cut > 0 && !utf8.RuneStart(stem[cut]) {
+			cut--
+		}
+		stem = stem[:cut]
+	}
+	return stem + number + ext
 }
 
 // put tries to trash path under name, returning fs.ErrExist if the name is

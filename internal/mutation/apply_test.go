@@ -2,12 +2,14 @@ package mutation
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // tree makes files with their content as their own name, so a test can
@@ -314,5 +316,55 @@ func TestApplyMoveAwayCheckedFirst(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dl, "junk.txt")); err != nil {
 		t.Error("junk.txt was trashed before the move failed")
+	}
+}
+
+// TestTrashLongNames: a name of 255 bytes, as long as names go, is
+// trashed: beside its .trashinfo on Linux, and as the second of its name
+// on macOS, it is cut to fit, never in the middle of a letter, the
+// extension kept. It used to stop the whole plan.
+func TestTrashLongNames(t *testing.T) {
+	ascii := strings.Repeat("a", 251) + ".log" // 255 bytes
+	cyr := strings.Repeat("я", 125) + "x.txt"  // 255 bytes, letters of two
+	for _, name := range []string{ascii, cyr} {
+		linux := freedesktop(t.TempDir())
+		mac := &Trash{files: t.TempDir()}
+		for _, trash := range []*Trash{linux, linux, mac, mac} { // twice: the second needs " 2"
+			dir := tree(t, name)
+			dst, err := trash.Put(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatalf("%d bytes: %v", len(name), err)
+			}
+			base := filepath.Base(dst)
+			if !utf8.ValidString(base) || filepath.Ext(base) != filepath.Ext(name) {
+				t.Errorf("trashed as %q", base)
+			}
+		}
+		if got := ls(t, linux.info); len(got) != 2 {
+			t.Errorf("info files %q", got)
+		}
+		for _, f := range ls(t, linux.info) {
+			if info := content(t, filepath.Join(linux.info, f)); !strings.Contains(info, url.PathEscape(name)[:20]) {
+				t.Errorf("the info file does not keep the whole name: %q", info)
+			}
+		}
+	}
+}
+
+func TestTrashName(t *testing.T) {
+	for _, tt := range []struct {
+		stem, ext string
+		i, room   int
+		want      string
+	}{
+		{"notes", ".md", 1, 255, "notes.md"},
+		{"notes", ".md", 2, 255, "notes 2.md"},
+		{"abcdef", ".md", 2, 10, "abcde 2.md"},
+		{"яяя", ".md", 1, 8, "яя.md"},                         // 5 bytes of stem fit: two letters, not two and a half
+		{"x", "." + strings.Repeat("e", 9), 1, 8, "x.eeeeee"}, // an extension too long is part of the name
+	} {
+		if got := trashName(tt.stem, tt.ext, tt.i, tt.room); got != tt.want {
+			t.Errorf("trashName(%q, %q, %d, %d) = %q, want %q", tt.stem, tt.ext, tt.i, tt.room, got, tt.want)
+		}
 	}
 }

@@ -365,3 +365,40 @@ func TestStopPoints(t *testing.T) {
 		}
 	})
 }
+
+// TestCopyStoppedReadOnly: a folder holding a read-only one (0500 here; 0555, as Go's
+// module cache has), stopped at every point, leaves nothing behind: the
+// half copy's read-only folder is emptied too.
+func TestCopyStoppedReadOnly(t *testing.T) {
+	for n := 1; n <= 10; n++ {
+		dir := t.TempDir()
+		src := filepath.Join(dir, "src")
+		ro := filepath.Join(src, "a", "ro")
+		if err := os.MkdirAll(ro, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range []string{filepath.Join(ro, "f"), filepath.Join(src, "z")} {
+			if err := os.WriteFile(f, []byte("x"), 0o444); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Chmod(ro, 0o500); err != nil { //nolint:gosec // read-only on purpose: what is tested
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // for TempDir to remove it
+		err := copyEntry(&dyingContext{Context: context.Background(), n: n}, src, filepath.Join(dir, "dst"), nil)
+		names := ls(t, dir)
+		switch {
+		case err == nil && slices.Equal(names, []string{"dst", "src"}):
+			_ = filepath.WalkDir(filepath.Join(dir, "dst"), func(p string, d fs.DirEntry, _ error) error {
+				if d != nil && d.IsDir() {
+					_ = os.Chmod(p, 0o700) //nolint:gosec // for TempDir to remove it
+				}
+				return nil
+			})
+		case err != nil && slices.Equal(names, []string{"src"}):
+		default:
+			t.Errorf("stopped at look %d: %v, left %q", n, err, names)
+		}
+	}
+}

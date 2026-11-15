@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -68,14 +69,29 @@ func copyEntry(ctx context.Context, src, dst string, prog *Progress) error {
 	}
 	tmp := filepath.Join(filepath.Dir(dst), ".fndr-copy-"+strconv.Itoa(os.Getpid())+"-"+strconv.FormatInt(copySeq.Add(1), 10))
 	if err := (copying{ctx, prog}).tree(src, tmp); err != nil {
-		_ = os.RemoveAll(tmp) //nolint:errcheck // the copy's error says more
+		discard(tmp)
 		return err
 	}
 	if err := noReplace(tmp, dst); err != nil {
-		_ = os.RemoveAll(tmp) //nolint:errcheck // as above
+		discard(tmp)
 		return err
 	}
 	return nil
+}
+
+// discard removes a copy cut short, whole. Each folder of it was given its
+// own mode once done, and a read-only one (0555, as Go's module cache has
+// them) cannot be emptied: RemoveAll alone would leave it, and the user a
+// hidden .fndr-copy-* told "nothing half copied". So every folder of the
+// copy is made the user's to write again first; they are fndr's own.
+func discard(tmp string) {
+	_ = filepath.WalkDir(tmp, func(p string, d fs.DirEntry, err error) error { //nolint:errcheck // what cannot be walked, RemoveAll still tries
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(p, 0o700) //nolint:errcheck,gosec // ours, going away
+		}
+		return nil
+	})
+	_ = os.RemoveAll(tmp) //nolint:errcheck // the copy's error says more
 }
 
 // tree copies src to dst, which is not there, recursively.
