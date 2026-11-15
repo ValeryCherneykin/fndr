@@ -233,13 +233,12 @@ func (m *Model) Init() tea.Cmd {
 // catches up with the selection, wherever the event moved it: a key, a search
 // reply, a folder listing.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	_, cmd := m.update(msg)
-	return m, tea.Batch(cmd, m.wantPreview())
+	return m, tea.Batch(m.update(msg), m.wantPreview())
 }
 
 // update does the work of Update for one event; Update wraps it so the pane
 // check cannot be forgotten on any of its many return paths.
-func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:unparam // the shape of tea.Model.Update, whose work it does
+func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -247,43 +246,42 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:unparam // t
 		if m.oil != nil {
 			m.oilScroll()
 		}
-		return m, nil
+		return nil
 
 	case oilMsg:
 		cmd := m.oilLoaded(&msg)
-		return m, cmd
+		return cmd
 
 	case oilWrittenMsg:
 		learn := m.relearn(msg.dir, msg.done)
-		return m, tea.Batch(learn, m.oilWritten(&msg))
+		return tea.Batch(learn, m.oilWritten(&msg))
 	case trashCountedMsg:
 		m.trashCounted(&msg)
 	case progressTickMsg:
 		cmd := m.progressTicked()
-		return m, cmd
+		return cmd
 	case renamedMsg:
 		learn := m.relearn(msg.dir, msg.done)
-		return m, tea.Batch(learn, m.renamed(&msg))
+		return tea.Batch(learn, m.renamed(&msg))
 
 	case tea.KeyPressMsg:
 		catchUp := m.keyCatchUp(time.Now())
-		model, cmd := m.handleKey(msg)
-		return model, tea.Batch(catchUp, cmd)
+		return tea.Batch(catchUp, m.handleKey(msg))
 
 	case tea.FocusMsg:
 		// Back from another window or pane: what changed meanwhile.
 		cmd := m.catchUp(time.Now())
-		return m, cmd
+		return cmd
 
 	case copiedMsg:
 		m.copied(&msg)
-		return m, nil
+		return nil
 
 	case tea.PasteMsg:
 		m.pending, m.yanking = nil, false // a chord is pressed, not pasted: what follows is typing again
 		if m.oil != nil {
 			m.oilPaste(msg.Content)
-			return m, nil
+			return nil
 		}
 		// A pasted path or name becomes the query. Whitespace runs, newlines
 		// included, become one space; other control characters, such as
@@ -291,71 +289,71 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:unparam // t
 		text := strings.Join(strings.Fields(dropControls(msg.Content)), " ")
 		if m.rename != nil {
 			m.rename.line.insert(text)
-			return m, nil
+			return nil
 		}
 		l := m.queryLine()
 		l.insert(text)
 		cmd := m.setQueryLine(l)
-		return m, cmd
+		return cmd
 
 	case crawlStartedMsg:
 		cmd := m.crawlStarted(&msg)
-		return m, cmd
+		return cmd
 
 	case batchMsg:
 		cmd := m.batch(&msg)
-		return m, cmd
+		return cmd
 
 	case crawlDoneMsg:
 		cmd := m.crawlDone(&msg)
-		return m, cmd
+		return cmd
 
 	case searchMsg:
 		cmd := m.searched(&msg)
-		return m, cmd
+		return cmd
 
 	case listMsg:
 		m.listed(&msg)
-		return m, nil
+		return nil
 
 	case savedMsg:
 		cmd := m.savedLoaded(&msg)
-		return m, cmd
+		return cmd
 
 	case indexSavedMsg:
 		m.indexSaved(msg)
-		return m, nil
+		return nil
 
 	case homeHabitsMsg:
 		m.homeHabitsLoaded(&msg)
-		return m, nil
+		return nil
 
 	case openMsg:
-		return m, msg.run()
+		return msg.run()
 
 	case historySavedMsg:
 		cmd := m.historySaved(msg)
-		return m, cmd
+		return cmd
 
 	case openedMsg:
 		m.opened(msg)
 		// The file may have just been edited: forget previews read before.
 		m.paneCache = nil
-		return m, nil
+		return nil
 
 	case paneTickMsg:
 		cmd := m.paneTick(msg)
-		return m, cmd
+		return cmd
 
 	case paneMsg:
 		m.paneLoaded(&msg)
-		return m, nil
+		return nil
 
 	case paneImageMsg:
 		cmd := m.imageLoaded(&msg)
-		return m, cmd
+		return cmd
 	}
-	return m, nil
+	return nil
 }
 
 // SetConfigPath tells the model where its settings came from, for the
@@ -381,10 +379,10 @@ func (m *Model) Tell(s string) {
 func (m *Model) ExitDir() string { return m.exitDir }
 
 // quit stops every crawl and search and ends the program.
-func (m *Model) quit() (tea.Model, tea.Cmd) {
+func (m *Model) quit() tea.Cmd {
 	m.stop()
 	if m.imageSeq > 0 { // pictures were sent: free them before leaving
-		return m, tea.Sequence(tea.Raw(deleteImages(m.tmux)), tea.Quit)
+		return tea.Sequence(tea.Raw(deleteImages(m.tmux)), tea.Quit)
 	}
-	return m, tea.Quit
+	return tea.Quit
 }

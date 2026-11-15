@@ -97,7 +97,7 @@ func (m *Model) keysOf(action string) string {
 // helpKey is handleKey while the help page is open: it scrolls, by the
 // user's keys for moving, j and k as well, and closes on esc, q or the key
 // that opened it.
-func (m *Model) helpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) helpKey(msg tea.KeyPressMsg) tea.Cmd {
 	page := m.listHeight()
 	switch action, k := m.actionOf(msg), msg.String(); {
 	case k == "ctrl+c":
@@ -120,7 +120,7 @@ func (m *Model) helpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.help != nil {
 		m.help.scroll = min(max(m.help.scroll, 0), max(len(m.helpLines())-page, 0))
 	}
-	return m, nil
+	return nil
 }
 
 // viewHelp draws the page: a title, the hairline, the lines that fit, and

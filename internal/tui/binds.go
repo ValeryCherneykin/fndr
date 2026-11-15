@@ -25,23 +25,6 @@ type binding struct {
 	tag  filter.Tag
 }
 
-// useConfig takes the settings read from the config file, and says its
-// mistakes at once, the file's (errs) and those only the interface can
-// see: a bind that silently does nothing is worse than a line of red.
-func (m *Model) useConfig(cfg config.Config, errs []error) {
-	m.useKeys(cfg.Keys) // first: a chord may not start on an action's key
-	errs = append(errs, m.useBinds(cfg.Binds)...)
-	errs = append(errs, m.useFolders(cfg.Skip, cfg.Include)...)
-	if len(errs) == 0 {
-		return
-	}
-	msg := "config " + errs[0].Error()
-	if len(errs) > 1 {
-		msg += fmt.Sprintf(" (and %d more)", len(errs)-1)
-	}
-	m.setNotice(msg, true)
-}
-
 // useBinds turns the config's binds into bindings, and says, in the status
 // line, what it could not use and why. A bind that comes first wins over a
 // later one that clashes with it, so adding a line never breaks another.

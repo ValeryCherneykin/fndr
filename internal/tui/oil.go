@@ -163,11 +163,11 @@ func (m *Model) oilLoaded(msg *oilMsg) tea.Cmd {
 
 // oilKey is handleKey in OIL: every key goes to the buffer, and what it
 // asks for is done here.
-func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) oilKey(msg tea.KeyPressMsg) tea.Cmd {
 	st := m.oil
 	if st.plan != nil {
 		cmd := m.confirmKey(msg)
-		return m, cmd
+		return cmd
 	}
 	act, err := st.buf.Key(msg.String())
 	if err != nil {
@@ -180,7 +180,7 @@ func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case oil.Write, oil.WriteQuit:
 		cmd = m.oilWrite(act == oil.WriteQuit)
 	case oil.ForceQuit:
-		_, cmd = m.quit()
+		cmd = m.quit()
 	case oil.Reveal:
 		path, isDir := st.dir, true // a blank line: the folder
 		if line := st.buf.Line(st.buf.Row()); strings.TrimSpace(line.Text) != "" {
@@ -210,7 +210,7 @@ func (m *Model) oilKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.oil != nil {
 		m.oilScroll()
 	}
-	return m, cmd
+	return cmd
 }
 
 // oilPaste puts pasted text into the buffer (oil.Buffer.Paste says
@@ -239,8 +239,7 @@ func (m *Model) oilGo(act oil.Action) tea.Cmd {
 	case oil.Close:
 		return m.leaveOil("")
 	case oil.Quit:
-		_, cmd := m.quit()
-		return cmd
+		return m.quit()
 	case oil.Refresh:
 		if st.search != nil {
 			return st.oilReread()

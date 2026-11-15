@@ -339,7 +339,7 @@ func TestTabWhileSavedLoads(t *testing.T) {
 			m.local.root, m.cwd = home, home
 		}
 		m.Init() // reads the saved index; not run here, so it is still on its way
-		if _, cmd := m.update(tea.KeyPressMsg{Code: tea.KeyTab}); cmd == nil || !m.globalOn {
+		if cmd := m.update(tea.KeyPressMsg{Code: tea.KeyTab}); cmd == nil || !m.globalOn {
 			t.Fatalf("in home %v: Tab did not turn GLOBAL on", inHome)
 		}
 		if m.global.stop != nil {

@@ -59,7 +59,7 @@ func TestRebind(t *testing.T) {
 	if m.cursor != 1 {
 		t.Errorf("ctrl+j does not move: cursor %d", m.cursor)
 	}
-	if _, cmd := m.update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl}); cmd != nil {
+	if cmd := m.update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl}); cmd != nil {
 		t.Error("ctrl+g reveals, turned off") // the command is looked at, never run: it would open Finder
 	}
 }

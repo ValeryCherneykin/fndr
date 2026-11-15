@@ -48,8 +48,7 @@ func (m *Model) oilWrite(quit bool) tea.Cmd {
 	case err != nil:
 		m.setNotice(err.Error(), true)
 	case len(plan) == 0 && quit:
-		_, cmd := m.quit()
-		return cmd
+		return m.quit()
 	case len(plan) == 0:
 		m.setNotice("nothing to write", false)
 	default:
@@ -309,8 +308,7 @@ func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
 		return nil
 	}
 	if msg.quit && msg.err == nil {
-		_, cmd := m.quit() // :wq, written: quit fndr, as :wq quits Vim
-		return cmd
+		return m.quit() // :wq, written: quit fndr, as :wq quits Vim
 	}
 	if st.search != nil {
 		return st.oilReread() // what was written, not the search again

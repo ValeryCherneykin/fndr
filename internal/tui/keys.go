@@ -11,31 +11,31 @@ import (
 // never means two things at once.
 
 // handleKey is Update for a key press.
-func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	m.setNotice("", false) // a notice describes the last action; any key moves on
 	if m.oil != nil {
 		return m.oilKey(msg)
 	}
 	if m.rename != nil {
 		cmd := m.renameKey(msg)
-		return m, cmd
+		return cmd
 	}
 	if m.help != nil {
 		return m.helpKey(msg)
 	}
 	if cmd, ok := m.bindKey(msg); ok {
-		return m, cmd
+		return cmd
 	}
 	if m.yanking { // the key after ctrl+y (copy.go)
 		m.yanking = false
 		cmd := m.copyKey(msg.Keystroke())
-		return m, cmd
+		return cmd
 	}
 
 	action := m.actionOf(msg)
 	if do, ok := actions[action]; ok {
-		if model, cmd, done := do(m); done {
-			return model, cmd
+		if cmd, done := do(m); done {
+			return cmd
 		}
 	}
 	// With nothing typed, backspace steps back: it takes the last tag off,
@@ -44,10 +44,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "backspace" && m.query == "" {
 		if len(m.tags) > 0 {
 			cmd := m.popTag()
-			return m, cmd
+			return cmd
 		}
 		cmd := m.up()
-		return m, cmd
+		return cmd
 	}
 
 	// The rest edits the query. The arrows left and right belong to the
@@ -55,9 +55,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// with "-" or backspace.
 	if l := m.queryLine(); l.key(action, msg) {
 		cmd := m.setQueryLine(l)
-		return m, cmd
+		return cmd
 	}
-	return m, nil
+	return nil
 }
 
 // actionOf returns the action the user's keys give msg, or "". The key is
@@ -86,7 +86,7 @@ func (m *Model) useKeys(keys map[string][]string) {
 // actionFunc does an action. done false lets the key go on to the query
 // line: the action has nothing to do here ("-" with text typed is a dash),
 // or the line does the rest (ctrl+u with no tags erases the text).
-type actionFunc func(m *Model) (model tea.Model, cmd tea.Cmd, done bool)
+type actionFunc func(m *Model) (cmd tea.Cmd, done bool)
 
 // lineActions are the actions the query line does itself (textLine.key);
 // they need no entry in actions, but may have one.
@@ -102,88 +102,85 @@ var actions = map[string]actionFunc{
 	"first":     moveBy(func(m *Model) int { return -len(m.results) }),
 	"last":      moveBy(func(m *Model) int { return len(m.results) }),
 
-	"quit": func(m *Model) (tea.Model, tea.Cmd, bool) {
-		model, cmd := m.quit()
-		return model, cmd, true
+	"quit": func(m *Model) (tea.Cmd, bool) {
+		return m.quit(), true
 	},
-	"back": func(m *Model) (tea.Model, tea.Cmd, bool) {
+	"back": func(m *Model) (tea.Cmd, bool) {
 		// Esc is always one step back: the last tag, the query, then
 		// GLOBAL, then fndr.
 		switch {
 		case len(m.tags) > 0:
-			return m, m.popTag(), true
+			return m.popTag(), true
 		case m.query != "":
-			return m, m.setQuery(""), true
+			return m.setQuery(""), true
 		case m.globalOn:
-			return m, m.toggleGlobal(), true
+			return m.toggleGlobal(), true
 		}
-		model, cmd := m.quit()
-		return model, cmd, true
+		return m.quit(), true
 	},
-	"global": func(m *Model) (tea.Model, tea.Cmd, bool) { return m, m.toggleGlobal(), true },
-	"tag":    func(m *Model) (tea.Model, tea.Cmd, bool) { return m, m.addTag(), true },
-	"clear": func(m *Model) (tea.Model, tea.Cmd, bool) {
+	"global": func(m *Model) (tea.Cmd, bool) { return m.toggleGlobal(), true },
+	"tag":    func(m *Model) (tea.Cmd, bool) { return m.addTag(), true },
+	"clear": func(m *Model) (tea.Cmd, bool) {
 		// It erases the line before the cursor; with nothing typed, what
 		// is before it is the chips, all of them.
 		if m.query == "" && len(m.tags) > 0 {
 			m.tags = nil
-			return m, m.tagsChanged(), true
+			return m.tagsChanged(), true
 		}
-		return m, nil, false
+		return nil, false
 	},
-	"preview_down": func(m *Model) (tea.Model, tea.Cmd, bool) { m.scrollPane(1); return m, nil, true },
-	"preview_up":   func(m *Model) (tea.Model, tea.Cmd, bool) { m.scrollPane(-1); return m, nil, true },
-	"preview": func(m *Model) (tea.Model, tea.Cmd, bool) {
+	"preview_down": func(m *Model) (tea.Cmd, bool) { m.scrollPane(1); return nil, true },
+	"preview_up":   func(m *Model) (tea.Cmd, bool) { m.scrollPane(-1); return nil, true },
+	"preview": func(m *Model) (tea.Cmd, bool) {
 		// A switch, not a mode: every other key works the same with the
 		// pane on or off.
 		m.preview = !m.preview
-		return m, nil, true
+		return nil, true
 	},
-	"reveal": func(m *Model) (tea.Model, tea.Cmd, bool) {
+	"reveal": func(m *Model) (tea.Cmd, bool) {
 		// The selected entry, or, with nothing in the list, the folder.
 		path, isDir := m.cwd, true
 		if len(m.results) > 0 {
 			e := &m.results[m.cursor].Entry
 			path, isDir = e.Path, e.IsDir
 		}
-		return m, m.showInFiles(path, isDir), true
+		return m.showInFiles(path, isDir), true
 	},
-	"copy_path": func(m *Model) (tea.Model, tea.Cmd, bool) {
+	"copy_path": func(m *Model) (tea.Cmd, bool) {
 		m.yanking = true
 		m.setNotice(copyHint, false)
-		return m, nil, true
+		return nil, true
 	},
-	"jump": func(m *Model) (tea.Model, tea.Cmd, bool) {
+	"jump": func(m *Model) (tea.Cmd, bool) {
 		m.exitDir = m.jumpTarget()
 		_ = m.learn(m.exitDir) // its save never runs, quitting: SaveHistory writes it once the interface has closed
-		model, cmd := m.quit()
-		return model, cmd, true
+		return m.quit(), true
 	},
-	"open": func(m *Model) (tea.Model, tea.Cmd, bool) { return m, m.activate(), true },
-	"oil": func(m *Model) (tea.Model, tea.Cmd, bool) {
+	"open": func(m *Model) (tea.Cmd, bool) { return m.activate(), true },
+	"oil": func(m *Model) (tea.Cmd, bool) {
 		// Browsing, the folder; searching, what was found (oilsearch.go).
 		if m.browsing() {
-			return m, loadOil(m.cwd, false, ""), true
+			return loadOil(m.cwd, false, ""), true
 		}
-		return m, m.oilFromSearch(), true
+		return m.oilFromSearch(), true
 	},
-	"rename": func(m *Model) (tea.Model, tea.Cmd, bool) { m.startRename(); return m, nil, true },
-	"parent": func(m *Model) (tea.Model, tea.Cmd, bool) {
+	"rename": func(m *Model) (tea.Cmd, bool) { m.startRename(); return nil, true },
+	"parent": func(m *Model) (tea.Cmd, bool) {
 		// Up as in Oil.nvim, with nothing typed; in a query its key types
 		// ("vless-tun").
 		if m.query != "" {
-			return m, nil, false
+			return nil, false
 		}
-		return m, m.up(), true
+		return m.up(), true
 	},
-	"help": func(m *Model) (tea.Model, tea.Cmd, bool) { m.help = &helpState{}; return m, nil, true },
+	"help": func(m *Model) (tea.Cmd, bool) { m.help = &helpState{}; return nil, true },
 }
 
 // moveBy returns the action that moves the selection by delta(m) rows.
 func moveBy(delta func(*Model) int) actionFunc {
-	return func(m *Model) (tea.Model, tea.Cmd, bool) {
+	return func(m *Model) (tea.Cmd, bool) {
 		m.move(delta(m))
-		return m, nil, true
+		return nil, true
 	}
 }
 
