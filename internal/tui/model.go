@@ -44,6 +44,7 @@ type Model struct {
 	tmuxRun   string
 	tmuxCmd   tmux.Runner
 	execAfter []string
+	making    string // ctrl+s offered to make this folder: y makes it, enter opens the selection
 
 	// local is what LOCAL search runs on: the index of the folder fndr
 	// started in, or of wherever the user went that it does not cover.
@@ -295,7 +296,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.PasteMsg:
-		m.pending, m.yanking = nil, false // a chord is pressed, not pasted: what follows is typing again
+		m.pending, m.yanking, m.making = nil, false, "" // a chord is pressed, not pasted: what follows is typing again
 		if m.oil != nil {
 			m.oilPaste(msg.Content)
 			return nil

@@ -26,6 +26,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	if cmd, ok := m.bindKey(msg); ok {
 		return cmd
 	}
+	if m.making != "" { // the key after ctrl+s offered a new folder (session.go)
+		return m.makeKey(msg)
+	}
 	if m.yanking { // the key after ctrl+y (copy.go)
 		m.yanking = false
 		cmd := m.copyKey(msg.Keystroke())
