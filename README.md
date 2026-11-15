@@ -103,6 +103,11 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
   searched, `N` the name). By every way that fits: `pbcopy`, `wl-copy`, `xclip`/`xsel`,
   `clip.exe`, tmux's buffer, and OSC 52 over SSH, so it lands on *your*
   machine. The status bar says which worked, or why none did.
+- **A tmux session for a project** (`Ctrl+S`, with `tmux = on`). Find the
+  folder, press `Ctrl+S`: you are in its session, made the first time with
+  your editor running in it (`tmux_run = nvim`), switched to after. Type a
+  name that is not there and `Ctrl+S`, `Y` makes the folder first. fndr
+  quits into the session, inside tmux or outside it.
 - **A real query line.** Move through it with `Ctrl+H` / `Ctrl+L`, fix a typo
   in the middle without retyping the rest.
 
@@ -152,7 +157,7 @@ key.reveal = ctrl+g
 
 - **Settings:** `icons`, `preview`, `images`, `history`, `save_index`
   (`off`: nothing read or written), `editor`, `editor_gui` (VS Code,
-  PyCharm: fndr goes on instead of waiting).
+  PyCharm: fndr goes on instead of waiting), `tmux`, `tmux_run`.
 - **Keys:** one line per action holds all its keys, as in lazygit. Change
   the line and the old key is free again; `none` turns the action off.
 - **Folders:** `skip = ~/Movies` to leave one out, `include = ~/.ssh` to go
@@ -260,6 +265,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+O` | Edit the folder as text with Vim keys, or, searching, what was found (see above); `Esc` or `Ctrl+O` goes back, `:q` quits |
 | `Ctrl+R` | Rename or move the selected entry: edit its path, `Enter`; missing folders are made, nothing is ever overwritten |
 | `Ctrl+E` | Quit and jump there |
+| `Ctrl+S` | Open the selected folder's tmux session, made the first time; a name not there is offered as a new folder (`tmux = on`) |
 | `Esc` | Take off the last tag, then clear the query, then leave GLOBAL, then quit |
 | `Ctrl+C` | Quit |
 | `F1` | Help: every key as your config left it |
@@ -361,6 +367,7 @@ noticeably slower is treated as a bug.
 - [x] Copy files and folders: `yy p` in the buffer, never over anything
 - [x] Config: every key and setting, written out and explained for you on
   the first start; folders to skip or include; help on `F1`
+- [x] tmux: a session for a project on `Ctrl+S`, made if it is new
 
 ---
 

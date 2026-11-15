@@ -32,9 +32,13 @@ Set Theme { "name": "fndr-noir", "background": "#09090b", "foreground": "#d4d4d8
 #   - a Downloads with a Kafka course in it, for the move scene;
 #   - a config of the demo's own, in the throwaway home (XDG_CONFIG_HOME
 #     unset, or the recorder's would be read), and the trash there too
-#     (XDG_DATA_HOME unset: on Linux it is where the trash lives).
+#     (XDG_DATA_HOME unset: on Linux it is where the trash lives);
+#   - a tmux server of the demo's own (TMUX_TMPDIR in the throwaway home),
+#     never the recorder's sessions, with a .tmux.conf whose status bar
+#     shows no host name (tmux's default does), and a .zshrc whose prompt
+#     shows none either (macOS's /etc/zshrc prompt is user@host).
 Hide
-Type `unset GHOSTTY_RESOURCES_DIR KITTY_WINDOW_ID TMUX TERM_PROGRAM XDG_STATE_HOME XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME; export PATH="$HOME/go/bin:$PATH"; D="$(cd "$(mktemp -d)" && pwd -P)"; git clone -q "$PWD" "$D/dev/fndr"; export HOME="$D"; mkdir -p ~/bin ~/Downloads/Kafka ~/Documents; printf '#!/bin/sh\ncat >/dev/null\n' > ~/bin/pbcopy; chmod +x ~/bin/pbcopy; export PATH="$HOME/bin:$PATH"; touch ~/Downloads/Kafka/01-intro.mp4 ~/Downloads/Kafka/02-topics.mp4 ~/Downloads/notes.txt; mkdir -p ~/.config/fndr; printf 'bind = ctrl+f>f = tag:dirs\nbind = ctrl+f>g = tag:.go\nbind = ctrl+f>p = tag:has:go.mod\n' > ~/.config/fndr/config; cd ~/dev/fndr; PS1='%F{cyan}%~%f ❯ '; eval "$(fndr init zsh)"; clear`
+Type `unset GHOSTTY_RESOURCES_DIR KITTY_WINDOW_ID TMUX TERM_PROGRAM XDG_STATE_HOME XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME; export PATH="$HOME/go/bin:$PATH"; D="$(cd "$(mktemp -d)" && pwd -P)"; git clone -q "$PWD" "$D/dev/fndr"; export HOME="$D"; mkdir -p ~/bin ~/Downloads/Kafka ~/Documents; printf '#!/bin/sh\ncat >/dev/null\n' > ~/bin/pbcopy; chmod +x ~/bin/pbcopy; export PATH="$HOME/bin:$PATH"; touch ~/Downloads/Kafka/01-intro.mp4 ~/Downloads/Kafka/02-topics.mp4 ~/Downloads/notes.txt; mkdir -p ~/.config/fndr; printf 'bind = ctrl+f>f = tag:dirs\nbind = ctrl+f>g = tag:.go\nbind = ctrl+f>p = tag:has:go.mod\ntmux = on\ntmux_run = ls\n' > ~/.config/fndr/config; export TMUX_TMPDIR="$HOME/tmux"; mkdir -p "$TMUX_TMPDIR"; printf 'set -g status-right ""\nset -g status-style "bg=#131316,fg=#a1a1aa"\nset -g status-left-length 30\n' > ~/.tmux.conf; printf "PS1='%%F{cyan}%%~%%f ❯ '\n" > ~/.zshrc; cd ~/dev/fndr; PS1='%F{cyan}%~%f ❯ '; eval "$(fndr init zsh)"; clear`
 Enter
 # Long enough for the clone and the clear: shown before they finish, the
 # setup line itself is the GIF's first frames. Hidden time costs nothing.
@@ -286,3 +290,43 @@ Sleep 400ms
 Type "cd ~ && ls Downloads Documents/video"
 Enter
 Sleep 3s
+
+# 14. A tmux session for a project: in ~/dev, part of a name and Ctrl+S,
+#     and fndr becomes the project's session (tmux_run = ls typed in it).
+#     Ctrl+N: opener, visited above, is first by habit; fndr is next.
+#     Then a name that is not there: Ctrl+S offers to make it, y does, and
+#     the new, empty project has its session too. exit ends it.
+Type "cd ~/dev && fndr"
+Enter
+Sleep 1s
+Type "fnd"
+Sleep 1.2s
+Ctrl+N
+Sleep 800ms
+Ctrl+S
+Sleep 3s
+Ctrl+B
+Type "d"
+Sleep 1.2s
+Type "fndr"
+Enter
+Sleep 1s
+Type "kafka-demo"
+Sleep 1s
+Ctrl+S
+Sleep 2.5s
+Type "y"
+Sleep 3s
+Type "exit"
+Enter
+Sleep 1.5s
+Type "tmux ls"
+Enter
+Sleep 3s
+
+# Off camera: the demo's tmux server ends with the demo (the fndr session
+# is still there, detached), or each recording would leave one behind.
+Hide
+Type "tmux kill-server"
+Enter
+Sleep 500ms
