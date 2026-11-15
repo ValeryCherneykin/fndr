@@ -65,6 +65,10 @@ type scope struct {
 	// catchUp asks the next crawl to catch up with what ix holds, sorted
 	// for it off the UI goroutine (catchup.go), not to crawl afresh.
 	catchUp bool
+
+	// prune is what this scope's crawls leave out, nil for the model's:
+	// the scope of a search in what is ignored (wide.go) goes further.
+	prune *indexer.Prune
 }
 
 // crawlStream connects the crawl goroutine to the UI. Batches are pulled one
@@ -95,17 +99,25 @@ func (m *Model) startCrawl(s *scope) tea.Cmd {
 		unsorted = s.ix.Snapshot()
 	}
 	s.catchUp = false
-	return runCrawl(ctx, s.gen, s.root, m.prune, s.seed, unsorted)
+	prune := m.prune
+	if s.prune != nil {
+		prune = s.prune
+	}
+	return runCrawl(ctx, s.gen, s.root, prune, s.seed, unsorted)
 }
 
 // scopes returns the scopes there are, each once. LOCAL and GLOBAL are one
 // when fndr is in the home (see savedLoaded): an edit applied to both by
 // name would be applied twice, and show twice in search.
 func (m *Model) scopes() []*scope {
-	if m.global == nil || m.global == m.local {
-		return []*scope{m.local}
+	ss := []*scope{m.local}
+	if m.global != nil && m.global != m.local {
+		ss = append(ss, m.global)
 	}
-	return []*scope{m.local, m.global}
+	if m.wide != nil {
+		ss = append(ss, m.wide)
+	}
+	return ss
 }
 
 // crawled returns the scope whose current crawl is gen, or nil if that

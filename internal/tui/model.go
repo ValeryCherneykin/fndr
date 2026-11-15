@@ -40,6 +40,10 @@ type Model struct {
 	// started in, or of wherever the user went that it does not cover.
 	local *scope
 
+	// wide, while not nil, is what search runs on instead: the scope
+	// searched, crawled again with what it ignores (wide.go).
+	wide *scope
+
 	// global is the whole home, for GLOBAL search (global.go): nil until
 	// Tab first asks for it. globalOn: search runs on it now.
 	global   *scope

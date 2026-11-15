@@ -87,6 +87,7 @@ var Actions = []Action{
 	{Name: "quit", Keys: []string{"ctrl+c"}, Doc: "Quit; the shell stays where it was."},
 	{Name: "jump", Keys: []string{"ctrl+e"}, Doc: "Quit, and the shell goes to the selected folder (needs fndr init)."},
 	{Name: "global", Keys: []string{"tab"}, Doc: "Search this folder, or the whole home."},
+	{Name: "ignored", Keys: []string{"ctrl+d"}, Doc: "Search what .gitignore and node_modules leave out too: build/, dist/."},
 	{Name: "tag", Keys: []string{"ctrl+t"}, Doc: "Make what is typed a tag: .go, dirs, >1mb, @today, has:.json."},
 	{Name: "clear", Keys: []string{"ctrl+u"}, Doc: "Erase the query before the cursor; with none, take all tags off."},
 	{Name: "oil", Keys: []string{"ctrl+o"}, Doc: "Edit the folder, or what was found, as text with Vim keys."},

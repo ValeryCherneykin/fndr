@@ -245,6 +245,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 |---|---|
 | *type* | Search everything below the current folder |
 | `Tab` | Search your whole home instead (GLOBAL), and back; the query stays |
+| `Ctrl+D` | Search what is ignored too: `build/`, `dist/` of a `.gitignore`, `node_modules`; until you change folder or press `Tab` |
 | `Ctrl+N` / `Ctrl+P`, `↓` / `↑` | Move through the list |
 | `PgDn` / `PgUp`, `End` / `Home` | Move by a page, to the end |
 | `Enter` | Open a file · enter a folder · start an app (`.app`, on macOS) |

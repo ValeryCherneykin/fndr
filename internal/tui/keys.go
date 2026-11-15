@@ -164,7 +164,8 @@ var actions = map[string]actionFunc{
 		}
 		return m.oilFromSearch(), true
 	},
-	"rename": func(m *Model) (tea.Cmd, bool) { m.startRename(); return nil, true },
+	"rename":  func(m *Model) (tea.Cmd, bool) { m.startRename(); return nil, true },
+	"ignored": func(m *Model) (tea.Cmd, bool) { return m.toggleWide(), true },
 	"parent": func(m *Model) (tea.Cmd, bool) {
 		// Up as in Oil.nvim, with nothing typed; in a query its key types
 		// ("vless-tun").

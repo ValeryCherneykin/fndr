@@ -109,6 +109,9 @@ func (m *Model) viewList(b *strings.Builder) {
 func (m *Model) viewStatus() string {
 	a := m.accent()
 	mode := a.mode.Render(" " + a.name + " ")
+	if m.wide != nil {
+		mode += stBarWarn.Render(" +ignored")
+	}
 	if m.rename != nil {
 		mode = stModeInsert.Render(" RENAME ") // keys are text now, as in OIL's INSERT
 	}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"testing/synctest"
@@ -742,4 +743,49 @@ func TestCrawlSkipInclude(t *testing.T) {
 	if len(again) != len(entries) {
 		t.Errorf("refresh found %d, the crawl %d", len(again), len(entries))
 	}
+}
+
+// TestCrawlWithIgnored: a search of what is ignored goes into what a
+// .gitignore names and into node_modules; hidden folders, bundles and
+// ~/Library stay out. The usual rules read as before: an index saved
+// under them is still good.
+func TestCrawlWithIgnored(t *testing.T) {
+	home := t.TempDir()
+	for _, f := range []string{
+		"proj/.gitignore", "proj/build/app.bin", "proj/node_modules/pkg/index.js",
+		"proj/.venv/lib/x.py", "Library/Caches/y", "Tool.app/Contents/z",
+	} {
+		writeFile(t, filepath.Join(home, f), "")
+	}
+	writeFile(t, filepath.Join(home, "proj", ".gitignore"), "build/\n")
+	p := DefaultPrune(home)
+	wide := p.WithIgnored()
+	if wide.Rules() == p.Rules() || strings.Contains(p.Rules(), "junk") {
+		t.Errorf("rules %q and %q", p.Rules(), wide.Rules())
+	}
+	entries, _, err := crawlPruned(t, home, wide)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := byRel(t, home, entries)
+	for f, want := range map[string]bool{
+		"proj/build/app.bin": true, "proj/node_modules/pkg/index.js": true,
+		"proj/.venv/lib": false, "Library/Caches": false, "Tool.app/Contents": false,
+	} {
+		if _, ok := got[f]; ok != want {
+			t.Errorf("%s indexed %v, want %v", f, ok, want)
+		}
+	}
+	if _, ok := byRel(t, home, mustCrawl(t, home, p))["proj/build/app.bin"]; ok {
+		t.Error("the usual rules went into build/")
+	}
+}
+
+func mustCrawl(t *testing.T, root string, p *Prune) []Entry {
+	t.Helper()
+	entries, _, err := crawlPruned(t, root, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return entries
 }

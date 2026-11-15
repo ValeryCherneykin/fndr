@@ -50,6 +50,9 @@ func (m *Model) homeHabitsLoaded(msg *homeHabitsMsg) {
 
 // current is the scope search runs on now.
 func (m *Model) current() *scope {
+	if m.wide != nil {
+		return m.wide
+	}
 	if m.globalOn {
 		return m.global
 	}
@@ -76,6 +79,7 @@ func (m *Model) accent() *accent {
 // toggleGlobal switches between LOCAL and GLOBAL and searches the same
 // query again, from the top of the list.
 func (m *Model) toggleGlobal() tea.Cmd {
+	m.dropWide() // it searched the scope left
 	var crawl, habits tea.Cmd
 	switch {
 	case m.globalOn:

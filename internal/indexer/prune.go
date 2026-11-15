@@ -29,6 +29,7 @@ type Prune struct {
 	paths     map[string]bool // absolute folders, such as ~/Library
 	keep      map[string]bool // absolute hidden folders gone into all the same: ~/.config
 	gitignore bool            // folders that .gitignore files name, too (gitignore.go)
+	junkOK    bool            // junkNames gone into: a search of what is ignored (WithIgnored)
 }
 
 // junkNames are folders that tools fill, wherever they are.
@@ -102,6 +103,8 @@ func (p *Prune) Rules() string {
 	if p == nil {
 		return "none"
 	}
+	// junkOK is not said: only WithIgnored sets it, with gitignore off,
+	// which is said, and such a crawl is never saved.
 	return fmt.Sprintf("v%d gitignore=%t %q keep %q", pruneVersion, p.gitignore,
 		slices.Sorted(maps.Keys(p.paths)), slices.Sorted(maps.Keys(p.keep)))
 }
@@ -136,6 +139,23 @@ func (p *Prune) ignoresIn(stack ignoreStack, dir string) ignoreStack {
 	return stack.with(loadGitignore(dir))
 }
 
+// WithIgnored returns p for a search of what is ignored too: it goes into
+// the folders left out as a project's clutter, those .gitignore files name
+// (build/, dist/) and node_modules and caches by name, where a build's
+// artifact or a package's source is looked for. Hidden folders, bundles
+// and the folders left out by path (~/Library, skip lines) stay out: they
+// are not a project's to ignore, and ~/Library alone is hundreds of
+// thousands of files. The copy shares p's folder lists, which are only
+// written before the first crawl.
+func (p *Prune) WithIgnored() *Prune {
+	if p == nil {
+		return nil
+	}
+	c := *p
+	c.gitignore, c.junkOK = false, true
+	return &c
+}
+
 // Skip makes the crawl list the folder at path, absolute, without going
 // in, as ~/Library: the user's "skip = ~/Movies".
 func (p *Prune) Skip(path string) { p.paths[filepath.Clean(path)] = true }
@@ -163,7 +183,7 @@ func (p *Prune) Prunes(path, name string) bool {
 		return false
 	}
 	return strings.HasPrefix(name, ".") ||
-		junkNames[name] ||
+		junkNames[name] && !p.junkOK ||
 		bundleExts[strings.ToLower(filepath.Ext(name))] ||
 		p.paths[path]
 }
