@@ -28,10 +28,11 @@ import (
 // oilWrittenMsg reports a plan carried out, fully or up to a failure.
 type oilWrittenMsg struct {
 	dir    string
-	done   mutation.Plan // the steps that were carried out
-	err    error         // why the next one was not
-	quit   bool          // :wq: quit fndr once written
-	remove []string      // for the index: paths gone or moved away
+	done   mutation.Plan   // the steps that were carried out
+	steps  []mutation.Step // the same, as ctrl+z takes them back
+	err    error           // why the next one was not
+	quit   bool            // :wq: quit fndr once written
+	remove []string        // for the index: paths gone or moved away
 	add    []indexer.Entry
 }
 
@@ -173,8 +174,8 @@ func applyPlan(ctx context.Context, dir string, plan mutation.Plan, quit bool, s
 			return msg
 		}
 		made := madeOnTheWay(dir, plan)
-		n, err := mutation.ApplyContext(ctx, dir, plan, trash, prog)
-		msg.done, msg.err = plan[:n], err
+		steps, err := mutation.Run(ctx, dir, plan, trash, prog)
+		msg.done, msg.steps, msg.err = plan[:len(steps)], steps, err // Run goes in the plan's order
 		msg.remove, msg.add = indexChanges(dir, msg.done, snap, prune, made)
 		return msg
 	}

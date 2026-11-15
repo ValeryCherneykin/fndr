@@ -35,21 +35,37 @@ func send(m *Model, msg tea.Msg) (quit bool) {
 	for len(queue) > 0 {
 		msg, queue = queue[0], queue[1:]
 		_, cmd := m.Update(msg)
-		for _, c := range flatten(cmd) {
-			switch out := c().(type) {
-			case tea.QuitMsg:
+		for _, out := range runCmd(cmd) {
+			if _, ok := out.(tea.QuitMsg); ok {
 				quit = true
-			case tea.BatchMsg:
-				for _, inner := range out {
-					queue = append(queue, inner())
-				}
-			case nil:
-			default:
-				queue = append(queue, out)
+				continue
 			}
+			queue = append(queue, out)
 		}
 	}
 	return quit
+}
+
+// runCmd runs cmd and returns its messages, a batch's of every command in
+// it, at any depth, as the runtime does: a batch inside a batch (a
+// catch-up's, returned with a search) is opened too, not handed to Update
+// as a message it would drop.
+func runCmd(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	switch out := cmd().(type) {
+	case nil:
+		return nil
+	case tea.BatchMsg:
+		var msgs []tea.Msg
+		for _, inner := range out {
+			msgs = append(msgs, runCmd(inner)...)
+		}
+		return msgs
+	default:
+		return []tea.Msg{out}
+	}
 }
 
 func flatten(cmd tea.Cmd) []tea.Cmd {

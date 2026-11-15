@@ -93,7 +93,7 @@ func FuzzKeys(f *testing.F) {
 var fuzzKeys = []string{
 	"tab", "enter", "esc", "backspace", "up", "down", "pgdown", "home",
 	"ctrl+n", "ctrl+p", "ctrl+o", "ctrl+r", "ctrl+t", "ctrl+u", "ctrl+v",
-	"ctrl+j", "ctrl+k", "ctrl+y", "ctrl+g", "ctrl+w", "ctrl+h", "ctrl+l", "f1", "ctrl+d", "ctrl+s",
+	"ctrl+j", "ctrl+k", "ctrl+y", "ctrl+g", "ctrl+w", "ctrl+h", "ctrl+l", "f1", "ctrl+d", "ctrl+s", "ctrl+z",
 	"m", "a", "i", "n", "o", ".", "-", "/", "d", "y", "p", "j", "k", "x",
 	":", "w", "q", "u", "G", "g", "c", "has:", "@", " ",
 }

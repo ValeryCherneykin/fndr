@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -41,7 +42,8 @@ type renameState struct {
 type renamedMsg struct {
 	from, to string // absolute
 	dir      string
-	done     mutation.Plan // the rename, if it was carried out
+	done     mutation.Plan   // the rename, if it was carried out
+	steps    []mutation.Step // the same, as ctrl+z takes it back
 	err      error
 	remove   []string // for the index, as after an OIL write
 	add      []indexer.Entry
@@ -127,8 +129,8 @@ func renameEntry(dir string, op mutation.Op, prune *indexer.Prune) tea.Cmd {
 		plan := mutation.Plan{op}
 		// No trash: a plan without deletes never asks for one.
 		made := madeOnTheWay(dir, plan)
-		n, err := mutation.Apply(dir, plan, nil)
-		msg.err, msg.done = err, plan[:n]
+		steps, err := mutation.Run(context.Background(), dir, plan, nil, nil)
+		msg.err, msg.done, msg.steps = err, plan[:len(steps)], steps
 		msg.remove, msg.add = indexChanges(dir, msg.done, nil, prune, made)
 		return msg
 	}

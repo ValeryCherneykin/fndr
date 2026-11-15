@@ -103,6 +103,7 @@ var Actions = []Action{
 	{Name: "preview_down", Keys: []string{"ctrl+j"}, Doc: "Scroll the preview down."},
 	{Name: "preview_up", Keys: []string{"ctrl+k"}, Doc: "Scroll the preview up."},
 	{Name: "session", Keys: []string{"ctrl+s"}, Doc: "A tmux session for the selected folder: made, or gone to (tmux = on)."},
+	{Name: "undo", Keys: []string{"ctrl+z"}, Doc: "Undo the last change to the disk, a write or a rename, even of another day."},
 	{Name: "help", Keys: []string{"f1"}, Doc: "The help page."},
 
 	{Name: "cursor_left", Keys: []string{"ctrl+h", "left"}, Doc: "Move the cursor in the query left.", Group: "Typing"},

@@ -29,6 +29,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	if m.making != "" { // the key after ctrl+s offered a new folder (session.go)
 		return m.makeKey(msg)
 	}
+	if m.undoing != nil { // the key after ctrl+z offered a batch (undo.go)
+		return m.undoKey(msg)
+	}
 	if m.yanking { // the key after ctrl+y (copy.go)
 		m.yanking = false
 		cmd := m.copyKey(msg.Keystroke())
@@ -179,6 +182,7 @@ var actions = map[string]actionFunc{
 	},
 	"help":    func(m *Model) (tea.Cmd, bool) { m.help = &helpState{}; return nil, true },
 	"session": func(m *Model) (tea.Cmd, bool) { return m.openSession(), true },
+	"undo":    func(m *Model) (tea.Cmd, bool) { return m.startUndo(), true },
 }
 
 // moveBy returns the action that moves the selection by delta(m) rows.

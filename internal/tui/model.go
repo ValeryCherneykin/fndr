@@ -46,6 +46,14 @@ type Model struct {
 	execAfter []string
 	making    string // ctrl+s offered to make this folder: y makes it, enter opens the selection
 
+	// ctrl+z (undo.go): the journal of changes ("": kept in batches and
+	// undoneIDs, while fndr runs), a batch offered to take back.
+	journal   string
+	batches   []batch
+	undoneIDs []string
+	batchSeq  int
+	undoing   *undoState
+
 	// local is what LOCAL search runs on: the index of the folder fndr
 	// started in, or of wherever the user went that it does not cover.
 	local *scope
@@ -204,6 +212,8 @@ func New(root string, cfg *config.Config, cfgErrs []error) *Model {
 			m.setNotice("not learning this time: "+err.Error(), true)
 		}
 		m.useHistory(hist)
+		// The journal names files as the history does: off with it.
+		m.journal, _ = journalPath() //nolint:errcheck // without a home: undo while fndr runs
 	}
 
 	m.copier = systemCopier()
@@ -269,7 +279,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 
 	case oilWrittenMsg:
 		learn := m.relearn(msg.dir, msg.done)
-		return tea.Batch(learn, m.oilWritten(&msg))
+		return tea.Batch(learn, m.record(msg.steps), m.oilWritten(&msg))
 	case trashCountedMsg:
 		m.trashCounted(&msg)
 	case progressTickMsg:
@@ -277,7 +287,18 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return cmd
 	case renamedMsg:
 		learn := m.relearn(msg.dir, msg.done)
-		return tea.Batch(learn, m.renamed(&msg))
+		return tea.Batch(learn, m.record(msg.steps), m.renamed(&msg))
+
+	case undoFoundMsg:
+		m.undoFound(&msg)
+		return nil
+	case undoneMsg:
+		return m.undone(&msg)
+	case recordedMsg:
+		if msg.err != nil {
+			m.setNotice("done, but ctrl+z will not find it: "+msg.err.Error(), true)
+		}
+		return nil
 
 	case tea.KeyPressMsg:
 		catchUp := m.keyCatchUp(time.Now())
@@ -296,7 +317,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.PasteMsg:
-		m.pending, m.yanking, m.making = nil, false, "" // a chord is pressed, not pasted: what follows is typing again
+		m.pending, m.yanking, m.making, m.undoing = nil, false, "", nil // a chord is pressed, not pasted: what follows is typing again
 		if m.oil != nil {
 			m.oilPaste(msg.Content)
 			return nil
