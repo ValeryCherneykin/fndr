@@ -158,10 +158,15 @@ func FuzzScoreMatchesRef(f *testing.F) {
 		lq := strings.ToLower(query)
 		n := utf8.RuneCountInString(lq)
 		gotPos, wantPos := make([]int, n), make([]int, n)
-		got, gotOK := scoreRunes(&e, from, []rune(lq), gotPos)
+		got, named, gotOK := scoreRunes(&e, from, []rune(lq), gotPos)
 		want, wantOK := fuzzyScoreRef(&e, from, lq, wantPos)
 		if got != want || gotOK != wantOK || gotOK && !slices.Equal(gotPos, wantPos) {
 			t.Fatalf("%q in %q from %d: %d %v %v, want %d %v %v", lq, path, from, got, gotOK, gotPos, want, wantOK, wantPos)
+		}
+		// named: some matched character is in the base name.
+		inName := n == 0 || slices.ContainsFunc(wantPos, func(p int) bool { return p >= int(e.nameOff) })
+		if gotOK && named != inName {
+			t.Fatalf("%q in %q from %d: named %v at %v, name from %d", lq, path, from, named, wantPos, e.nameOff)
 		}
 		if a, b := hasSubsequenceFold(path, lq), hasSubsequenceFoldRef(path, lq); a != b {
 			t.Fatalf("%q in %q: matches %v, want %v", lq, path, a, b)

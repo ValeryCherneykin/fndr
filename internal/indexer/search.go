@@ -47,9 +47,13 @@ type Query struct {
 	Limit int
 
 	// Boost adds points to the score of the paths it holds: how much the
-	// user is in the habit of going there. Search only reads it, from every
-	// worker at once, so the caller must never change a map once it has
-	// been passed here; build a new one instead.
+	// user is in the habit of going there. Only to a path whose own name
+	// the query touched: "fnd" is typed for fndr, not for fndr/internal/
+	// opener, however often opener is visited; matched in its folders
+	// alone, the habit would lift whatever is below a project above the
+	// project itself. Search only reads it, from every worker at once, so
+	// the caller must never change a map once it has been passed here;
+	// build a new one instead.
 	Boost map[string]int
 
 	// Keep, if set, is one more test an entry must pass: the tags of the
@@ -185,8 +189,10 @@ func search(ctx context.Context, snap []Entry, q Query, workers int, collect boo
 					if q.Keep != nil && !q.Keep(*e) {
 						continue
 					}
-					score, _ := scoreRunes(e, from, qr, nil)
-					score += q.Boost[e.Path]                                 // a nil map reads as 0
+					score, named, _ := scoreRunes(e, from, qr, nil)
+					if named { // see Boost
+						score += q.Boost[e.Path] // a nil map reads as 0
+					}
 					top.offer(candidate{idx: int32(i), score: int32(score)}) //nolint:gosec // see candidate
 					if collect {
 						found = append(found, int32(i)) //nolint:gosec // see candidate
@@ -234,7 +240,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int, collect boo
 	for i, c := range all {
 		e := &snap[c.idx]
 		pos := buf[i*nq : (i+1)*nq : (i+1)*nq] // capped, so appending to one result cannot overwrite the next
-		scoreRunes(e, from, qr, pos)
+		scoreRunes(e, from, qr, pos)           //nolint:dogsled // only the positions, for the rows shown
 		results[i] = Result{Entry: *e, Score: int(c.score), Positions: pos}
 	}
 	return results, total, matched, nil

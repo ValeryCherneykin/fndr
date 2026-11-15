@@ -60,15 +60,19 @@ const (
 // match, not always the best one: fzf's optimal algorithm costs
 // O(len(path) * len(query)) per entry, which is not worth it for paths.
 func fuzzyScore(e *Entry, from int, lowerQuery string, pos []int) (score int, ok bool) {
-	return scoreRunes(e, from, []rune(lowerQuery), pos)
+	score, _, ok = scoreRunes(e, from, []rune(lowerQuery), pos)
+	return score, ok
 }
 
 // scoreRunes is fuzzyScore with the query already decoded, as Search
 // passes it: decoded once per search, not again at every byte of every
-// path, where it cost a fifth of a search.
-func scoreRunes(e *Entry, from int, q []rune, pos []int) (score int, ok bool) {
+// path, where it cost a fifth of a search. named reports whether a
+// character matched in the base name: what the query is about, for Search
+// to tell an entry typed for from one below it (see Query.Boost). An empty
+// query is about everything.
+func scoreRunes(e *Entry, from int, q []rune, pos []int) (score int, named, ok bool) {
 	if len(q) == 0 {
-		return 0, true
+		return 0, true, true
 	}
 	s := e.Path
 
@@ -96,7 +100,7 @@ func scoreRunes(e *Entry, from int, q []rune, pos []int) (score int, ok bool) {
 		}
 	}
 	if qi > 0 {
-		return 0, false
+		return 0, false, false
 	}
 
 	// Pass 2: compact match from start, scoring as we go. Pass 1 proved that
@@ -112,6 +116,7 @@ func scoreRunes(e *Entry, from int, q []rune, pos []int) (score int, ok bool) {
 			score += scoreMatch + positionBonus(s, i, r)
 			if i >= nameOff {
 				score += bonusName
+				named = true
 			}
 			if prevEnd >= 0 {
 				if gap := i - prevEnd; gap == 0 {
@@ -129,7 +134,7 @@ func scoreRunes(e *Entry, from int, q []rune, pos []int) (score int, ok bool) {
 		}
 		i += size
 	}
-	return score, true
+	return score, named, true
 }
 
 // positionBonus scores where the rune r starting at byte offset i of s sits.

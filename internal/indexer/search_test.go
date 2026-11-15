@@ -286,3 +286,24 @@ func BenchmarkSearch(b *testing.B) {
 		}
 	}
 }
+
+// TestSearchBoostNeedsName: a habit lifts what the query is about, not
+// what lies below it. "fnd" in ~/dev is about the project fndr: opener,
+// visited every day, matches only through its folder fndr, and stays
+// below it. Typed for by its own name, opener is lifted as before.
+func TestSearchBoostNeedsName(t *testing.T) {
+	snap := []Entry{
+		NewEntry("/r/dev/fndr", 0, 0, true),
+		NewEntry("/r/dev/fndr/internal/opener", 0, 0, true),
+		NewEntry("/r/dev/fndr/internal/openers", 0, 0, true),
+	}
+	boost := map[string]int{"/r/dev/fndr/internal/opener": 100}
+	rs, _, _ := Search(context.Background(), snap, Query{Text: "fnd", Under: "/r/dev", Boost: boost})
+	if ps := resultPaths(rs); len(ps) == 0 || ps[0] != "/r/dev/fndr" {
+		t.Errorf("fnd: %q, want fndr first", ps)
+	}
+	rs, _, _ = Search(context.Background(), snap, Query{Text: "open", Under: "/r/dev", Boost: boost})
+	if ps := resultPaths(rs); len(ps) == 0 || ps[0] != "/r/dev/fndr/internal/opener" {
+		t.Errorf("open: %q, want the habit, opener, first", ps)
+	}
+}
