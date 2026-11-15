@@ -36,20 +36,30 @@ func Apply(dir string, p Plan, trash *Trash) (done int, err error) {
 // nothing of itself; a rename is never left with half its names. Done
 // before the first step, the plan is not started.
 func ApplyContext(ctx context.Context, dir string, p Plan, trash *Trash, prog *Progress) (done int, err error) {
+	steps, err := Run(ctx, dir, p, trash, prog)
+	return len(steps), err
+}
+
+// Run is ApplyContext that returns, instead of a count, the steps it took,
+// in order, as Undo takes them back: also when it stops at a failure, so
+// the part done can be undone as well.
+func Run(ctx context.Context, dir string, p Plan, trash *Trash, prog *Progress) (steps []Step, err error) {
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return nil, err
 	}
 	if err := check(dir, p); err != nil {
-		return 0, err
+		return nil, err
 	}
 	var renames []Op
 	for _, op := range p {
 		switch op.Kind {
 		case OpDelete:
-			if _, err := trash.Put(filepath.Join(dir, op.From)); err != nil {
-				return done, err
+			from := filepath.Join(dir, op.From)
+			to, err := trash.Put(from)
+			if err != nil {
+				return steps, err
 			}
-			done++
+			steps = append(steps, took(OpDelete, from, to, ""))
 		case OpRename:
 			renames = append(renames, op)
 		}
@@ -60,28 +70,41 @@ func ApplyContext(ctx context.Context, dir string, p Plan, trash *Trash, prog *P
 		if op.Kind != OpCopy {
 			continue
 		}
-		if err := copyEntry(ctx, Target(dir, op.From), Target(dir, op.To), prog); err != nil {
-			return done, fmt.Errorf("copy %q to %q: %w", op.From, op.To, err)
+		from, to := Target(dir, op.From), Target(dir, op.To)
+		made := madeIn(dir, to)
+		if err := copyEntry(ctx, from, to, prog); err != nil {
+			return steps, fmt.Errorf("copy %q to %q: %w", op.From, op.To, err)
 		}
-		done++
+		steps = append(steps, took(OpCopy, from, to, made))
 	}
 
+	// The folders a rename makes on the way are looked for before any is
+	// done: two renames into one new folder both name it, and Undo, which
+	// only removes it empty, takes it away with the last one out.
+	made := make([]string, len(renames))
+	for i, op := range renames {
+		made[i] = madeIn(dir, Target(dir, op.To))
+	}
 	n, err := renameAll(dir, renames)
-	done += n
+	for i, op := range renames[:n] {
+		steps = append(steps, took(OpRename, filepath.Join(dir, op.From), Target(dir, op.To), made[i]))
+	}
 	if err != nil {
-		return done, err
+		return steps, err
 	}
 
 	for _, op := range p {
 		if op.Kind != OpCreate {
 			continue
 		}
-		if _, err := Create(dir, op.To); err != nil {
-			return done, err
+		top := madeIn(dir, filepath.Join(dir, filepath.Clean(op.To)))
+		c, err := Create(dir, op.To)
+		if err != nil {
+			return steps, err
 		}
-		done++
+		steps = append(steps, took(OpCreate, "", c.Path, top))
 	}
-	return done, nil
+	return steps, nil
 }
 
 // check makes sure, before Apply changes anything, that every name the
