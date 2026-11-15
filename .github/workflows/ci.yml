@@ -52,6 +52,14 @@ jobs:
       - name: Build
         run: go build ./...
 
+      # A minute of keys pressed before the replies to the ones before
+      # them, in any order (FuzzKeys): how a race at start, Tab while the
+      # saved index was read, slipped through every other test. Linux only:
+      # one minute per push is enough, and macOS minutes cost more.
+      - name: Fuzz keys
+        if: runner.os == 'Linux'
+        run: go test -run '^$' -fuzz FuzzKeys -fuzztime 60s ./internal/tui
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
