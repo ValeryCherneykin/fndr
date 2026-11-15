@@ -34,6 +34,9 @@ type rowLook struct {
 	selected bool // under the cursor: the marker, bright
 	habit    bool // a place the user often goes: a clock instead of its type
 	icons    bool // Nerd Font icons; off, a "/" after a folder
+	// aside, if set, is shown on the right instead of the folder, and the
+	// name is dimmed: a ghost, a copy on its way (ghosts.go), says how far.
+	aside string
 }
 
 // renderRow renders one search result as exactly width cells.
@@ -55,6 +58,8 @@ func renderRow(r *indexer.Result, root string, width int, look rowLook, a *accen
 
 	nameSt, dirSt := &stName, &stDir
 	switch {
+	case look.aside != "":
+		nameSt = &stNameHidden // not there yet: never as bright as what is
 	case look.selected:
 		nameSt, dirSt = &stNameSel, &stDirSel
 	case strings.HasPrefix(r.Entry.Name(), "."):
@@ -98,6 +103,13 @@ func renderRow(r *indexer.Result, root string, width int, look rowLook, a *accen
 	}
 	b.WriteString(styleRange(path, nameLo, len(path), r.Positions, nameSt, &a.nameHit))
 	b.WriteString(slash)
+
+	if look.aside != "" {
+		aside := ansi.Truncate(look.aside, max(avail-nameW-rowMinGap, 0), "")
+		b.WriteString(strings.Repeat(" ", max(avail-nameW-ansi.StringWidth(aside), 0)))
+		b.WriteString(aside)
+		return finish(b.String(), width)
+	}
 
 	// What is left for the gap and the directory.
 	room := avail - nameW - rowMinGap

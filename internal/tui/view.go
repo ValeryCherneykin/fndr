@@ -89,7 +89,7 @@ func (m *Model) viewList(b *strings.Builder) {
 	for i := range h {
 		if r := m.offset + i; r < len(m.results) {
 			habit := m.browsing() && (m.globalOn || r < m.habits) // GLOBAL's empty query is all habits
-			look := rowLook{selected: r == m.cursor, habit: habit, icons: m.icons}
+			look := rowLook{selected: r == m.cursor, habit: habit, icons: m.icons, aside: m.ghostAside(m.results[r].Entry.Path)}
 			b.WriteString(renderRow(&m.results[r], m.under(), w, look, m.accent()))
 		} else {
 			b.WriteString(strings.Repeat(" ", w))

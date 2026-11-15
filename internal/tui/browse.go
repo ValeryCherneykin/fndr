@@ -96,14 +96,16 @@ func (m *Model) showListing() {
 		m.results, m.total = m.homeHabits, len(m.homeHabits)
 		return
 	}
-	m.results, m.total = m.listing, len(m.listing)
 	if m.listing == nil {
+		m.results, m.total = nil, 0
 		return // not read yet; keep reveal for when it is
 	}
+	m.results = m.withGhosts(m.listing)
+	m.total = len(m.results)
 	// The folder just left is looked for among the contents, not the
 	// habits above them: that is where it sits in the folder.
-	for i := m.habits; i < len(m.listing); i++ {
-		if m.listing[i].Entry.Path == m.reveal {
+	for i := m.habits; i < len(m.results); i++ {
+		if m.results[i].Entry.Path == m.reveal {
 			m.cursor = i
 			break
 		}
@@ -114,7 +116,7 @@ func (m *Model) showListing() {
 
 // activate is enter on the selected row: go into a folder, open a file.
 func (m *Model) activate() tea.Cmd {
-	if len(m.results) == 0 {
+	if len(m.results) == 0 || m.ghostRefuses() {
 		return nil
 	}
 	e := &m.results[m.cursor].Entry

@@ -56,6 +56,9 @@ func (m *Model) startRename() {
 		m.setNotice("nothing selected to rename", false)
 		return
 	}
+	if m.ghostRefuses() {
+		return
+	}
 	from := m.results[m.cursor].Entry.Path
 	rel, err := filepath.Rel(m.cwd, from)
 	if err != nil || !filepath.IsLocal(rel) {

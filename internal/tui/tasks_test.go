@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -215,5 +216,109 @@ func TestPasteDropsLeaving(t *testing.T) {
 	send(m, tea.PasteMsg{Content: "w"})
 	if m.leaving || m.quitWhenDone {
 		t.Errorf("leaving %v, quitWhenDone %v", m.leaving, m.quitWhenDone)
+	}
+}
+
+// TestGhost: a copy under way is a row of its folder's listing before it
+// is there, selected, dimmed, saying how far; enter and ctrl+r on it say
+// there is nothing yet; when it ends the real row takes its place, under
+// the cursor, once.
+func TestGhost(t *testing.T) {
+	m, root := copyPlanned(t)
+	run := pressY(m)
+	send(m, m.load(m.cwd)()) // the listing, read; the copy not yet run
+	lib := filepath.Join(root, "lib")
+	if len(m.results) == 0 || m.results[m.cursor].Entry.Path != lib {
+		t.Fatalf("selected %q, want the ghost of lib", m.names())
+	}
+	m.tasks[0].progress.Entries.Store(1)
+	if v := ansi.Strip(m.View().Content); !strings.Contains(v, "███░░░░░░░   33%") {
+		t.Errorf("the ghost does not say how far:\n%s", v)
+	}
+	m.tasks[0].bytes.Store(1000) // summed: the bar goes by bytes, a big file not stuck at 0%
+	m.tasks[0].progress.Bytes.Store(620)
+	if v := ansi.Strip(m.View().Content); !strings.Contains(v, "██████░░░░   62%") || !strings.Contains(v, "620 B of 1 KB") {
+		t.Errorf("by bytes:\n%s", v)
+	}
+	m.tasks[0].bytes.Store(0)
+	m.tasks[0].total = -1 // a folder not counted yet: no bar, no division by it
+	if v := ansi.Strip(m.View().Content); !strings.Contains(v, "copying 620 B") {
+		t.Errorf("the ghost of a copy of unknown size:\n%s", v)
+	}
+	key(m, tea.KeyEnter, 0)
+	if m.notice != "still copying: there is nothing there yet" {
+		t.Errorf("enter on the ghost: %q", m.notice)
+	}
+	key(m, 'r', tea.ModCtrl)
+	if m.rename != nil || m.notice != "still copying: there is nothing there yet" {
+		t.Errorf("ctrl+r on the ghost: rename %v, %q", m.rename != nil, m.notice)
+	}
+
+	runAll(m, run)
+	n := 0
+	for _, r := range m.results {
+		if r.Entry.Path == lib {
+			n++
+		}
+	}
+	if n != 1 || m.results[m.cursor].Entry.Path != lib || m.ghostOf(lib) != nil {
+		t.Errorf("after: lib %d times, selected %q", n, m.results[m.cursor].Entry.Path)
+	}
+}
+
+// TestGhostWhereItGoes: a ghost is in its folder's listing only; one
+// waiting for the copy before it says so.
+func TestGhostWhereItGoes(t *testing.T) {
+	m, root := copyPlanned(t)
+	pressY(m)
+	key(m, 'o', tea.ModCtrl)
+	goTo(t, m, "docs/")
+	typeText(m, "yyp")
+	typeText(m, "ccdocs2/")
+	key(m, tea.KeyEscape, 0)
+	command(m, "w")
+	pressY(m)
+	send(m, m.load(m.cwd)())
+	if a := ansi.Strip(m.ghostAside(filepath.Join(root, "docs2"))); a != "waiting" {
+		t.Errorf("the second ghost says %q", a)
+	}
+	runAll(m, m.chdir(filepath.Join(root, "src"), ""))
+	if len(m.results) == 0 {
+		t.Fatal("src not listed")
+	}
+	for _, r := range m.results {
+		if m.ghostOf(r.Entry.Path) != nil {
+			t.Errorf("a ghost in src: %s", r.Entry.Path)
+		}
+	}
+}
+
+// TestGhostSelectedBelowHabits: the ghost selected after y is the ghost,
+// below the habits shown above the folder, not the first row.
+func TestGhostSelectedBelowHabits(t *testing.T) {
+	m, root := copyPlanned(t)
+	withHistory(t, m)
+	now := time.Now()
+	m.hist.Visit(filepath.Join(root, "docs"), now)
+	m.hist.Visit(filepath.Join(root, "docs"), now)
+	pressY(m)
+	send(m, m.load(m.cwd)())
+	if m.habits != 1 || m.results[m.cursor].Entry.Path != filepath.Join(root, "lib") {
+		t.Errorf("%d habits, selected %q", m.habits, m.results[m.cursor].Entry.Path)
+	}
+}
+
+// TestTaskSize: a task sums the files its copies hold, as the copy counts
+// them: src/ holds two files of one byte.
+func TestTaskSize(t *testing.T) {
+	m, _ := copyPlanned(t)
+	run := pressY(m)
+	tk := m.tasks[0]
+	if n := tk.size(); n != 2 {
+		t.Errorf("size %d, want 2", n)
+	}
+	runAll(m, run)
+	if n := tk.bytes.Load(); n != 2 {
+		t.Errorf("the task did not sum its bytes before copying: %d", n)
 	}
 }

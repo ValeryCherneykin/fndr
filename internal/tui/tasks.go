@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -34,6 +37,13 @@ type task struct {
 
 	progress *mutation.Progress // what it copied so far, counted by the copy
 	cancel   context.CancelFunc // nil until it starts
+
+	// bytes is how many bytes its copies hold, files' contents, as the
+	// copy counts them: 0 until the task has summed them (it does, off
+	// the UI goroutine, before it copies). A single large file is the
+	// longest copy there is, and counted by entries it is "0 of 1" until
+	// the end: its bar goes by bytes.
+	bytes atomic.Int64
 }
 
 // taskDoneMsg is a task ended, as an OIL write ends.
@@ -88,7 +98,16 @@ func (m *Model) queueTask() tea.Cmd {
 	m.tasks = append(m.tasks, t)
 	quit := st.quitAfter
 	st.plan, st.wrote = nil, true // written, as far as the buffer goes: read again from the disk
-	leave := m.leaveOil("")
+	// The ghost of the first copy into this folder is selected: what was
+	// asked for is in sight while it is made.
+	var reveal string
+	for _, to := range t.targets() {
+		if filepath.Dir(to.path) == st.dir {
+			reveal = filepath.Base(to.path)
+			break
+		}
+	}
+	leave := m.leaveOil(reveal)
 	m.setNotice("copying in the background", false)
 	cmds := []tea.Cmd{leave, m.startTask()}
 	if quit {
@@ -108,6 +127,7 @@ func (m *Model) startTask() tea.Cmd {
 	run := applyPlan(ctx, t.dir, t.plan, false, m.local.ix.Snapshot(), m.prune, t.progress, m.journaled())
 	id := t.id
 	done := func() tea.Msg {
+		t.bytes.Store(t.size())
 		w, _ := run().(oilWrittenMsg) //nolint:errcheck // applyPlan says nothing else
 		return taskDoneMsg{id: id, written: w}
 	}
@@ -137,7 +157,13 @@ func (m *Model) taskDone(msg *taskDoneMsg) tea.Cmd {
 	}
 	cmds := []tea.Cmd{m.relearn(w.dir, w.done), m.record(w.batch, w.steps), m.startTask()}
 	if m.oil == nil && len(w.done) > 0 {
-		cmds = append(cmds, m.load(m.cwd)) // what it made, in the listing: from the disk
+		// What it made, in the listing, from the disk: the ghost under the
+		// cursor stays under it, the real row now. One the user moved away
+		// from is not taken back to.
+		if len(m.results) > 0 && t.makes(m.results[m.cursor].Entry.Path) {
+			m.reveal = m.results[m.cursor].Entry.Path
+		}
+		cmds = append(cmds, m.load(m.cwd))
 	}
 	if m.quitWhenDone && len(m.tasks) == 0 {
 		m.leaveAnyway = true
@@ -158,11 +184,35 @@ func (m *Model) taskStatus() string {
 	if t.total >= 0 {
 		count = fmt.Sprintf("%d of %d", min(done, t.total), t.total)
 	}
-	text := "⟳ copying " + count + " · " + humanSize(t.progress.Bytes.Load())
+	size := humanSize(t.progress.Bytes.Load())
+	if all := t.bytes.Load(); all > 0 {
+		size += " of " + humanSize(all)
+	}
+	text := "⟳ copying " + count + " · " + size
 	if waiting := len(m.tasks) - 1; waiting > 0 {
 		text += fmt.Sprintf(" · %d waiting", waiting)
 	}
 	return text
+}
+
+// size sums what t's copies hold: the sizes of the files in what they copy,
+// read from the disk (only names and sizes: nothing is opened).
+func (t *task) size() int64 {
+	var n int64
+	for _, op := range t.plan {
+		if op.Kind != mutation.OpCopy {
+			continue
+		}
+		_ = filepath.WalkDir(mutation.Target(t.dir, op.From), func(_ string, d fs.DirEntry, err error) error { //nolint:errcheck // what cannot be read is not counted
+			if err == nil && d.Type().IsRegular() {
+				if info, ierr := d.Info(); ierr == nil {
+					n += info.Size()
+				}
+			}
+			return nil
+		})
+	}
+	return n
 }
 
 // askLeave is quit with tasks running: it asks first (leaveKey answers).
