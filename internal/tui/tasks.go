@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -37,6 +38,7 @@ type task struct {
 
 	progress *mutation.Progress // what it copied so far, counted by the copy
 	cancel   context.CancelFunc // nil until it starts
+	stopping bool               // ctrl+x stopped it; its end is on its way
 
 	// bytes is how many bytes its copies hold, files' contents, as the
 	// copy counts them: 0 until the task has summed them (it does, off
@@ -156,11 +158,11 @@ func (m *Model) taskDone(msg *taskDoneMsg) tea.Cmd {
 		m.setNotice(summary(w.done), false)
 	}
 	cmds := []tea.Cmd{m.relearn(w.dir, w.done), m.record(w.batch, w.steps), m.startTask()}
-	if m.oil == nil && len(w.done) > 0 {
-		// What it made, in the listing, from the disk: the ghost under the
-		// cursor stays under it, the real row now. One the user moved away
-		// from is not taken back to.
-		if len(m.results) > 0 && t.makes(m.results[m.cursor].Entry.Path) {
+	if m.oil == nil {
+		// The listing, from the disk: its ghost gone, what it made there.
+		// The ghost under the cursor stays under it, the real row now; one
+		// the user moved away from is not taken back to.
+		if len(w.done) > 0 && len(m.results) > 0 && t.makes(m.results[m.cursor].Entry.Path) {
 			m.reveal = m.results[m.cursor].Entry.Path
 		}
 		cmds = append(cmds, m.load(m.cwd))
@@ -213,6 +215,33 @@ func (t *task) size() int64 {
 		})
 	}
 	return n
+}
+
+// stopTask is ctrl+x: it stops the copy whose ghost is selected. One under
+// way is cancelled, and ends as stopped (taskDone), its half copy removed
+// by mutation; one waiting is dropped from the queue, never started.
+func (m *Model) stopTask() tea.Cmd {
+	var t *task
+	if len(m.results) > 0 {
+		t = m.ghostOf(m.results[m.cursor].Entry.Path)
+	}
+	switch {
+	case t == nil && len(m.tasks) == 0:
+		m.setNotice("no copy to stop", false)
+	case t == nil:
+		m.setNotice("ctrl+x stops a copy: select its row", false)
+	case t.cancel == nil:
+		m.tasks = slices.DeleteFunc(m.tasks, func(o *task) bool { return o == t })
+		m.setNotice("dropped a copy that had not started", false)
+		return m.load(m.cwd) // its ghost gone
+	default:
+		if !t.stopping { // once: pressed again, it is still stopping, and says so
+			t.stopping = true
+			t.cancel()
+		}
+		m.setNotice("stopping…", false)
+	}
+	return nil
 }
 
 // askLeave is quit with tasks running: it asks first (leaveKey answers).

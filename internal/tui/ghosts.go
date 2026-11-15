@@ -91,6 +91,8 @@ func (m *Model) ghostAside(path string) string {
 		return ""
 	case t.cancel == nil:
 		return stDir.Render("waiting")
+	case t.stopping:
+		return stDir.Render("stopping…")
 	}
 	// By bytes once they are summed, else by entries; a total not known
 	// (0, or -1: a folder not counted) has no bar.

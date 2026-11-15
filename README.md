@@ -264,6 +264,7 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+J` / `Ctrl+K` | Scroll the preview down / up by half its height |
 | `Ctrl+O` | Edit the folder as text with Vim keys, or, searching, what was found (see above); `Esc` or `Ctrl+O` goes back, `:q` quits |
 | `Ctrl+R` | Rename or move the selected entry: edit its path, `Enter`; missing folders are made, nothing is ever overwritten |
+| `Ctrl+X` | Stop the copy on the selected row (a copy under way is a dimmed row where it goes, with its progress) |
 | `Ctrl+Z` | Undo the last change to the disk, a whole `:w` or a `Ctrl+R`, even after fndr was closed; it asks first, naming what and when |
 | `Ctrl+E` | Quit and jump there |
 | `Ctrl+S` | Open the selected folder's tmux session, made the first time; a name not there is offered as a new folder (`tmux = on`) |

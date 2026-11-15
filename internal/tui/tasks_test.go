@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -321,4 +322,100 @@ func TestTaskSize(t *testing.T) {
 	if n := tk.bytes.Load(); n != 2 {
 		t.Errorf("the task did not sum its bytes before copying: %d", n)
 	}
+}
+
+// TestStopUnderWay: ctrl+x on the ghost of a copy under way stops it,
+// once; the ghost says so; it ends as stopped, nothing of it left, its
+// ghost gone from the listing.
+func TestStopUnderWay(t *testing.T) {
+	m, root := copyPlanned(t)
+	run := pressY(m)
+	send(m, m.load(m.cwd)())
+	stops := 0
+	cancel := m.tasks[0].cancel
+	m.tasks[0].cancel = func() { stops++; cancel() }
+	key(m, 'x', tea.ModCtrl)
+	key(m, 'x', tea.ModCtrl)
+	if stops != 1 || m.notice != "stopping…" {
+		t.Fatalf("%d stops, notice %q", stops, m.notice)
+	}
+	if a := ansi.Strip(m.ghostAside(filepath.Join(root, "lib"))); a != "stopping…" {
+		t.Errorf("the ghost says %q", a)
+	}
+	runAll(m, run)
+	if m.notice != "stopped: 0 of 1 done, nothing half copied" || m.noticeErr {
+		t.Errorf("notice %q", m.notice)
+	}
+	if exists(filepath.Join(root, "lib")) || len(hiddenIn(t, root)) > 0 {
+		t.Errorf("left: lib %v, hidden %q", exists(filepath.Join(root, "lib")), hiddenIn(t, root))
+	}
+	for _, r := range m.results {
+		if r.Entry.Path == filepath.Join(root, "lib") {
+			t.Error("the ghost is still listed")
+		}
+	}
+}
+
+// TestStopWaiting: ctrl+x on the ghost of a copy waiting drops it from the
+// queue: it never starts.
+func TestStopWaiting(t *testing.T) {
+	m, root := copyPlanned(t)
+	first := pressY(m)
+	key(m, 'o', tea.ModCtrl)
+	goTo(t, m, "docs/")
+	typeText(m, "yyp")
+	typeText(m, "ccdocs2/")
+	key(m, tea.KeyEscape, 0)
+	command(m, "w")
+	pressY(m)
+	send(m, m.load(m.cwd)())
+	docs2 := filepath.Join(root, "docs2")
+	for m.results[m.cursor].Entry.Path != docs2 {
+		key(m, tea.KeyDown, 0)
+	}
+	key(m, 'x', tea.ModCtrl)
+	if len(m.tasks) != 1 || m.notice != "dropped a copy that had not started" {
+		t.Fatalf("%d tasks, notice %q", len(m.tasks), m.notice)
+	}
+	for _, r := range m.results {
+		if r.Entry.Path == docs2 {
+			t.Fatal("the ghost of the copy dropped is still listed")
+		}
+	}
+	runAll(m, first)
+	if exists(docs2) || !exists(filepath.Join(root, "lib")) {
+		t.Errorf("docs2 %v, lib %v", exists(docs2), exists(filepath.Join(root, "lib")))
+	}
+}
+
+// TestStopNotOnGhost: ctrl+x elsewhere says how it is used, or that there
+// is nothing to stop; it stops nothing.
+func TestStopNotOnGhost(t *testing.T) {
+	m, _, _ := writeModel(t)
+	key(m, tea.KeyEscape, 0) // out of OIL
+	key(m, 'x', tea.ModCtrl)
+	if m.notice != "no copy to stop" {
+		t.Errorf("no tasks: %q", m.notice)
+	}
+	m, _ = copyPlanned(t)
+	pressY(m)
+	send(m, m.load(m.cwd)())
+	key(m, tea.KeyDown, 0) // off the ghost
+	key(m, 'x', tea.ModCtrl)
+	if m.notice != "ctrl+x stops a copy: select its row" || m.tasks[0].stopping {
+		t.Errorf("off the ghost: %q", m.notice)
+	}
+}
+
+// hiddenIn returns the names fndr hides its work under, left below dir.
+func hiddenIn(t *testing.T, dir string) []string {
+	t.Helper()
+	var left []string
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error { //nolint:errcheck // test
+		if err == nil && strings.HasPrefix(d.Name(), ".fndr-") {
+			left = append(left, p)
+		}
+		return nil
+	})
+	return left
 }

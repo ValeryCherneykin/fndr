@@ -186,6 +186,7 @@ var actions = map[string]actionFunc{
 	"help":    func(m *Model) (tea.Cmd, bool) { m.help = &helpState{}; return nil, true },
 	"session": func(m *Model) (tea.Cmd, bool) { return m.openSession(), true },
 	"undo":    func(m *Model) (tea.Cmd, bool) { return m.startUndo(), true },
+	"stop":    func(m *Model) (tea.Cmd, bool) { return m.stopTask(), true },
 }
 
 // moveBy returns the action that moves the selection by delta(m) rows.
