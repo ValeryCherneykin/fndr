@@ -45,6 +45,8 @@ type Config struct {
 	SaveIndex bool   // keep the home's index between runs; off, every start crawls
 	Editor    string // the editor's command line; "" for $VISUAL, $EDITOR, a fallback
 	EditorGUI bool   // the editor opens a window of its own: fndr does not wait for it
+	Tmux      bool   // ctrl+s opens a tmux session for a folder
+	TmuxRun   string // what a new session types first: the user's editor
 
 	// Keys holds the keys of every action (Actions) by its name, as
 	// Keystroke names them; an action turned off has none. A key does one

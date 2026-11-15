@@ -13,6 +13,7 @@ import (
 	"github.com/ValeryCherneykin/fndr/internal/filter"
 	"github.com/ValeryCherneykin/fndr/internal/frecency"
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/tmux"
 )
 
 // Rows taken by everything except the result list: query line, hairline,
@@ -35,6 +36,14 @@ type Model struct {
 	icons  bool           // Nerd Font icons; off, a "/" after a folder says what it is
 
 	editorGUI bool // the editor opens its own window: started, not waited for (open.go)
+
+	// tmux sessions (session.go): on in the config, what a new one types
+	// first, how tmux is run (nil: it is not; tests give a fake), and the
+	// command fndr becomes once it has quit, outside tmux.
+	tmuxOn    bool
+	tmuxRun   string
+	tmuxCmd   tmux.Runner
+	execAfter []string
 
 	// local is what LOCAL search runs on: the index of the folder fndr
 	// started in, or of wherever the user went that it does not cover.
@@ -171,11 +180,12 @@ type Model struct {
 
 // New returns a model that will index and search root once the program
 // starts.
-func New(root string, cfg config.Config, cfgErrs []error) *Model {
+func New(root string, cfg *config.Config, cfgErrs []error) *Model {
 	home, _ := os.UserHomeDir() // best effort: without it paths just are not shortened
 	m := newModel(root, home, &indexer.Index{})
 	m.local.crawling = true // Init starts it
 	m.preview, m.editor, m.icons, m.editorGUI = cfg.Preview, cfg.Editor, cfg.Icons, cfg.EditorGUI
+	m.tmuxOn, m.tmuxRun, m.tmuxCmd = cfg.Tmux, cfg.TmuxRun, tmux.Exec
 
 	// Pictures off is the terminal's lack of them: a card for every file,
 	// and nothing sent to tmux to let them through.
@@ -276,6 +286,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		// Back from another window or pane: what changed meanwhile.
 		cmd := m.catchUp(time.Now())
 		return cmd
+
+	case sessionMsg:
+		return m.sessionOpened(&msg)
 
 	case copiedMsg:
 		m.copied(&msg)

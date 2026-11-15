@@ -37,6 +37,11 @@ var settings = []setting{
 		doc: "The editor for text files, with its flags: nvim, hx, code.\nEmpty: $VISUAL, then $EDITOR, then nvim, vim or vi."},
 	{name: "editor_gui", def: "off", set: onOff(func(c *Config) *bool { return &c.EditorGUI }),
 		doc: "on: the editor above opens a window of its own (VS Code, PyCharm),\nand fndr goes on instead of waiting for it. Write no --wait flag."},
+
+	{name: "tmux", def: "off", set: onOff(func(c *Config) *bool { return &c.Tmux }), group: "tmux",
+		doc: "on: ctrl+s opens a tmux session for the selected folder (a file's: its\nfolder), named after it, or goes to the one it has; fndr quits. Outside\ntmux it attaches; inside, it switches."},
+	{name: "tmux_run", def: "", set: func(c *Config, v string) error { c.TmuxRun = v; return nil },
+		doc: "What a new session types first, as at its prompt: nvim, or a script.\nEmpty: just the shell."},
 }
 
 // onOff returns the setter of a switch. "true" and "false" are taken too,
@@ -97,6 +102,7 @@ var Actions = []Action{
 	{Name: "preview", Keys: []string{"ctrl+v"}, Doc: "Open or close the preview pane."},
 	{Name: "preview_down", Keys: []string{"ctrl+j"}, Doc: "Scroll the preview down."},
 	{Name: "preview_up", Keys: []string{"ctrl+k"}, Doc: "Scroll the preview up."},
+	{Name: "session", Keys: []string{"ctrl+s"}, Doc: "A tmux session for the selected folder: made, or gone to (tmux = on)."},
 	{Name: "help", Keys: []string{"f1"}, Doc: "The help page."},
 
 	{Name: "cursor_left", Keys: []string{"ctrl+h", "left"}, Doc: "Move the cursor in the query left.", Group: "Typing"},

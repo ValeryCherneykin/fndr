@@ -48,8 +48,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -75,7 +77,7 @@ func main() {
 // for the usual place), until the user quits.
 func runTUI(root, configPath string) (string, error) {
 	cfg, errs, written := loadConfig(configPath)
-	model := tui.New(root, cfg, errs)
+	model := tui.New(root, &cfg, errs)
 	if configPath == "" {
 		configPath, _ = config.DefaultPath()
 	}
@@ -99,7 +101,22 @@ func runTUI(root, configPath string) (string, error) {
 	if err := m.Close(); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "fndr: %v\n", err)
 	}
+	if argv := m.ExecAfter(); argv != nil {
+		return "", become(argv)
+	}
 	return m.ExitDir(), nil
+}
+
+// become replaces fndr with the program argv, in the same process: the
+// terminal is that program's now, and when it ends, the shell is back, as
+// if the user had typed it. Only once the interface has closed and what
+// fndr writes is written: nothing of fndr runs after it.
+func become(argv []string) error {
+	path, err := exec.LookPath(argv[0])
+	if err != nil {
+		return err
+	}
+	return syscall.Exec(path, argv, os.Environ()) //nolint:gosec // tmux attach, built by fndr
 }
 
 // loadConfig reads the settings at configPath, "" for the usual place. On

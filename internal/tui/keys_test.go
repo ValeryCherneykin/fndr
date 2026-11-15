@@ -40,7 +40,7 @@ func keysModel(t *testing.T, lines string) *Model {
 	t.Helper()
 	m, _ := browseModel(t, "")
 	cfg, errs := config.Parse(strings.NewReader(lines))
-	m.useConfig(cfg, errs)
+	m.useConfig(&cfg, errs)
 	return m
 }
 

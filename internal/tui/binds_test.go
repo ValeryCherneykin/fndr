@@ -135,7 +135,7 @@ func TestBindOnlyWhileSearching(t *testing.T) {
 func TestConfigMistakesSaid(t *testing.T) {
 	m := tagModel(t)
 	cfg, errs := config.Parse(strings.NewReader("preview = maybe\nbind = ctrl+n = tag:dirs\nbind = alt+d = tag:dirs\n"))
-	m.useConfig(cfg, errs)
+	m.useConfig(&cfg, errs)
 	if !m.noticeErr || m.notice != `config line 1: "maybe": want on or off (and 1 more)` {
 		t.Errorf("notice %q (err %v)", m.notice, m.noticeErr)
 	}
@@ -143,7 +143,7 @@ func TestConfigMistakesSaid(t *testing.T) {
 		t.Errorf("%d binds, want alt+d", len(m.binds))
 	}
 	m = tagModel(t)
-	m.useConfig(config.Config{}, nil)
+	m.useConfig(&config.Config{}, nil)
 	if m.notice != "" {
 		t.Errorf("no config, notice %q", m.notice)
 	}

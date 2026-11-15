@@ -13,7 +13,7 @@ import (
 // useConfig takes the settings read from the config file, and says its
 // mistakes at once, the file's (errs) and those only the interface can
 // see: a bind that silently does nothing is worse than a line of red.
-func (m *Model) useConfig(cfg config.Config, errs []error) {
+func (m *Model) useConfig(cfg *config.Config, errs []error) {
 	m.useKeys(cfg.Keys) // first: a chord may not start on an action's key
 	errs = append(errs, m.useBinds(cfg.Binds)...)
 	errs = append(errs, m.useFolders(cfg.Skip, cfg.Include)...)

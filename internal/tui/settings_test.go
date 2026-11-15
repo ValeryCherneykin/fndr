@@ -32,16 +32,17 @@ func tempHome(t *testing.T) string {
 // defaults too.
 func TestSettingsAsComeIn(t *testing.T) {
 	home := tempHome(t)
-	m := New(home, config.Default(), nil)
-	if m.preview || !m.graphics || m.editor != "" || m.hist == nil || m.savedPath == "" || !m.icons {
-		t.Errorf("defaults: preview %v, graphics %v, editor %q, hist %v, saved %q, icons %v", m.preview, m.graphics, m.editor, m.hist, m.savedPath, m.icons)
+	m := New(home, new(config.Default()), nil)
+	if m.preview || !m.graphics || m.editor != "" || m.hist == nil || m.savedPath == "" || !m.icons || m.tmuxOn {
+		t.Errorf("defaults: preview %v, graphics %v, editor %q, hist %v, saved %q, icons %v, tmux %v", m.preview, m.graphics, m.editor, m.hist, m.savedPath, m.icons, m.tmuxOn)
 	}
 
 	cfg := config.Default()
 	cfg.Preview, cfg.Images, cfg.Editor, cfg.Icons, cfg.EditorGUI = true, false, "code", false, true
-	m = New(home, cfg, nil)
-	if !m.preview || m.graphics || m.editor != "code" || m.icons {
-		t.Errorf("set: preview %v, graphics %v, editor %q, icons %v", m.preview, m.graphics, m.editor, m.icons)
+	cfg.Tmux, cfg.TmuxRun = true, "ve"
+	m = New(home, &cfg, nil)
+	if !m.preview || m.graphics || m.editor != "code" || m.icons || !m.tmuxOn || m.tmuxRun != "ve" || m.tmuxCmd == nil {
+		t.Errorf("set: preview %v, graphics %v, editor %q, icons %v, tmux %v %q", m.preview, m.graphics, m.editor, m.icons, m.tmuxOn, m.tmuxRun)
 	}
 	// The command is looked at, never run: it would open VS Code.
 	text := filepath.Join(home, "notes.md")
@@ -68,7 +69,7 @@ func TestPrivacyOff(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.History, cfg.SaveIndex = false, false
-	m := New(home, cfg, nil)
+	m := New(home, &cfg, nil)
 	if m.hist != nil || m.savedPath != "" {
 		t.Fatalf("hist %v, saved %q: want neither", m.hist, m.savedPath)
 	}
@@ -161,7 +162,7 @@ func TestTellGivesWayToMistakes(t *testing.T) {
 	}
 	m = tagModel(t)
 	cfg, errs := config.Parse(strings.NewReader("icons = maybe\n"))
-	m.useConfig(cfg, errs)
+	m.useConfig(&cfg, errs)
 	m.Tell("settings: x")
 	if !m.noticeErr {
 		t.Errorf("the mistake gave way: %q", m.notice)
@@ -182,7 +183,7 @@ include = ~/.cache/x/.deep
 skip = ~/dup
 include = ~/dup
 `))
-	m.useConfig(cfg, errs)
+	m.useConfig(&cfg, errs)
 	for dir, want := range map[string]bool{"Movies": false, ".ssh": true, ".cache": true, ".cache/x/.deep": true, ".local": false} {
 		if got := m.prune.Reaches(home, filepath.Join(home, dir)); got != want {
 			t.Errorf("%s reached %v, want %v", dir, got, want)
@@ -194,7 +195,7 @@ include = ~/dup
 
 	m = newModel(home, "", &indexer.Index{})
 	cfg, errs = config.Parse(strings.NewReader("skip = ~/Movies\nskip = /Volumes/x\n"))
-	m.useConfig(cfg, errs)
+	m.useConfig(&cfg, errs)
 	if m.notice != "config line 1: ~/Movies: no home to read ~ as" {
 		t.Errorf("no home: notice %q", m.notice)
 	}
