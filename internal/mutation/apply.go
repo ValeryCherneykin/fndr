@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -44,14 +43,22 @@ func ApplyContext(ctx context.Context, dir string, p Plan, trash *Trash, prog *P
 // in order, as Undo takes them back: also when it stops at a failure, so
 // the part done can be undone as well.
 func Run(ctx context.Context, dir string, p Plan, trash *Trash, prog *Progress) (steps []Step, err error) {
+	return RunIntent(ctx, Prepare(dir, p), trash, prog)
+}
+
+// RunIntent is Run of a plan prepared, and written down, before: it does
+// exactly what in says, the temporary names included, so that Recover,
+// reading the same in after a crash, knows where to look.
+func RunIntent(ctx context.Context, in Intent, trash *Trash, prog *Progress) (steps []Step, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	dir, p := in.Dir, in.Plan
 	if err := check(dir, p); err != nil {
 		return nil, err
 	}
-	var renames []Op
-	for _, op := range p {
+	var renames []int
+	for i, op := range p {
 		switch op.Kind {
 		case OpDelete:
 			from := filepath.Join(dir, op.From)
@@ -59,50 +66,48 @@ func Run(ctx context.Context, dir string, p Plan, trash *Trash, prog *Progress) 
 			if err != nil {
 				return steps, err
 			}
+			crashPoint()
 			steps = append(steps, took(OpDelete, from, to, ""))
 		case OpRename:
-			renames = append(renames, op)
+			renames = append(renames, i)
 		}
 	}
 	// Copies after the deletes, before the renames: a copy of an entry
 	// also renamed in the plan is of the entry as it was, still there.
-	for _, op := range p {
+	for i, op := range p {
 		if op.Kind != OpCopy {
 			continue
 		}
 		from, to := Target(dir, op.From), Target(dir, op.To)
-		made := madeIn(dir, to)
 		if err := copyEntry(ctx, from, to, prog); err != nil {
 			return steps, fmt.Errorf("copy %q to %q: %w", op.From, op.To, err)
 		}
-		steps = append(steps, took(OpCopy, from, to, made))
+		crashPoint()
+		steps = append(steps, took(OpCopy, from, to, in.Ops[i].Made))
 	}
 
-	// The folders a rename makes on the way are looked for before any is
-	// done: two renames into one new folder both name it, and Undo, which
-	// only removes it empty, takes it away with the last one out.
-	made := make([]string, len(renames))
-	for i, op := range renames {
-		made[i] = madeIn(dir, Target(dir, op.To))
+	ops, temps := make([]Op, len(renames)), make([]string, len(renames))
+	for k, i := range renames {
+		ops[k], temps[k] = p[i], in.Ops[i].Temp
 	}
-	n, err := renameAll(dir, renames)
-	for i, op := range renames[:n] {
-		steps = append(steps, took(OpRename, filepath.Join(dir, op.From), Target(dir, op.To), made[i]))
+	n, err := renameAll(dir, ops, temps)
+	for _, i := range renames[:n] {
+		steps = append(steps, took(OpRename, filepath.Join(dir, p[i].From), Target(dir, p[i].To), in.Ops[i].Made))
 	}
 	if err != nil {
 		return steps, err
 	}
 
-	for _, op := range p {
+	for i, op := range p {
 		if op.Kind != OpCreate {
 			continue
 		}
-		top := madeIn(dir, filepath.Join(dir, filepath.Clean(op.To)))
 		c, err := Create(dir, op.To)
 		if err != nil {
 			return steps, err
 		}
-		steps = append(steps, took(OpCreate, "", c.Path, top))
+		crashPoint()
+		steps = append(steps, took(OpCreate, "", c.Path, in.Ops[i].Made))
 	}
 	return steps, nil
 }
@@ -221,13 +226,12 @@ func free(dir, name string, leaving []os.FileInfo) error {
 // renameAll does the renames in two phases (see Apply). If the second
 // phase fails, the items still under a temporary name go back to their old
 // names, so nothing is ever left under a name the user did not choose.
-func renameAll(dir string, ops []Op) (done int, err error) {
-	temps := make([]string, len(ops))
+func renameAll(dir string, ops []Op, temps []string) (done int, err error) {
 	for i, op := range ops {
-		temps[i] = filepath.Join(dir, ".fndr-rename-"+strconv.Itoa(os.Getpid())+"-"+strconv.Itoa(i))
 		if err := noReplace(filepath.Join(dir, op.From), temps[i]); err != nil {
 			return 0, withUndo(fmt.Errorf("rename %q: %w", op.From, err), undo(dir, ops[:i], temps))
 		}
+		crashPoint()
 	}
 
 	for i, op := range ops {
@@ -239,6 +243,7 @@ func renameAll(dir string, ops []Op) (done int, err error) {
 		if err != nil {
 			return i, withUndo(fmt.Errorf("rename %q to %q: %w", op.From, op.To, err), undo(dir, ops[i:], temps[i:]))
 		}
+		crashPoint()
 	}
 	return len(ops), nil
 }

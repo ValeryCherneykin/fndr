@@ -2,10 +2,12 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -24,6 +26,13 @@ import (
 //
 // ctrl+z asks first, naming what it takes back and when: it may be a
 // batch of another day, and the user must know which.
+//
+// A change is written down twice: what it is about to do before it starts
+// (begin: the plan, every name it will use, mutation.Intent), what it did
+// once it ends (batch). A begin with no batch is a change cut off by a
+// crash; the next fndr to start makes sense of it on the disk
+// (mutation.Recover), writes its batch, and says so: ctrl+z takes it back
+// like any other.
 
 // batch is a change carried out: one write, one rename.
 type batch struct {
@@ -32,9 +41,17 @@ type batch struct {
 	Steps []mutation.Step `json:"steps"`
 }
 
-// record is one record of the journal: a batch done, or the ID of one
-// undone. Never both.
+// begun is a change about to start, as it will run.
+type begun struct {
+	ID     string          `json:"id"`
+	Time   time.Time       `json:"time"`
+	Intent mutation.Intent `json:"intent"`
+}
+
+// record is one record of the journal: a change begun, a batch done, or
+// the ID of one undone. One of them.
 type record struct {
+	Begin  *begun `json:"begin,omitempty"`
 	Batch  *batch `json:"batch,omitempty"`
 	Undone string `json:"undone,omitempty"`
 }
@@ -59,6 +76,11 @@ type (
 	}
 	// recordedMsg says a batch could not be written to the journal.
 	recordedMsg struct{ err error }
+	// recoveredMsg is what the changes cut off last time came to.
+	recoveredMsg struct {
+		cut, done, total, fixed int // cut: the changes made sense of
+		err                     error
+	}
 )
 
 // journalPath is where batches are kept: beside the history.
@@ -70,25 +92,138 @@ func journalPath() (string, error) {
 	return filepath.Join(filepath.Dir(hist), "journal"), nil
 }
 
-// record keeps the steps of a change carried out, for ctrl+z: in the
-// journal, in a command (a disk write, synced), or in memory without one.
-func (m *Model) record(steps []mutation.Step) tea.Cmd {
-	if len(steps) == 0 {
+// journaled is where a change is written down: the journal ("" for
+// none) and the change's ID, for its begin and its batch.
+type journaled struct{ path, id string }
+
+// journal names a change about to start, to be written down.
+func (m *Model) journaled() journaled { return journaled{path: m.journal, id: m.newBatchID()} }
+
+// newBatchID names a change about to start, for its begin and its batch:
+// unique across fndr running at once, in other panes.
+func (m *Model) newBatchID() string {
+	m.batchSeq++
+	return strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.Itoa(os.Getpid()) + "-" + strconv.Itoa(m.batchSeq)
+}
+
+// begin writes down in, the change id is about to make, before it starts:
+// called from the change's command, as it writes and syncs to the disk.
+// With no journal, nothing: a crash then loses only the undo.
+func (j journaled) begin(in mutation.Intent) error {
+	if j.path == "" {
 		return nil
 	}
-	m.batchSeq++
-	b := batch{
-		// Unique across fndr running at once, in other panes.
-		ID:    strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.Itoa(os.Getpid()) + "-" + strconv.Itoa(m.batchSeq),
-		Time:  time.Now(),
-		Steps: steps,
+	return appendRecord(j.path, record{Begin: &begun{ID: j.id, Time: time.Now(), Intent: in}})
+}
+
+// record keeps the steps of the change id carried out, for ctrl+z: in the
+// journal, in a command (a disk write, synced), or in memory without one.
+// A change that did nothing is written down too, if it was begun: its
+// begin is then known to be over, not cut off.
+func (m *Model) record(id string, steps []mutation.Step) tea.Cmd {
+	if id == "" || (len(steps) == 0 && m.journal == "") {
+		return nil
 	}
+	b := batch{ID: id, Time: time.Now(), Steps: steps}
 	if m.journal == "" {
 		m.batches = append(m.batches, b)
 		return nil
 	}
 	path := m.journal
 	return func() tea.Msg { return recordedMsg{err: appendRecord(path, record{Batch: &b})} }
+}
+
+// recoverJournal makes sense of the changes the journal at path has begun
+// and not ended: cut off by a crash. One whose fndr is still running, in
+// another pane, is under way, not cut off, and left to it.
+func recoverJournal(path string) tea.Cmd {
+	return func() tea.Msg {
+		recs, err := journal.Read(path)
+		if err != nil {
+			return recoveredMsg{err: err}
+		}
+		var msg recoveredMsg
+		for _, b := range cutOff(recs) {
+			if alive(b.Intent.PID) {
+				continue
+			}
+			trash, err := mutation.HomeTrash()
+			if err != nil {
+				return recoveredMsg{err: err}
+			}
+			steps, fixed, rerr := mutation.Recover(b.Intent, trash)
+			msg.cut++
+			msg.done, msg.total, msg.fixed = msg.done+len(steps), msg.total+len(b.Intent.Plan), msg.fixed+fixed
+			if err := appendRecord(path, record{Batch: &batch{ID: b.ID, Time: b.Time, Steps: steps}}); err != nil && rerr == nil {
+				rerr = err
+			}
+			if rerr != nil {
+				msg.err = rerr
+			}
+		}
+		return msg
+	}
+}
+
+// cutOff returns the changes recs begin and never end.
+func cutOff(recs [][]byte) []begun {
+	var begins []begun
+	ended := map[string]bool{}
+	for _, data := range recs {
+		var r record
+		if json.Unmarshal(data, &r) != nil {
+			continue
+		}
+		switch {
+		case r.Begin != nil:
+			begins = append(begins, *r.Begin)
+		case r.Batch != nil:
+			ended[r.Batch.ID] = true
+		}
+	}
+	var out []begun
+	for _, b := range begins {
+		if !ended[b.ID] {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// alive reports whether process pid is running: signal 0 is not sent, only
+// checked. EPERM is a process of another user's: running.
+func alive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// recovered says what the changes cut off last time came to, and catches
+// the index and the listing up with the disk: read at start, they may hold
+// what recovery took away (a copy cut off, under its hidden name). Nothing
+// done, nothing said; nothing cut off, nothing read again.
+func (m *Model) recovered(msg *recoveredMsg) tea.Cmd {
+	if msg.cut == 0 {
+		return nil
+	}
+	switch {
+	case msg.err != nil:
+		m.setNotice(safeText("cut off last time, and not all put right: "+msg.err.Error()), true)
+	case msg.done == 0 && msg.fixed == 0:
+	default:
+		text := fmt.Sprintf("cut off last time: %d of %d done", msg.done, msg.total)
+		if msg.fixed > 0 {
+			text += fmt.Sprintf(", %d put back from a hidden name", msg.fixed)
+		}
+		if msg.done > 0 {
+			text += " — ctrl+z takes it back"
+		}
+		m.setNotice(text, false)
+	}
+	m.caughtUp = time.Time{}
+	return m.catchUp(time.Now())
 }
 
 // appendRecord writes rec to the journal at path, its folder made if new.
@@ -115,7 +250,7 @@ func lastBatch(recs [][]byte) (batch, bool) {
 			continue
 		}
 		switch {
-		case r.Batch != nil:
+		case r.Batch != nil && len(r.Batch.Steps) > 0: // one that did nothing is nothing to undo
 			batches = append(batches, *r.Batch)
 		case r.Undone != "":
 			undone[r.Undone] = true

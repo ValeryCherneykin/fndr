@@ -44,6 +44,7 @@ type renamedMsg struct {
 	dir      string
 	done     mutation.Plan   // the rename, if it was carried out
 	steps    []mutation.Step // the same, as ctrl+z takes it back
+	batch    string          // its batch's ID, begun in the journal
 	err      error
 	remove   []string // for the index, as after an OIL write
 	add      []indexer.Entry
@@ -119,17 +120,22 @@ func (m *Model) applyRename() tea.Cmd {
 		return nil
 	}
 	st.applying = true
-	return renameEntry(st.dir, plan[0], m.prune)
+	return renameEntry(st.dir, plan[0], m.prune, m.journaled())
 }
 
 // renameEntry carries out op in dir, off the UI goroutine.
-func renameEntry(dir string, op mutation.Op, prune *indexer.Prune) tea.Cmd {
+func renameEntry(dir string, op mutation.Op, prune *indexer.Prune, j journaled) tea.Cmd {
 	return func() tea.Msg {
-		msg := renamedMsg{from: filepath.Join(dir, op.From), to: mutation.Target(dir, op.To), dir: dir}
+		msg := renamedMsg{from: filepath.Join(dir, op.From), to: mutation.Target(dir, op.To), dir: dir, batch: j.id}
 		plan := mutation.Plan{op}
 		// No trash: a plan without deletes never asks for one.
 		made := madeOnTheWay(dir, plan)
-		steps, err := mutation.Run(context.Background(), dir, plan, nil, nil)
+		in := mutation.Prepare(dir, plan)
+		if err := j.begin(in); err != nil {
+			msg.err = fmt.Errorf("journal: %w", err) // refused before anything is done, as in OIL
+			return msg
+		}
+		steps, err := mutation.RunIntent(context.Background(), in, nil, nil)
 		msg.err, msg.done, msg.steps = err, plan[:len(steps)], steps
 		msg.remove, msg.add = indexChanges(dir, msg.done, nil, prune, made)
 		return msg

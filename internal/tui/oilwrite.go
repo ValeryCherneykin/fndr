@@ -30,6 +30,7 @@ type oilWrittenMsg struct {
 	dir    string
 	done   mutation.Plan   // the steps that were carried out
 	steps  []mutation.Step // the same, as ctrl+z takes them back
+	batch  string          // their batch's ID, begun in the journal
 	err    error           // why the next one was not
 	quit   bool            // :wq: quit fndr once written
 	remove []string        // for the index: paths gone or moved away
@@ -150,7 +151,7 @@ func (m *Model) confirmKey(msg tea.KeyPressMsg) tea.Cmd {
 		st.applying = true
 		ctx, stop := context.WithCancel(m.ctx)
 		st.stop, st.progress = stop, new(mutation.Progress)
-		apply := applyPlan(ctx, st.dir, st.plan, st.quitAfter, m.local.ix.Snapshot(), m.prune, st.progress)
+		apply := applyPlan(ctx, st.dir, st.plan, st.quitAfter, m.local.ix.Snapshot(), m.prune, st.progress, m.journaled())
 		if !st.copies() {
 			return apply
 		}
@@ -165,16 +166,23 @@ func (m *Model) confirmKey(msg tea.KeyPressMsg) tea.Cmd {
 // what the index must forget and learn, so search finds the new names at
 // once. snap is the index now, to tell what a create added.
 // ctx stops it, and prog counts what its copies did.
-func applyPlan(ctx context.Context, dir string, plan mutation.Plan, quit bool, snap []indexer.Entry, prune *indexer.Prune, prog *mutation.Progress) tea.Cmd {
+func applyPlan(ctx context.Context, dir string, plan mutation.Plan, quit bool, snap []indexer.Entry, prune *indexer.Prune, prog *mutation.Progress, j journaled) tea.Cmd {
 	return func() tea.Msg {
-		msg := oilWrittenMsg{dir: dir, quit: quit}
+		msg := oilWrittenMsg{dir: dir, quit: quit, batch: j.id}
 		trash, err := mutation.HomeTrash()
 		if err != nil {
 			msg.err = err // before anything is done: nothing half applied
 			return msg
 		}
 		made := madeOnTheWay(dir, plan)
-		steps, err := mutation.Run(ctx, dir, plan, trash, prog)
+		in := mutation.Prepare(dir, plan)
+		if err := j.begin(in); err != nil {
+			// Refused, before anything is done: what is not written down
+			// could not be put right after a crash.
+			msg.err = fmt.Errorf("journal: %w", err)
+			return msg
+		}
+		steps, err := mutation.RunIntent(ctx, in, trash, prog)
 		msg.done, msg.steps, msg.err = plan[:len(steps)], steps, err // Run goes in the plan's order
 		msg.remove, msg.add = indexChanges(dir, msg.done, snap, prune, made)
 		return msg

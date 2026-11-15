@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -106,6 +107,18 @@ func missingTop(path string) string {
 func Undo(steps []Step, trash *Trash) (undone int, err error) {
 	var failed []string
 	for i := len(steps) - 1; i >= 0; i-- {
+		if steps[i].Kind == OpRename {
+			// Renames go back together, in two phases, as Run made them:
+			// one by one, a swap's first one back finds its old name
+			// taken by the other.
+			j := i
+			for j > 0 && steps[j-1].Kind == OpRename {
+				j--
+			}
+			n, f := undoRenames(steps[j : i+1])
+			undone, failed, i = undone+n, append(failed, f...), j
+			continue
+		}
 		s := steps[i]
 		if err := undoStep(s, trash); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v", filepath.Base(s.To), err))
@@ -117,6 +130,46 @@ func Undo(steps []Step, trash *Trash) (undone int, err error) {
 		return undone, errors.New(strings.Join(failed, ", "))
 	}
 	return undone, nil
+}
+
+// undoRenames takes renames back in two phases: each to a temporary name
+// beside it, then each from there to its old name; one whose old name is
+// taken goes back to where it was. So a swap, or a chain, goes back
+// whole, whatever the order.
+func undoRenames(steps []Step) (undone int, failed []string) {
+	temps := make([]string, len(steps))
+	for i, s := range steps {
+		fail := func(err error) { failed = append(failed, fmt.Sprintf("%s: %v", filepath.Base(s.To), err)) }
+		if !is(s.To, s.ID) {
+			fail(ErrChanged)
+			continue
+		}
+		temp := filepath.Join(filepath.Dir(s.To), ".fndr-undo-"+strconv.Itoa(os.Getpid())+"-"+strconv.Itoa(i))
+		if err := noReplace(s.To, temp); err != nil {
+			fail(err)
+			continue
+		}
+		temps[i] = temp
+	}
+	for i, s := range steps {
+		if temps[i] == "" {
+			continue
+		}
+		err := os.MkdirAll(filepath.Dir(s.From), 0o755) //nolint:gosec // the user's own folder: their umask decides
+		if err == nil {
+			err = noReplace(temps[i], s.From)
+		}
+		if err != nil {
+			// Back where the step left it, under its own name, not a
+			// hidden one.
+			_ = noReplace(temps[i], s.To) //nolint:errcheck // its own name, freed by phase one
+			failed = append(failed, fmt.Sprintf("%s: %s is taken", filepath.Base(s.To), filepath.Base(s.From)))
+			continue
+		}
+		removeEmpty(filepath.Dir(s.To), s.Made)
+		undone++
+	}
+	return undone, failed
 }
 
 // undoStep takes one step back.

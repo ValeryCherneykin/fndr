@@ -267,3 +267,40 @@ func TestStepJSON(t *testing.T) {
 		t.Error("an unknown kind was written")
 	}
 }
+
+// TestUndoSwap: a swap goes back as it was made, in two phases: one by
+// one, the first rename back finds its old name taken by the other.
+func TestUndoSwap(t *testing.T) {
+	dir := t.TempDir()
+	plant(t, dir, map[string]string{"a.txt": "A", "b.txt": "B", "c.txt": "C"})
+	before := snapshot(t, dir)
+	swap := Plan{{Kind: OpRename, From: "a.txt", To: "b.txt"}, {Kind: OpRename, From: "b.txt", To: "c.txt"}, {Kind: OpRename, From: "c.txt", To: "a.txt"}}
+	steps, err := Run(context.Background(), dir, swap, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if undone, err := Undo(steps, nil); undone != 3 || err != nil {
+		t.Fatalf("Undo: %d, %v", undone, err)
+	}
+	if after := snapshot(t, dir); !maps.Equal(after, before) {
+		t.Errorf("%q, want %q", after, before)
+	}
+}
+
+// TestUndoRenameNameTaken: a rename taken back onto a name made since
+// stays under the name the rename gave it, never a hidden temporary one.
+func TestUndoRenameNameTaken(t *testing.T) {
+	dir := t.TempDir()
+	plant(t, dir, map[string]string{"a.txt": "A"})
+	steps, err := Run(context.Background(), dir, Plan{{Kind: OpRename, From: "a.txt", To: "b.txt"}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plant(t, dir, map[string]string{"a.txt": "new"})
+	if undone, err := Undo(steps, nil); undone != 0 || err == nil || !strings.Contains(err.Error(), "taken") {
+		t.Errorf("Undo: %d, %v", undone, err)
+	}
+	if got := snapshot(t, dir); !maps.Equal(got, map[string]string{"a.txt": "new", "b.txt": "A"}) {
+		t.Errorf("%q: b.txt must stay b.txt", got)
+	}
+}

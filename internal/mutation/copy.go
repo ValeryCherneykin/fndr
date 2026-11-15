@@ -68,11 +68,12 @@ func copyEntry(ctx context.Context, src, dst string, prog *Progress) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //nolint:gosec // the user's own folders: their umask decides
 		return err
 	}
-	tmp := filepath.Join(filepath.Dir(dst), ".fndr-copy-"+strconv.Itoa(os.Getpid())+"-"+strconv.FormatInt(copySeq.Add(1), 10))
+	tmp := filepath.Join(filepath.Dir(dst), copyPrefix(os.Getpid())+strconv.FormatInt(copySeq.Add(1), 10))
 	if err := (copying{ctx, prog}).tree(src, tmp); err != nil {
 		discard(tmp)
 		return err
 	}
+	crashPoint() // a whole copy, under its temporary name
 	if err := noReplace(tmp, dst); err != nil {
 		discard(tmp)
 		return err

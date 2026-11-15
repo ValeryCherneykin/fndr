@@ -242,6 +242,11 @@ func (m *Model) Init() tea.Cmd {
 	if m.graphics && m.tmux {
 		passthrough = allowPassthrough
 	}
+	if m.journal != "" {
+		// Changes cut off last time are put right first thing, in the
+		// background, alongside whatever starts.
+		passthrough = tea.Batch(passthrough, recoverJournal(m.journal))
+	}
 	switch {
 	case !m.local.crawling:
 		return tea.Batch(m.load(m.cwd), passthrough)
@@ -279,7 +284,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 
 	case oilWrittenMsg:
 		learn := m.relearn(msg.dir, msg.done)
-		return tea.Batch(learn, m.record(msg.steps), m.oilWritten(&msg))
+		return tea.Batch(learn, m.record(msg.batch, msg.steps), m.oilWritten(&msg))
 	case trashCountedMsg:
 		m.trashCounted(&msg)
 	case progressTickMsg:
@@ -287,13 +292,15 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return cmd
 	case renamedMsg:
 		learn := m.relearn(msg.dir, msg.done)
-		return tea.Batch(learn, m.record(msg.steps), m.renamed(&msg))
+		return tea.Batch(learn, m.record(msg.batch, msg.steps), m.renamed(&msg))
 
 	case undoFoundMsg:
 		m.undoFound(&msg)
 		return nil
 	case undoneMsg:
 		return m.undone(&msg)
+	case recoveredMsg:
+		return m.recovered(&msg)
 	case recordedMsg:
 		if msg.err != nil {
 			m.setNotice("done, but ctrl+z will not find it: "+msg.err.Error(), true)
