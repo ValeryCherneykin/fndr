@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 )
 
 // Errors of a copy.
@@ -145,7 +146,7 @@ func (c copying) tree(src, dst string) error {
 
 // file copies the regular file src, described by info, to dst.
 func (c copying) file(src, dst string, info os.FileInfo) error {
-	in, err := os.Open(src) //nolint:gosec // the user's own file, chosen in the plan
+	in, err := openSource(src, info)
 	if err != nil {
 		return err
 	}
@@ -166,6 +167,26 @@ func (c copying) file(src, dst string, info os.FileInfo) error {
 	}
 	c.count(1, 0)
 	return nil
+}
+
+// openSource opens src for reading, if it is still the file info, a
+// regular one, describes. Swapped since for a named pipe, open would wait for a writer
+// for good, deaf to esc: O_NONBLOCK returns at once (on a regular file it
+// changes nothing), and the file opened is checked after.
+func openSource(src string, info os.FileInfo) (*os.File, error) {
+	f, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NONBLOCK, 0) //nolint:gosec // the user's own file, chosen in the plan
+	if err != nil {
+		return nil, err
+	}
+	now, err := f.Stat()
+	if err == nil && !os.SameFile(info, now) { // info is a regular file's: a pipe is another file
+		err = fmt.Errorf("%s: changed while copied: %w", filepath.Base(src), ErrNotCopied)
+	}
+	if err != nil {
+		_ = f.Close() //nolint:errcheck // read only, and already failing
+		return nil, err
+	}
+	return f, nil
 }
 
 // chunks copies in to out a chunk at a time, counting each, and stops

@@ -402,3 +402,52 @@ func TestCopyStoppedReadOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestCopySourceSwapped: a file swapped after it was looked at, for a
+// named pipe or another file, is refused at once: open on a pipe would
+// wait for a writer for good, and esc could not stop it.
+func TestCopySourceSwapped(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(src, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	swap := map[string]func() error{
+		"pipe":    func() error { return syscall.Mkfifo(src, 0o600) },
+		"another": func() error { return os.WriteFile(src, []byte("y"), 0o600) },
+	}
+	for name, swapTo := range swap {
+		if err := os.Remove(src); err != nil {
+			t.Fatal(err)
+		}
+		if err := swapTo(); err != nil {
+			t.Fatal(err)
+		}
+		done := async(func() error {
+			f, err := openSource(src, info)
+			if err == nil {
+				_ = f.Close()
+			}
+			return err
+		})
+		select {
+		case err := <-done:
+			if !errors.Is(err, ErrNotCopied) {
+				t.Errorf("%s: %v, want ErrNotCopied", name, err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s: open waits", name)
+		}
+	}
+}
+
+// async runs f in a goroutine: a test waits for it with a deadline.
+func async(f func() error) <-chan error {
+	c := make(chan error, 1)
+	go func() { c <- f() }()
+	return c
+}
