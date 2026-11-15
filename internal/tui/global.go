@@ -89,6 +89,11 @@ func (m *Model) toggleGlobal() tea.Cmd {
 		case m.global != nil:
 		case m.local.root == m.home:
 			m.global = m.local // LOCAL is the home already: one index, one crawl
+		case m.savedPending:
+			// The saved index is on its way: savedLoaded fills this scope
+			// and starts it. Crawled now, the home would be read whole,
+			// seconds, instead of caught up from the file.
+			m.global = &scope{root: m.home, ix: &indexer.Index{}, crawling: true}
 		default:
 			m.global = &scope{root: m.home, ix: &indexer.Index{}}
 			crawl = m.startCrawl(m.global)

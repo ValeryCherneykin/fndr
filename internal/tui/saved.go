@@ -55,6 +55,7 @@ func (m *Model) savedLoaded(msg *savedMsg) tea.Cmd {
 	s := msg.saved
 	usable := msg.err == nil && s.Root == m.home && s.Rules == m.prune.Rules()
 
+	m.savedPending = false // nothing reads it once global is made, below; kept true to what is
 	var cmds []tea.Cmd
 	if m.global == nil {
 		m.global = &scope{root: m.home, ix: &indexer.Index{}}
@@ -64,6 +65,11 @@ func (m *Model) savedLoaded(msg *savedMsg) tea.Cmd {
 			// scope serves both, and LOCAL is caught up, not crawled.
 			m.global = m.local
 		}
+	}
+	// Never crawled: made here, or by a Tab pressed while the file was
+	// read (toggleGlobal leaves its start to this). A scope nobody starts
+	// would be searched empty until fndr is started again.
+	if m.global.stop == nil {
 		if usable {
 			m.global.ix.Add(s.Entries)
 			m.global.seed = s.Entries

@@ -71,6 +71,10 @@ type Model struct {
 	savedPath  string
 	indexSaves []*indexSave
 
+	// savedPending: the saved index is being read; the crawls wait for it
+	// (Init, savedLoaded), and so does a Tab pressed meanwhile.
+	savedPending bool
+
 	// With an empty query the list shows cwd's contents (browse); otherwise
 	// search results. listing is nil until the directory has been read.
 	listing []indexer.Result
@@ -219,6 +223,7 @@ func (m *Model) Init() tea.Cmd {
 	case m.savedPath != "":
 		// The crawls start once the saved index is read (savedLoaded):
 		// started now, they would fill the indexes it is meant to fill.
+		m.savedPending = true
 		return tea.Batch(m.load(m.cwd), loadSaved(m.savedPath), passthrough)
 	}
 	return tea.Batch(m.load(m.cwd), m.startCrawl(m.local), passthrough)

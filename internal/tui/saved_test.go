@@ -326,3 +326,36 @@ func TestReleaseAfterHomeOnly(t *testing.T) {
 		t.Errorf("releases %v: want one, after the index was saved", released)
 	}
 }
+
+// TestTabWhileSavedLoads: Tab pressed while the saved index is still being
+// read. The GLOBAL it makes is filled from the file and started, once
+// the file is read: in the home, it was never started at all, and search
+// stayed empty until fndr was started again; below it, the home was
+// crawled whole, seconds, instead of caught up.
+func TestTabWhileSavedLoads(t *testing.T) {
+	for _, inHome := range []bool{true, false} {
+		m, home := savedModel(t)
+		if inHome {
+			m.local.root, m.cwd = home, home
+		}
+		m.Init() // reads the saved index; not run here, so it is still on its way
+		if _, cmd := m.update(tea.KeyPressMsg{Code: tea.KeyTab}); cmd == nil || !m.globalOn {
+			t.Fatalf("in home %v: Tab did not turn GLOBAL on", inHome)
+		}
+		if m.global.stop != nil {
+			t.Errorf("in home %v: GLOBAL crawled before the saved index came", inHome)
+		}
+		loaded(t, m)
+		if m.global.stop == nil || m.global.seed == nil || count(m.global.ix, filepath.Join(home, "README.md")) != 1 {
+			t.Errorf("in home %v: GLOBAL started %v, seeded %v, %d entries: want caught up from the file",
+				inHome, m.global.stop != nil, m.global.seed != nil, m.global.ix.Len())
+		}
+		if inHome != (m.global == m.local) {
+			t.Errorf("in home %v: one scope %v", inHome, m.global == m.local)
+		}
+		typeText(m, "readme")
+		if got := m.resultPaths(); !slices.Equal(got, []string{filepath.Join(home, "README.md")}) {
+			t.Errorf("in home %v: GLOBAL finds %q", inHome, got)
+		}
+	}
+}
