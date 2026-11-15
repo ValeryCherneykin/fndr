@@ -102,7 +102,13 @@ func Open(r Runner, dir, run string) (string, error) {
 				return "", err
 			}
 			if run != "" {
-				if _, err := r("send-keys", "-t", target(name)+":", run, "Enter"); err != nil {
+				// -l: run is text to type, not key names ("Space" would be
+				// a space, "C-a" ctrl+a); -- lets it start with "-". Enter,
+				// a key, goes on its own.
+				if _, err := r("send-keys", "-t", target(name)+":", "-l", "--", run); err != nil {
+					return "", err
+				}
+				if _, err := r("send-keys", "-t", target(name)+":", "Enter"); err != nil {
 					return "", err
 				}
 			}

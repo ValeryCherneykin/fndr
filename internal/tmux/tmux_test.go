@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,10 +28,12 @@ func TestName(t *testing.T) {
 	}
 }
 
-// fake is a tmux server in a map: session name → its folder.
+// fake is a tmux server in a map: session name → its folder. What
+// send-keys types is kept as tmux reads it: text after -l --, and each
+// other word a key name, kept as <name>.
 type fake struct {
 	sessions map[string]string
-	typed    map[string][]string
+	typed    map[string]string
 	calls    [][]string
 }
 
@@ -52,7 +53,14 @@ func (f *fake) run(args ...string) (string, error) {
 	case "new-session":
 		f.sessions[args[3]] = args[5]
 	case "send-keys":
-		f.typed[name(args[2])] = append(f.typed[name(args[2])], args[3])
+		keys := args[3:]
+		if len(keys) >= 2 && keys[0] == "-l" && keys[1] == "--" {
+			f.typed[name(args[2])] += strings.Join(keys[2:], "")
+			break
+		}
+		for _, k := range keys {
+			f.typed[name(args[2])] += "<" + k + ">"
+		}
 	}
 	return "", nil
 }
@@ -60,24 +68,36 @@ func (f *fake) run(args ...string) (string, error) {
 // TestOpen: a session is made once, with the command typed in it, and
 // found again after; another folder of the same name gets its own.
 func TestOpen(t *testing.T) {
-	f := &fake{sessions: map[string]string{}, typed: map[string][]string{}}
+	f := &fake{sessions: map[string]string{}, typed: map[string]string{}}
 	for range 2 {
 		if name, err := Open(f.run, "/dev/api", "ve"); err != nil || name != "api" {
 			t.Fatalf("Open: %q, %v", name, err)
 		}
 	}
-	if !slices.Equal(f.typed["api"], []string{"ve"}) {
-		t.Errorf("typed %q: want ve, once", f.typed["api"])
+	if f.typed["api"] != "ve<Enter>" {
+		t.Errorf("typed %q: want ve and Enter, once", f.typed["api"])
 	}
 	other, err := Open(f.run, "/work/api", "")
 	if err != nil || other != hashed("/work/api") || f.sessions[other] != "/work/api" {
 		t.Errorf("another api: %q, %v", other, err)
 	}
-	if len(f.typed[other]) != 0 {
+	if f.typed[other] != "" {
 		t.Error("typed with no command")
 	}
 	if again, _ := Open(f.run, "/work/api", ""); again != other {
 		t.Errorf("the other api again: %q, want %q", again, other)
+	}
+}
+
+// TestOpenTypesText: the command is typed as written, even when it is
+// a word tmux knows as a key, or starts with "-", which tmux would read
+// as a flag of send-keys.
+func TestOpenTypesText(t *testing.T) {
+	for _, run := range []string{"Space", "C-a", "-h ls", "nvim ."} {
+		f := &fake{sessions: map[string]string{}, typed: map[string]string{}}
+		if _, err := Open(f.run, "/dev/api", run); err != nil || f.typed["api"] != run+"<Enter>" {
+			t.Errorf("run %q: typed %q, %v", run, f.typed["api"], err)
+		}
 	}
 }
 
