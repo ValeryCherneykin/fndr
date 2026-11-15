@@ -24,7 +24,10 @@ import (
 //   - Folders a step made on the way go with it only if empty.
 //
 // A step skipped does not stop the others: each is a change of its own,
-// and every one that can go back does.
+// and every one that can go back does. A step already back (its file at
+// its old place, or what it made gone) counts as undone: Undo done again,
+// after one cut off by a crash (see RecoverUndo), finishes the rest and
+// says nothing of what was finished before.
 
 // ErrChanged is a step whose file is not what the step left: moved,
 // replaced or gone since.
@@ -106,6 +109,7 @@ func missingTop(path string) string {
 // trash takes what creates and copies made; with none, they stay.
 func Undo(steps []Step, trash *Trash) (undone int, err error) {
 	var failed []string
+	pid := os.Getpid()
 	for i := len(steps) - 1; i >= 0; i-- {
 		if steps[i].Kind == OpRename {
 			// Renames go back together, in two phases, as Run made them:
@@ -115,7 +119,7 @@ func Undo(steps []Step, trash *Trash) (undone int, err error) {
 			for j > 0 && steps[j-1].Kind == OpRename {
 				j--
 			}
-			n, f := undoRenames(steps[j : i+1])
+			n, f := undoRenames(steps[j:i+1], j, pid)
 			undone, failed, i = undone+n, append(failed, f...), j
 			continue
 		}
@@ -136,19 +140,29 @@ func Undo(steps []Step, trash *Trash) (undone int, err error) {
 // beside it, then each from there to its old name; one whose old name is
 // taken goes back to where it was. So a swap, or a chain, goes back
 // whole, whatever the order.
-func undoRenames(steps []Step) (undone int, failed []string) {
+//
+// first is the index of steps[0] among all the batch's: a temporary name
+// is the step's own, .fndr-undo-<pid>-<index> beside it, so RecoverUndo,
+// knowing the steps and the pid, knows where to look.
+func undoRenames(steps []Step, first, pid int) (undone int, failed []string) {
 	temps := make([]string, len(steps))
 	for i, s := range steps {
 		fail := func(err error) { failed = append(failed, fmt.Sprintf("%s: %v", filepath.Base(s.To), err)) }
+		if is(s.From, s.ID) {
+			removeEmpty(filepath.Dir(s.To), s.Made) // the rest of it, if cut off before
+			undone++                                // back already, by an undo cut off
+			continue
+		}
 		if !is(s.To, s.ID) {
 			fail(ErrChanged)
 			continue
 		}
-		temp := filepath.Join(filepath.Dir(s.To), ".fndr-undo-"+strconv.Itoa(os.Getpid())+"-"+strconv.Itoa(i))
+		temp := undoTemp(s, pid, first+i)
 		if err := noReplace(s.To, temp); err != nil {
 			fail(err)
 			continue
 		}
+		crashPoint()
 		temps[i] = temp
 	}
 	for i, s := range steps {
@@ -166,14 +180,56 @@ func undoRenames(steps []Step) (undone int, failed []string) {
 			failed = append(failed, fmt.Sprintf("%s: %s is taken", filepath.Base(s.To), filepath.Base(s.From)))
 			continue
 		}
+		crashPoint()
 		removeEmpty(filepath.Dir(s.To), s.Made)
 		undone++
 	}
 	return undone, failed
 }
 
+// undoTemp is the temporary name undo by process pid gives the i-th step
+// of a batch, s, between its two phases.
+func undoTemp(s Step, pid, i int) string {
+	return filepath.Join(filepath.Dir(s.To), ".fndr-undo-"+strconv.Itoa(pid)+"-"+strconv.Itoa(i))
+}
+
+// RecoverUndo puts right an Undo of steps by process pid that a crash cut
+// off: a rename stuck under its temporary name goes on to its old name,
+// as the undo meant, or back to its new one if that is taken; fixed is how
+// many. The rest is Undo's again: done once more, it finishes what is left
+// (see Undo).
+func RecoverUndo(steps []Step, pid int) (fixed int, err error) {
+	var failed []string
+	for i, s := range steps {
+		temp := undoTemp(s, pid, i)
+		if s.Kind != OpRename || !is(temp, s.ID) {
+			continue
+		}
+		mkErr := os.MkdirAll(filepath.Dir(s.From), 0o755) //nolint:gosec // the user's own folder
+		switch {
+		case mkErr == nil && noReplace(temp, s.From) == nil:
+			removeEmpty(filepath.Dir(s.To), s.Made)
+			fixed++
+		case noReplace(temp, s.To) == nil:
+			fixed++
+		default:
+			failed = append(failed, fmt.Sprintf("%q is left as %q", s.To, filepath.Base(temp)))
+		}
+	}
+	if len(failed) > 0 {
+		return fixed, errors.New(strings.Join(failed, ", "))
+	}
+	return fixed, nil
+}
+
 // undoStep takes one step back.
 func undoStep(s Step, trash *Trash) error {
+	if back(s) {
+		// By an undo cut off before, maybe right after the step and
+		// before its folders: they go now.
+		removeEmpty(filepath.Dir(s.To), s.Made)
+		return nil
+	}
 	if id, err := idOf(s.To); err != nil || id != s.ID {
 		return ErrChanged
 	}
@@ -200,8 +256,22 @@ func undoStep(s Step, trash *Trash) error {
 	default:
 		return fmt.Errorf("unknown step %v", s.Kind)
 	}
+	crashPoint()
 	removeEmpty(filepath.Dir(s.To), s.Made)
 	return nil
+}
+
+// back reports whether step s is undone already: its file at its old
+// place, or, for what it made, nothing of it left where it put it.
+func back(s Step) bool {
+	switch s.Kind {
+	case OpDelete, OpRename:
+		return is(s.From, s.ID)
+	case OpCreate, OpCopy:
+		_, err := os.Lstat(s.To)
+		return errors.Is(err, os.ErrNotExist)
+	}
+	return false
 }
 
 // removeEmpty removes dir and the folders above it up to made, as long as

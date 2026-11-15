@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"maps"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -120,6 +121,63 @@ func TestRecoverWhole(t *testing.T) {
 	for i := range steps {
 		if got[i] != steps[i] {
 			t.Errorf("step %d: %+v, Run took %+v", i, got[i], steps[i])
+		}
+	}
+}
+
+// undoUntil runs Undo of steps, stopped as by a crash after the n-th
+// change to the disk; n < 0 never stops it. It returns how many there were.
+func undoUntil(steps []Step, trash *Trash, n int) (changes int) {
+	type crash struct{}
+	defer func() {
+		if r := recover(); r != nil && r != (crash{}) {
+			panic(r)
+		}
+	}()
+	crashPoint = func() {
+		changes++
+		if changes == n {
+			panic(crash{})
+		}
+	}
+	defer func() { crashPoint = func() {} }()
+	_, _ = Undo(steps, trash) //nolint:errcheck // the disk is what is checked
+	return changes
+}
+
+// TestUndoRecoverAnywhere: an undo cut off after any change it makes is
+// put right by RecoverUndo, nothing left under a hidden name, and Undo
+// done again finishes it, with no error: the folder is as it was before
+// the plan, byte for byte.
+func TestUndoRecoverAnywhere(t *testing.T) {
+	setup := func() (string, *Trash, map[string]string, []Step) {
+		dir, trash := crashFolder(t)
+		before := snapshot(t, dir)
+		steps, err := Run(context.Background(), dir, crashPlan, trash, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return dir, trash, before, steps
+	}
+	_, trash, _, steps := setup()
+	total := undoUntil(steps, trash, -1)
+	if total < len(steps) {
+		t.Fatalf("%d changes for %d steps", total, len(steps))
+	}
+	for n := 1; n <= total; n++ {
+		dir, trash, before, steps := setup()
+		undoUntil(steps, trash, n)
+		if _, err := RecoverUndo(steps, os.Getpid()); err != nil {
+			t.Fatalf("cut after %d: RecoverUndo: %v", n, err)
+		}
+		if left := hidden(t, dir); len(left) > 0 {
+			t.Fatalf("cut after %d: left hidden: %q", n, left)
+		}
+		if undone, err := Undo(steps, trash); err != nil || undone != len(steps) {
+			t.Fatalf("cut after %d: Undo again: %d of %d, %v", n, undone, len(steps), err)
+		}
+		if after := snapshot(t, dir); !maps.Equal(after, before) {
+			t.Fatalf("cut after %d: %q, want %q", n, after, before)
 		}
 	}
 }

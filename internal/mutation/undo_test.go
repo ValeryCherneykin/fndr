@@ -220,8 +220,8 @@ func TestUndoHalfRun(t *testing.T) {
 	}
 }
 
-// TestUndoTwice: a second Undo of the same steps finds nothing of theirs
-// and touches nothing.
+// TestUndoTwice: a second Undo of the same steps finds them all back
+// already, says so as undone, with no error, and touches nothing.
 func TestUndoTwice(t *testing.T) {
 	trash := trashes(t)["macOS"]
 	dir := t.TempDir()
@@ -234,8 +234,8 @@ func TestUndoTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, inTrash := snapshot(t, dir), snapshot(t, trash.files)
-	if undone, _ := Undo(steps, trash); undone != 0 {
-		t.Errorf("undid %d steps again", undone)
+	if undone, err := Undo(steps, trash); undone != len(steps) || err != nil {
+		t.Errorf("again: %d of %d, %v", undone, len(steps), err)
 	}
 	if !maps.Equal(snapshot(t, dir), before) || !maps.Equal(snapshot(t, trash.files), inTrash) {
 		t.Error("a second Undo changed something")

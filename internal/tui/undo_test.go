@@ -145,6 +145,9 @@ func TestUndoOutlivesFndr(t *testing.T) {
 	if !exists(filepath.Join(root, "src", "util.go")) {
 		t.Fatalf("not undone: %q", next.notice)
 	}
+	if recs, _ := journal.Read(path); len(recs) != 4 {
+		t.Errorf("journal: %d records, want begun, done, undo begun, undone", len(recs))
+	}
 	ctrlZ(first)
 	if first.notice != "nothing to undo" {
 		t.Errorf("the first fndr still offers %q", first.notice)
@@ -371,5 +374,125 @@ func TestRecoverNothingCostsNothing(t *testing.T) {
 	send(m, recoverJournal(path)())
 	if !m.caughtUp.IsZero() {
 		t.Error("caught up with nothing cut off")
+	}
+}
+
+// crashedUndo leaves what an undo of the last batch in the journal at
+// path, by a fndr gone (pid), cut off between its two phases leaves: the
+// renamed file under the undo's hidden name, the undo begun.
+func crashedUndo(t *testing.T, path string, pid int) (hiddenName string) {
+	t.Helper()
+	recs, err := journal.Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, ok := lastBatch(recs)
+	if !ok || len(b.Steps) != 1 {
+		t.Fatalf("no batch of one step to undo: %+v", b)
+	}
+	s := b.Steps[0]
+	hiddenName = filepath.Join(filepath.Dir(s.To), ".fndr-undo-"+strconv.Itoa(pid)+"-0")
+	if err := os.Rename(s.To, hiddenName); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendRecord(path, record{Undoing: &undoing{ID: b.ID, PID: pid}}); err != nil {
+		t.Fatal(err)
+	}
+	return hiddenName
+}
+
+// TestUndoCutOff: an undo cut off is put right at the next start, the file
+// at its old place, said so; ctrl+z then finishes the undo with no error,
+// and after that there is nothing to undo, nor to recover.
+func TestUndoCutOff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "journal")
+	m, root := renameModel(t)
+	m.journal = path
+	retype(m, "src/tools.go")
+	hiddenName := crashedUndo(t, path, deadPID(t))
+
+	send(m, recoverJournal(path)())
+	if exists(hiddenName) || !exists(filepath.Join(root, "src", "util.go")) {
+		t.Fatalf("not put right: hidden there %v", exists(hiddenName))
+	}
+	if m.notice != "an undo was cut off last time, 1 put back from a hidden name — ctrl+z finishes the undo" {
+		t.Errorf("notice %q", m.notice)
+	}
+	m.setNotice("", false)
+	send(m, recoverJournal(path)()) // put right once is enough: the next start says nothing
+	if m.notice != "" {
+		t.Errorf("put right twice: %q", m.notice)
+	}
+	ctrlZ(m)
+	if !strings.Contains(m.notice, "util.go → tools.go") {
+		t.Fatalf("ctrl+z offers %q", m.notice)
+	}
+	typeText(m, "y")
+	if m.noticeErr || !exists(filepath.Join(root, "src", "util.go")) {
+		t.Fatalf("finishing: %q", m.notice)
+	}
+	ctrlZ(m)
+	if m.notice != "nothing to undo" {
+		t.Errorf("after: %q", m.notice)
+	}
+	m.setNotice("", false)
+	send(m, recoverJournal(path)())
+	if m.notice != "" {
+		t.Errorf("recovered again: %q", m.notice)
+	}
+}
+
+// TestUndoUnderWayLeftAlone: an undo by a fndr still running is under way:
+// its hidden name is not touched.
+func TestUndoUnderWayLeftAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "journal")
+	m, _ := renameModel(t)
+	m.journal = path
+	retype(m, "src/tools.go")
+	hiddenName := crashedUndo(t, path, os.Getpid())
+	m.setNotice("", false)
+	send(m, recoverJournal(path)())
+	if !exists(hiddenName) || m.notice != "" {
+		t.Errorf("a live undo was touched: %v, %q", exists(hiddenName), m.notice)
+	}
+}
+
+// TestUndosCutOff: an undo is over once undone or put right; a second
+// undo of the same batch begun after is a new one.
+func TestUndosCutOff(t *testing.T) {
+	enc := func(r record) []byte { b, _ := json.Marshal(r); return b } //nolint:errcheck // test
+	steps := []mutation.Step{{Kind: mutation.OpRename, From: "/a", To: "/b"}}
+	recs := [][]byte{
+		enc(record{Batch: &batch{ID: "x", Steps: steps}}),
+		enc(record{Undoing: &undoing{ID: "x", PID: 1}}),
+		enc(record{Recovered: "x"}),
+		enc(record{Batch: &batch{ID: "y", Steps: steps}}),
+		enc(record{Undoing: &undoing{ID: "y", PID: 2}}),
+		enc(record{Undone: "y"}),
+		enc(record{Undoing: &undoing{ID: "x", PID: 3}}),
+	}
+	if got := undosCutOff(recs[:len(recs)-1]); len(got) != 0 {
+		t.Errorf("all over, and %+v", got)
+	}
+	if got := undosCutOff(recs); len(got) != 1 || got[0].ID != "x" || got[0].PID != 3 || len(got[0].steps) != 1 {
+		t.Errorf("x begun again: %+v", got)
+	}
+}
+
+// TestUndoCutOffEarly: an undo cut off before it hid anything is still
+// said: part of the batch may be back, and ctrl+z finishes it.
+func TestUndoCutOffEarly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "journal")
+	m, _ := renameModel(t)
+	m.journal = path
+	retype(m, "src/tools.go")
+	recs, _ := journal.Read(path)
+	b, _ := lastBatch(recs)
+	if err := appendRecord(path, record{Undoing: &undoing{ID: b.ID, PID: deadPID(t)}}); err != nil {
+		t.Fatal(err)
+	}
+	send(m, recoverJournal(path)())
+	if m.notice != "an undo was cut off last time — ctrl+z finishes the undo" {
+		t.Errorf("notice %q", m.notice)
 	}
 }

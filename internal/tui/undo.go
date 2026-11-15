@@ -48,12 +48,22 @@ type begun struct {
 	Intent mutation.Intent `json:"intent"`
 }
 
-// record is one record of the journal: a change begun, a batch done, or
-// the ID of one undone. One of them.
+// undoing is an undo about to start: the batch, and the process that
+// undoes it, whose temporary names a crash may leave (mutation.RecoverUndo).
+type undoing struct {
+	ID  string `json:"id"`
+	PID int    `json:"pid"`
+}
+
+// record is one record of the journal, one of: a change begun, a batch
+// done, an undo begun, a batch undone, an undo cut off and put right (its
+// batch not undone: ctrl+z finishes it).
 type record struct {
-	Begin  *begun `json:"begin,omitempty"`
-	Batch  *batch `json:"batch,omitempty"`
-	Undone string `json:"undone,omitempty"`
+	Begin     *begun   `json:"begin,omitempty"`
+	Batch     *batch   `json:"batch,omitempty"`
+	Undoing   *undoing `json:"undoing,omitempty"`
+	Undone    string   `json:"undone,omitempty"`
+	Recovered string   `json:"recovered,omitempty"`
 }
 
 // undoState is a batch ctrl+z offered to take back, for y to do it.
@@ -79,6 +89,7 @@ type (
 	// recoveredMsg is what the changes cut off last time came to.
 	recoveredMsg struct {
 		cut, done, total, fixed int // cut: the changes made sense of
+		undos                   int // undos cut off and put right: ctrl+z finishes them
 		err                     error
 	}
 )
@@ -161,8 +172,61 @@ func recoverJournal(path string) tea.Cmd {
 				msg.err = rerr
 			}
 		}
+		for _, u := range undosCutOff(recs) {
+			if alive(u.PID) {
+				continue
+			}
+			fixed, rerr := mutation.RecoverUndo(u.steps, u.PID)
+			msg.cut, msg.undos, msg.fixed = msg.cut+1, msg.undos+1, msg.fixed+fixed
+			if err := appendRecord(path, record{Recovered: u.ID}); err != nil && rerr == nil {
+				rerr = err
+			}
+			if rerr != nil {
+				msg.err = rerr
+			}
+		}
 		return msg
 	}
+}
+
+// undoCut is an undo begun and never ended, with its batch's steps.
+type undoCut struct {
+	undoing
+	steps []mutation.Step
+}
+
+// undosCutOff returns the undos recs begin and never end, in order: an
+// undo of a batch is over once undone or put right, and a later undo of
+// the same batch (ctrl+z again) is a new one, cut off or not.
+func undosCutOff(recs [][]byte) []undoCut {
+	steps := map[string][]mutation.Step{}
+	open := map[string]int{} // batch ID → pid of the undo under way
+	var order []string
+	for _, data := range recs {
+		var r record
+		if json.Unmarshal(data, &r) != nil {
+			continue
+		}
+		switch {
+		case r.Batch != nil:
+			steps[r.Batch.ID] = r.Batch.Steps
+		case r.Undoing != nil:
+			open[r.Undoing.ID] = r.Undoing.PID
+			order = append(order, r.Undoing.ID)
+		case r.Undone != "":
+			delete(open, r.Undone)
+		case r.Recovered != "":
+			delete(open, r.Recovered)
+		}
+	}
+	var out []undoCut
+	for _, id := range order {
+		if pid, ok := open[id]; ok {
+			out = append(out, undoCut{undoing{ID: id, PID: pid}, steps[id]})
+			delete(open, id) // once, however many times it was begun
+		}
+	}
+	return out
 }
 
 // cutOff returns the changes recs begin and never end.
@@ -211,13 +275,19 @@ func (m *Model) recovered(msg *recoveredMsg) tea.Cmd {
 	switch {
 	case msg.err != nil:
 		m.setNotice(safeText("cut off last time, and not all put right: "+msg.err.Error()), true)
-	case msg.done == 0 && msg.fixed == 0:
+	case msg.done == 0 && msg.fixed == 0 && msg.undos == 0:
 	default:
 		text := fmt.Sprintf("cut off last time: %d of %d done", msg.done, msg.total)
+		if msg.total == 0 { // only an undo was
+			text = "an undo was cut off last time"
+		}
 		if msg.fixed > 0 {
 			text += fmt.Sprintf(", %d put back from a hidden name", msg.fixed)
 		}
-		if msg.done > 0 {
+		switch {
+		case msg.undos > 0:
+			text += " — ctrl+z finishes the undo"
+		case msg.done > 0:
 			text += " — ctrl+z takes it back"
 		}
 		m.setNotice(text, false)
@@ -317,6 +387,13 @@ func (m *Model) undoKey(msg tea.KeyPressMsg) tea.Cmd {
 		trash, err := mutation.HomeTrash()
 		if err != nil {
 			return undoneMsg{batch: b, err: err}
+		}
+		if path != "" {
+			// Written down first, as a change is: an undo cut off leaves
+			// hidden names that only this says where to find.
+			if err := appendRecord(path, record{Undoing: &undoing{ID: b.ID, PID: os.Getpid()}}); err != nil {
+				return undoneMsg{batch: b, err: fmt.Errorf("journal: %w", err)}
+			}
 		}
 		n, err := mutation.Undo(b.Steps, trash)
 		// Marked undone even in part: what could not go back has changed
