@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -75,12 +74,6 @@ type oilState struct {
 	trashCounts map[string]int
 	applying    bool
 	wrote       bool
-
-	// While applying: what the copies did so far, and how to stop them
-	// (oilprogress.go). stopping: esc was pressed, the copy is ending.
-	progress *mutation.Progress
-	stop     context.CancelFunc
-	stopping bool
 }
 
 // oilMsg carries a folder read for OIL, and the name to put the cursor
@@ -435,9 +428,6 @@ func (st *oilState) planBox(maxW, maxH int) []string {
 		title = "Apply 1 change?"
 	}
 	keys := stPlanTitle.Render("[y]") + stPlanVerb.Render("es   ") + stPlanTitle.Render("[n]") + stPlanVerb.Render("o")
-	if st.applying && st.progress != nil && st.copies() {
-		keys = st.progressLine()
-	}
 
 	// As wide as the longest line needs, within maxW.
 	inner := max(ansi.StringWidth(title), ansi.StringWidth(keys)) + 4

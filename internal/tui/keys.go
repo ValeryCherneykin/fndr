@@ -13,6 +13,9 @@ import (
 // handleKey is Update for a key press.
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	m.setNotice("", false) // a notice describes the last action; any key moves on
+	if m.leaving {         // the key after quit asked about the tasks (tasks.go), wherever it was asked
+		return m.leaveKey(msg)
+	}
 	if m.oil != nil {
 		return m.oilKey(msg)
 	}

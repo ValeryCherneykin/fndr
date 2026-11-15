@@ -160,7 +160,9 @@ func TestOilYankSameFolderAgain(t *testing.T) {
 
 // TestOilResultsYankedIn: a buffer of results with something yanked
 // elsewhere counts only what was found, shows it again after ctrl+r only
-// if put, and reads a put line again by what was written.
+// if put; y on the put line makes a task of the copy, and leaves OIL for
+// the search (a buffer still holding the copy line, while the copy is
+// under way, would plan it again on the next :w).
 func TestOilResultsYankedIn(t *testing.T) {
 	m, root, _ := writeModel(t)
 	goTo(t, m, "README.md")
@@ -183,7 +185,7 @@ func TestOilResultsYankedIn(t *testing.T) {
 	key(m, tea.KeyEscape, 0)
 	command(m, "w")
 	typeText(m, "y")
-	if !exists(filepath.Join(root, "src", "notes.md")) || !slices.Contains(m.oilTexts(), "src/notes.md") {
-		t.Errorf("copy into results: %q, notice %q", m.oilTexts(), m.notice)
+	if !exists(filepath.Join(root, "src", "notes.md")) || m.oil != nil || m.notice != "copied 1" {
+		t.Errorf("copy into results: in OIL %v, notice %q", m.oil != nil, m.notice)
 	}
 }

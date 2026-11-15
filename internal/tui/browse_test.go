@@ -46,6 +46,7 @@ func browseModel(t *testing.T, start string) (m *Model, root string) {
 	}
 
 	m = newModel(dir, "", &ix)
+	m.tickEvery = 0 // tests run every tick: none of them waits
 	t.Cleanup(m.stop)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
 	send(m, m.Init()())

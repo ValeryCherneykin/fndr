@@ -54,6 +54,17 @@ type Model struct {
 	batchSeq  int
 	undoing   *undoState
 
+	// Copies in the background (tasks.go): queued, the first under way;
+	// whether the progress ticks come; quitting asked (leaving), waiting
+	// for the tasks to end (quitWhenDone), or past asking (leaveAnyway).
+	tasks        []*task
+	taskSeq      int
+	ticking      bool
+	tickEvery    time.Duration // progressEvery; tests make it 0, as they wait for every tick
+	leaving      bool
+	quitWhenDone bool
+	leaveAnyway  bool
+
 	// local is what LOCAL search runs on: the index of the folder fndr
 	// started in, or of wherever the user went that it does not cover.
 	local *scope
@@ -226,9 +237,10 @@ func New(root string, cfg *config.Config, cfgErrs []error) *Model {
 func newModel(root, home string, ix *indexer.Index) *Model {
 	ctx, stop := context.WithCancel(context.Background())
 	m := &Model{
-		release: debug.FreeOSMemory,
-		icons:   true,
-		cwd:     root, start: root, home: home, prune: indexer.DefaultPrune(home),
+		release:   debug.FreeOSMemory,
+		icons:     true,
+		tickEvery: progressEvery,
+		cwd:       root, start: root, home: home, prune: indexer.DefaultPrune(home),
 		local: &scope{root: root, ix: ix},
 		ctx:   ctx, stop: stop,
 	}
@@ -287,6 +299,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(learn, m.record(msg.batch, msg.steps), m.oilWritten(&msg))
 	case trashCountedMsg:
 		m.trashCounted(&msg)
+	case taskDoneMsg:
+		return m.taskDone(&msg)
 	case progressTickMsg:
 		cmd := m.progressTicked()
 		return cmd
@@ -324,7 +338,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.PasteMsg:
-		m.pending, m.yanking, m.making, m.undoing = nil, false, "", nil // a chord is pressed, not pasted: what follows is typing again
+		m.pending, m.yanking, m.making, m.undoing, m.leaving = nil, false, "", nil, false // a chord is pressed, not pasted: what follows is typing again
 		if m.oil != nil {
 			m.oilPaste(msg.Content)
 			return nil
@@ -426,6 +440,10 @@ func (m *Model) ExitDir() string { return m.exitDir }
 
 // quit stops every crawl and search and ends the program.
 func (m *Model) quit() tea.Cmd {
+	if len(m.tasks) > 0 && !m.leaveAnyway {
+		m.askLeave() // a copy under way: not cut off by a stray esc
+		return nil
+	}
 	m.stop()
 	if m.imageSeq > 0 { // pictures were sent: free them before leaving
 		return tea.Sequence(tea.Raw(deleteImages(m.tmux)), tea.Quit)

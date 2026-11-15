@@ -54,6 +54,7 @@ func FuzzKeys(f *testing.F) {
 		}
 		m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
 
+		m.tickEvery = 0 // the driver waits for every command it runs: a tick is one
 		d := &fuzzDriver{t: t, m: m, home: home}
 		d.push(m.Init())
 		for _, b := range script[1:] {

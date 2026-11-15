@@ -121,6 +121,9 @@ func (m *Model) viewStatus() string {
 	avail := m.width - ansi.StringWidth(mode) - 2
 
 	var right []string
+	if t := m.taskStatus(); t != "" {
+		right = append(right, stBarText.Render(t))
+	}
 	s := m.current()
 	if s.err != nil {
 		right = append(right, stBarErr.Render(safeText(s.err.Error())))

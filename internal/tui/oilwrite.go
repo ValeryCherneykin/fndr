@@ -133,29 +133,21 @@ func itemCount(n int) string {
 	return fmt.Sprintf("(%d items)", n)
 }
 
-// confirmKey is a key while the plan is shown: y carries it out; n, esc
-// or q go back to the buffer, edits intact.
+// confirmKey is a key while the plan is shown: y carries it out, or, with
+// copies, makes it a task (tasks.go); n, esc or q go back to the buffer,
+// edits intact.
 func (m *Model) confirmKey(msg tea.KeyPressMsg) tea.Cmd {
 	st := m.oil
 	if st.applying {
-		// Already on its way: a second y must not apply it twice. esc stops
-		// a copy under way (oilprogress.go).
-		if msg.String() == "esc" && st.stop != nil && !st.stopping {
-			st.stop()
-			st.stopping = true
-		}
-		return nil
+		return nil // already on its way: a second y must not apply it twice
 	}
 	switch msg.String() {
 	case "y":
-		st.applying = true
-		ctx, stop := context.WithCancel(m.ctx)
-		st.stop, st.progress = stop, new(mutation.Progress)
-		apply := applyPlan(ctx, st.dir, st.plan, st.quitAfter, m.local.ix.Snapshot(), m.prune, st.progress, m.journaled())
-		if !st.copies() {
-			return apply
+		if hasCopies(st.plan) {
+			return m.queueTask()
 		}
-		return tea.Batch(apply, progressTick())
+		st.applying = true // renames, trash, creates: done in a moment
+		return applyPlan(m.ctx, st.dir, st.plan, st.quitAfter, m.local.ix.Snapshot(), m.prune, nil, m.journaled())
 	case "n", "esc", "q":
 		st.plan = nil
 	}
@@ -296,13 +288,7 @@ func tree(path string, prune *indexer.Prune) []indexer.Entry {
 func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
 	m.updateIndexes(msg.remove, msg.add)
 	st, reveal := m.oil, revealName(msg.done)
-	if st.stop != nil {
-		st.stop() // the context's resources; the plan is over either way
-	}
 	switch {
-	case errors.Is(msg.err, context.Canceled):
-		// Asked for, so not red: the copy cut short left nothing behind.
-		m.setNotice(fmt.Sprintf("stopped: %d of %d done, nothing half copied", len(msg.done), len(st.plan)), false)
 	case msg.err != nil:
 		m.setNotice(fmt.Sprintf("%d of %d done: %v", len(msg.done), len(st.plan), msg.err), true)
 	default:
@@ -310,7 +296,6 @@ func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
 	}
 
 	st.plan, st.applying, st.wrote = nil, false, st.wrote || len(msg.done) > 0
-	st.progress, st.stop, st.stopping = nil, nil, false
 	if len(msg.done) == 0 {
 		// Nothing changed on the disk, so the buffer is still true to it:
 		// it stays as typed, for the user to fix rather than retype.
