@@ -103,6 +103,17 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
   searched, `N` the name). By every way that fits: `pbcopy`, `wl-copy`, `xclip`/`xsel`,
   `clip.exe`, tmux's buffer, and OSC 52 over SSH, so it lands on *your*
   machine. The status bar says which worked, or why none did.
+- **Undo anything, even tomorrow** (`Ctrl+Z`). Every write and rename is
+  kept in a journal on disk, so `Ctrl+Z` takes back the last one whole —
+  renames go back, the trash gives back, what was made goes to the trash —
+  after fndr was closed too. It asks first, naming what and when, and only
+  ever touches the very file the change left: one moved or edited since
+  is left alone and said so.
+- **Copies never make you wait.** A copy runs in the background, one at a
+  time: you go on searching while a dimmed row where it goes fills up
+  (`████░░░░░░  47%`, by bytes, so a single big file moves too). `Ctrl+X`
+  on that row stops it, leaving nothing half copied; quitting while one
+  runs asks whether to wait for it.
 - **A tmux session for a project** (`Ctrl+S`, with `tmux = on`). Find the
   folder, press `Ctrl+S`: you are in its session, made the first time with
   your editor running in it (`tmux_run = nvim`), switched to after. Type a
@@ -337,15 +348,23 @@ noticeably slower is treated as a bug.
   created with `O_EXCL`: if the name is taken, nothing happens. Editing
   what a search found stops at 10 000 entries: `ggdG` never reaches a
   whole home.
+- **A crash loses nothing.** A change is written down before it starts,
+  every name it will use included. Cut off by `kill -9`, a closed window or
+  a dead battery, the next start finds it and puts it right on the disk:
+  nothing is left under a hidden name, and what was done can be undone.
+  So is an undo cut off halfway.
 - **Several fndr, one history.** Open it in every tmux pane: visits add up
   under a file lock instead of the last one to exit erasing the others.
 - **Never silent.** Whatever happens (opened, refused, failed) is said in the
   status bar.
 - **Your file names stay yours.** fndr sends nothing anywhere, ever. It
-  keeps two files, readable by you only: the index of your home, which
-  lists every file name in it (`~/.cache/fndr/index`), and the places you
-  go (`~/.local/state/fndr/frecency`). Delete either at any time: the index
-  is rebuilt by the next crawl, the habits are learned again.
+  keeps three files, readable by you only: the index of your home, which
+  lists every file name in it (`~/.cache/fndr/index`), the places you go
+  (`~/.local/state/fndr/frecency`), and the changes it made, for `Ctrl+Z`
+  (`~/.local/state/fndr/journal`). Delete any at any time: the index is
+  rebuilt by the next crawl, the habits are learned again, and only the
+  undo of what was done before is lost. `history = off` keeps the last
+  two in memory only.
 
 ---
 
@@ -370,6 +389,9 @@ noticeably slower is treated as a bug.
 - [x] Config: every key and setting, written out and explained for you on
   the first start; folders to skip or include; help on `F1`
 - [x] tmux: a session for a project on `Ctrl+S`, made if it is new
+- [x] **Undo anything, even after a crash** — a journal on disk: `Ctrl+Z`
+  takes back the last change, a cut-off one is put right at the next start
+- [x] Copies in the background, shown where they go; `Ctrl+X` stops one
 
 ---
 

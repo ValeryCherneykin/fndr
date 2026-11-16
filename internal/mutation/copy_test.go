@@ -417,8 +417,11 @@ func TestCopySourceSwapped(t *testing.T) {
 		t.Fatal(err)
 	}
 	swap := map[string]func() error{
-		"pipe":    func() error { return syscall.Mkfifo(src, 0o600) },
-		"another": func() error { return os.WriteFile(src, []byte("y"), 0o600) },
+		"pipe": func() error { return syscall.Mkfifo(src, 0o600) },
+		// Linux often hands both the freed inode, so only what is in it
+		// tells them apart. Its size: written within the same clock tick,
+		// the time can be the same too.
+		"another": func() error { return os.WriteFile(src, []byte("yy"), 0o600) },
 	}
 	for name, swapTo := range swap {
 		if err := os.Remove(src); err != nil {

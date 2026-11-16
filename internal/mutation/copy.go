@@ -180,7 +180,7 @@ func openSource(src string, info os.FileInfo) (*os.File, error) {
 		return nil, err
 	}
 	now, err := f.Stat()
-	if err == nil && !os.SameFile(info, now) { // info is a regular file's: a pipe is another file
+	if err == nil && !unchanged(info, now) {
 		err = fmt.Errorf("%s: changed while copied: %w", filepath.Base(src), ErrNotCopied)
 	}
 	if err != nil {
@@ -188,6 +188,20 @@ func openSource(src string, info os.FileInfo) (*os.File, error) {
 		return nil, err
 	}
 	return f, nil
+}
+
+// unchanged reports whether now, the file opened, is still the regular file
+// was described. Device and inode alone do not say it: Linux hands a freed
+// inode to the next file made, often at once (a pipe made where the file
+// was gets the very same number), so the type, size and time are checked
+// too. was is read just before the open, so a file that is merely written
+// to in between is told apart as well, which is right: half old, half new
+// is no copy of either.
+func unchanged(was, now os.FileInfo) bool {
+	return os.SameFile(was, now) &&
+		now.Mode().IsRegular() &&
+		now.Size() == was.Size() &&
+		now.ModTime().Equal(was.ModTime())
 }
 
 // chunks copies in to out a chunk at a time, counting each, and stops

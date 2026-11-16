@@ -281,12 +281,11 @@ Sleep 2.5s
 Type "y"
 Sleep 2s
 
-# 13. Out of fndr (Esc leaves OIL, then fndr): the copy is there, the
-#     original too.
+# 13. Out of fndr (y on a copy left OIL already: one Esc quits): the copy
+#     is there, the original too. A second Esc would reach the shell, where
+#     it is a meta prefix and eats the start of the next command.
 Escape
-Sleep 400ms
-Escape
-Sleep 400ms
+Sleep 600ms
 Type "cd ~ && ls Downloads Documents/video"
 Enter
 Sleep 3s
@@ -324,9 +323,57 @@ Type "tmux ls"
 Enter
 Sleep 3s
 
-# Off camera: the demo's tmux server ends with the demo (the fndr session
-# is still there, detached), or each recording would leave one behind.
+# 15. Undo, even of another day: a rename, then ctrl+z names it and when,
+#     y takes it back. Then a big copy runs in the background: back in the
+#     listing, its ghost row fills up while fndr is free. The 4 GB file is
+#     made off camera, in the throwaway home.
 Hide
-Type "tmux kill-server"
+Type "cd ~/Downloads && dd if=/dev/zero of=movie.mkv bs=1m count=4000 2>/dev/null && clear"
 Enter
+Sleep 6s
+Show
+Type "fndr"
+Enter
+Sleep 1s
+Type "notes"
+Sleep 800ms
+Ctrl+R
+Sleep 800ms
+Ctrl+U
+Type "todo.txt"
+Enter
+Sleep 1.8s
+Ctrl+U
+Sleep 400ms
+Ctrl+Z
+Sleep 2.5s
+Type "y"
+Sleep 2s
+Ctrl+U
+Type "movie"
+Sleep 800ms
+Ctrl+O
+Sleep 1s
+Type "yyp"
+Type "ccmovie copy.mkv"
+Escape
+Sleep 600ms
+Type ":w"
+Enter
+Sleep 1.5s
+Type "y"
+Sleep 150ms
+Ctrl+U
+Sleep 4s
+
+# Off camera: the demo's tmux server ends with the demo (the fndr session
+# is still there, detached), or each recording would leave one behind; the
+# throwaway home goes too, its 8 GB of movie with it. By $D, the folder
+# mktemp made, and only if set: never by $HOME.
+Hide
+Sleep 5s
+Escape
 Sleep 500ms
+Type `tmux kill-server; cd / && [ -n "$D" ] && rm -rf "$D"`
+Enter
+Sleep 2s
