@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -163,6 +164,22 @@ func TestQuitAsksWhileCopying(t *testing.T) {
 	}
 }
 
+func TestCopyFinishesWhileQuitPromptIsOpen(t *testing.T) {
+	m, _ := copyPlanned(t)
+	run := pressY(m)
+	key(m, 'c', tea.ModCtrl)
+	if !m.leaving {
+		t.Fatal("missing quit prompt")
+	}
+	if runAll(m, run) {
+		t.Fatal("quit before the prompt was answered")
+	}
+	send(m, tea.KeyPressMsg{Code: 's', Text: "s"})
+	if m.query != "s" {
+		t.Fatalf("query = %q, want s", m.query)
+	}
+}
+
 // TestTicks: one chain of ticks however many start it, going on while a
 // task runs and ending with the last; a rename alone starts no task.
 func TestTicks(t *testing.T) {
@@ -315,8 +332,13 @@ func TestTaskSize(t *testing.T) {
 	m, _ := copyPlanned(t)
 	run := pressY(m)
 	tk := m.tasks[0]
-	if n := tk.size(); n != 2 {
+	if n := tk.size(t.Context()); n != 2 {
 		t.Errorf("size %d, want 2", n)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if n := tk.size(ctx); n != 0 {
+		t.Errorf("size after cancellation = %d, want 0", n)
 	}
 	runAll(m, run)
 	if n := tk.bytes.Load(); n != 2 {

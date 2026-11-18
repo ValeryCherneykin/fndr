@@ -129,7 +129,7 @@ func (m *Model) startTask() tea.Cmd {
 	run := applyPlan(ctx, t.dir, t.plan, false, m.local.ix.Snapshot(), m.prune, t.progress, m.journaled())
 	id := t.id
 	done := func() tea.Msg {
-		t.bytes.Store(t.size())
+		t.bytes.Store(t.size(ctx))
 		w, _ := run().(oilWrittenMsg) //nolint:errcheck // applyPlan says nothing else
 		return taskDoneMsg{id: id, written: w}
 	}
@@ -146,6 +146,9 @@ func (m *Model) taskDone(msg *taskDoneMsg) tea.Cmd {
 	}
 	t, w := m.tasks[0], msg.written
 	m.tasks = m.tasks[1:]
+	if len(m.tasks) == 0 {
+		m.leaving = false
+	}
 	t.cancel() // its context's resources: the task is over either way
 	m.updateIndexes(w.remove, w.add)
 	switch {
@@ -156,6 +159,9 @@ func (m *Model) taskDone(msg *taskDoneMsg) tea.Cmd {
 		m.setNotice(fmt.Sprintf("%d of %d done: %v", len(w.done), len(t.plan), w.err), true)
 	default:
 		m.setNotice(summary(w.done), false)
+	}
+	if m.leaving {
+		m.askLeave()
 	}
 	cmds := []tea.Cmd{m.relearn(w.dir, w.done), m.record(w.batch, w.steps), m.startTask()}
 	if m.oil == nil {
@@ -199,13 +205,19 @@ func (m *Model) taskStatus() string {
 
 // size sums what t's copies hold: the sizes of the files in what they copy,
 // read from the disk (only names and sizes: nothing is opened).
-func (t *task) size() int64 {
+func (t *task) size(ctx context.Context) int64 {
 	var n int64
 	for _, op := range t.plan {
+		if ctx.Err() != nil {
+			return 0
+		}
 		if op.Kind != mutation.OpCopy {
 			continue
 		}
-		_ = filepath.WalkDir(mutation.Target(t.dir, op.From), func(_ string, d fs.DirEntry, err error) error { //nolint:errcheck // what cannot be read is not counted
+		err := filepath.WalkDir(mutation.Target(t.dir, op.From), func(_ string, d fs.DirEntry, err error) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err == nil && d.Type().IsRegular() {
 				if info, ierr := d.Info(); ierr == nil {
 					n += info.Size()
@@ -213,6 +225,9 @@ func (t *task) size() int64 {
 			}
 			return nil
 		})
+		if err != nil {
+			return 0
+		}
 	}
 	return n
 }
