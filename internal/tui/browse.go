@@ -13,7 +13,7 @@ import (
 )
 
 // Browsing works like Finder: an empty query shows the contents of cwd,
-// enter goes into a folder, backspace on an empty query goes back out.
+// enter goes into a folder and "-" goes back out.
 // Search follows: typing searches below cwd, so the folder the user is in
 // is always the scope.
 //

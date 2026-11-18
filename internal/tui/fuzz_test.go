@@ -178,11 +178,11 @@ func (d *fuzzDriver) press(k string) {
 	// the machine fuzzed on, slow, and not what is tested. The fence is
 	// here, not in fndr: going up is fndr's to allow.
 	m := d.m
-	if up := k == "backspace" || k == "-"; up && m.home == d.home {
+	if k == "-" && m.home == d.home {
 		if m.oil != nil && m.oil.dir == d.home && m.oil.plan == nil {
 			return
 		}
-		if m.oil == nil && m.rename == nil && m.cwd == d.home && m.query == "" && len(m.tags) == 0 {
+		if m.oil == nil && m.rename == nil && m.cwd == d.home && m.query == "" {
 			return
 		}
 	}

@@ -57,7 +57,7 @@ func (m *Model) helpLines() []helpLine {
 		}
 		say(m.keysOf(a.Name), a.Doc)
 	}
-	say("backspace", "erase; with nothing typed, the last tag, then up a folder")
+	say("backspace", "Erase the character before the cursor.")
 
 	if len(m.binds) > 0 {
 		head("Your chords")

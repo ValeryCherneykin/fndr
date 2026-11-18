@@ -93,22 +93,19 @@ func TestBrowseInAndBackOut(t *testing.T) {
 		t.Errorf("status %q does not show the folder", status)
 	}
 
-	// Backspace on an empty query goes back out, landing on the folder.
 	key(m, tea.KeyBackspace, 0)
+	if m.cwd != filepath.Join(root, "src") {
+		t.Fatalf("backspace changed cwd to %q", m.cwd)
+	}
+	typeText(m, "-")
 	if m.cwd != root {
-		t.Fatalf("cwd = %q after backspace, want %q", m.cwd, root)
+		t.Fatalf("cwd = %q after -, want %q", m.cwd, root)
 	}
 	if got := m.names()[m.cursor]; got != "src" {
 		t.Errorf("selected %q after coming back, want src", got)
 	}
 
-	// "-" also goes up, as in Oil, but types itself inside a query.
-	m.selectName(t, "src")
-	key(m, tea.KeyEnter, 0)
-	typeText(m, "-")
-	if m.cwd != root {
-		t.Errorf("cwd = %q after -, want %q", m.cwd, root)
-	}
+	// "-" types itself inside a query.
 	typeText(m, "a-b")
 	if m.query != "a-b" {
 		t.Errorf("query = %q, want a-b", m.query)
@@ -159,7 +156,7 @@ func TestUpAboveRootRecrawls(t *testing.T) {
 	m, root := browseModel(t, "src")
 	oldGen := m.crawlGen
 
-	key(m, tea.KeyBackspace, 0)
+	typeText(m, "-")
 	if m.local.root != root || m.cwd != root {
 		t.Fatalf("root=%q cwd=%q, want both %q", m.local.root, m.cwd, root)
 	}

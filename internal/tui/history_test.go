@@ -145,7 +145,7 @@ func TestRevealSkipsHabits(t *testing.T) {
 	m, _ := habitModel(t)
 	m.cursor = 2 // docs, in the contents
 	key(m, tea.KeyEnter, 0)
-	key(m, tea.KeyBackspace, 0)
+	typeText(m, "-")
 	if m.cursor != 2 {
 		t.Errorf("cursor %d after coming back up, want 2: docs in the contents", m.cursor)
 	}

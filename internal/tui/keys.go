@@ -47,21 +47,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return cmd
 		}
 	}
-	// With nothing typed, backspace steps back: it takes the last tag off,
-	// as it erases the chip before the cursor, then goes out of the folder,
-	// having nothing left to erase.
-	if msg.String() == "backspace" && m.query == "" {
-		if len(m.tags) > 0 {
-			cmd := m.popTag()
-			return cmd
-		}
-		cmd := m.up()
-		return cmd
-	}
 
-	// The rest edits the query. The arrows left and right belong to the
-	// text, as in any input field; folders are entered with Enter and left
-	// with "-" or backspace.
 	if l := m.queryLine(); l.key(action, msg) {
 		cmd := m.setQueryLine(l)
 		return cmd

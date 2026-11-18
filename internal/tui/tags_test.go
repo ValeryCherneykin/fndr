@@ -83,19 +83,15 @@ func TestTagsStack(t *testing.T) {
 	}
 }
 
-// TestBackspaceTakesTagOff: on an empty query, backspace erases the chip
-// before the cursor, as it would a letter, instead of going up.
-func TestBackspaceTakesTagOff(t *testing.T) {
+func TestBackspaceKeepsTags(t *testing.T) {
 	m := tagModel(t)
 	tag(m, ".go")
 	tag(m, "dirs")
+	typeText(m, "x")
 	key(m, tea.KeyBackspace, 0)
-	if m.cwd != "/r" || !slices.Equal(m.tagTexts(), []string{".go"}) {
-		t.Fatalf("cwd %q, tags %q; want /r and .go", m.cwd, m.tagTexts())
-	}
 	key(m, tea.KeyBackspace, 0)
-	if len(m.tags) != 0 || !m.browsing() {
-		t.Errorf("tags %q, browsing %v; want none and the folder", m.tagTexts(), m.browsing())
+	if m.query != "" || m.cwd != "/r" || !slices.Equal(m.tagTexts(), []string{".go", "dirs"}) {
+		t.Fatalf("query %q, cwd %q, tags %q", m.query, m.cwd, m.tagTexts())
 	}
 }
 

@@ -79,7 +79,7 @@ func TestEditingAtCursor(t *testing.T) {
 }
 
 // TestArrowsNoLongerChangeFolder: left and right edit the query; folders are
-// Enter, "-" and backspace.
+// Enter and "-".
 func TestArrowsNoLongerChangeFolder(t *testing.T) {
 	m, _ := browseModel(t, "src")
 	cwd := m.cwd

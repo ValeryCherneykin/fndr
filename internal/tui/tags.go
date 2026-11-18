@@ -17,7 +17,7 @@ import (
 //
 // Tags stay through Tab: the same search, wider or narrower. Going into a
 // folder drops them: they were how it was found, and in it the user wants
-// what it holds. Backspace on an empty query and Esc take the last one off,
+// what it holds. Esc takes the last one off,
 // ctrl+u all of them.
 
 // browsing reports whether the list shows the folder rather than a

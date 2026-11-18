@@ -144,8 +144,8 @@ everything you touched today.
 
 Several tags must all match: `has:.json` `has:dockerfile` is the project
 you remember by its files, not by its name, and `Ctrl+E` takes you there.
-The same tag again takes it off; `Backspace` or `Esc` on an empty query
-take off the last one, `Ctrl+U` all of them. Tags stay through `Tab`;
+The same tag again takes it off. `Esc` takes off the last tag and
+`Ctrl+U` on an empty query takes off all tags. Tags stay through `Tab`;
 going into a folder drops them, since they were how you found it.
 
 ### ⚙️ Config
@@ -266,7 +266,8 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 | `Ctrl+N` / `Ctrl+P`, `↓` / `↑` | Move through the list |
 | `PgDn` / `PgUp`, `End` / `Home` | Move by a page, to the end |
 | `Enter` | Open a file · enter a folder · start an app (`.app`, on macOS) |
-| `-` · `Backspace` on an empty query | Go up a folder; with tags on, `Backspace` takes the last one off |
+| `-` on an empty query | Go up a folder |
+| `Backspace` | Erase the character before the cursor |
 | `Ctrl+H` / `Ctrl+L`, `←` / `→` | Move through the query |
 | `Ctrl+W` · `Ctrl+U` | Delete a word · delete to the start; on an empty query, `Ctrl+U` takes every tag off |
 | `Ctrl+T` | Make what is typed a tag (see above); again to take it off |
