@@ -331,9 +331,10 @@ func (m *Model) viewOil() tea.View {
 	b.WriteString(stHair.Render(strings.Repeat("─", w)))
 	b.WriteByte('\n')
 	rows := make([]string, h)
+	year := time.Now().Year()
 	for i := range rows {
 		if r := st.offset + i; r < st.buf.Len() {
-			rows[i] = m.oilRow(st.buf.Line(r), r, numW)
+			rows[i] = m.oilRow(st.buf.Line(r), r, numW, year)
 		} else {
 			rows[i] = strings.Repeat(" ", w)
 		}
@@ -401,7 +402,7 @@ func (st *oilState) planBox(maxW, maxH int) []string {
 			if filepath.Dir(op.From) != filepath.Dir(op.To) {
 				verb = "move    " // to another folder: as the status says after y
 			}
-			steps = append(steps, stPlanVerb.Render(verb)+stName.Render(name(op.From)+" → "+to))
+			steps = append(steps, stPlanVerb.Render(verb)+stPlanText.Render(name(op.From)+" → "+to))
 		case mutation.OpCopy:
 			to := safeText(tildePath(st.home, op.To))
 			if dirs[op.From] {
@@ -411,9 +412,9 @@ func (st *oilState) planBox(maxW, maxH int) []string {
 			if n, ok := st.trashCounts[op.From]; ok {
 				step += " " + itemCount(n)
 			}
-			steps = append(steps, stPlanVerb.Render("copy    ")+stName.Render(step))
+			steps = append(steps, stPlanVerb.Render("copy    ")+stPlanText.Render(step))
 		case mutation.OpCreate:
-			steps = append(steps, stPlanVerb.Render("create  ")+stName.Render(safeText(op.To)))
+			steps = append(steps, stPlanVerb.Render("create  ")+stPlanText.Render(safeText(op.To)))
 		case mutation.OpDelete:
 			step := "trash   " + name(op.From)
 			if n, ok := st.trashCounts[op.From]; ok {
@@ -427,17 +428,21 @@ func (st *oilState) planBox(maxW, maxH int) []string {
 	if len(st.plan) == 1 {
 		title = "Apply 1 change?"
 	}
-	keys := stPlanTitle.Render("[y]") + stPlanVerb.Render("es   ") + stPlanTitle.Render("[n]") + stPlanVerb.Render("o")
+	keys := stPlanKey.Render(" y ") + stPlanText.Render(" Apply   ") + stPlanBorder.Render(" n ") + stPlanText.Render(" Back")
 
 	// As wide as the longest line needs, within maxW.
 	inner := max(ansi.StringWidth(title), ansi.StringWidth(keys)) + 4
 	for _, l := range steps {
 		inner = max(inner, ansi.StringWidth(l)+4)
 	}
-	inner = max(min(max(inner, 24), maxW-2), 0) // a terminal narrower than any box still gets one, cut
+	inner = max(min(max(inner, 30), maxW-2), 0)
 
 	line := func(content string) string { // "│  content  │"
-		return stPlanBorder.Render("│") + finish("  "+ansi.Truncate(content, max(inner-4, 0), "…"), inner) + stPlanBorder.Render("│")
+		body := ansi.Truncate(content, max(inner-4, 0), "…")
+		left := min(2, inner)
+		right := max(inner-left-ansi.StringWidth(body), 0)
+		return stPlanBorder.Render("│") + stPlanSurface.Render(strings.Repeat(" ", left)) +
+			body + stPlanSurface.Render(strings.Repeat(" ", right)) + stPlanBorder.Render("│")
 	}
 	title = ansi.Truncate(title, max(inner-3, 0), "…")
 	top := stPlanBorder.Render("╭─ ") + stPlanTitle.Render(title) + stPlanBorder.Render(" "+strings.Repeat("─", max(inner-3-ansi.StringWidth(title), 0))+"╮")
@@ -473,13 +478,15 @@ func overlay(rows, box []string, width int) {
 // oilRow renders line r of the buffer: its number, relative to the
 // cursor's line as with relativenumber, an icon, the name, and, for an
 // entry that was loaded, its size and date, dim, at the right edge.
-func (m *Model) oilRow(l mutation.Line, r, numW int) string {
+func (m *Model) oilRow(l mutation.Line, r, numW, year int) string {
 	st := m.oil
+	focused := r == st.buf.Row()
 	num := strconv.Itoa(abs(r - st.buf.Row()))
-	if r == st.buf.Row() {
-		num = fmt.Sprintf("%-*d", numW, r+1) // the cursor's line: its own number, as in Vim
+	if focused {
+		num = strconv.Itoa(r + 1)
+		num += strings.Repeat(" ", max(numW-len(num), 0))
 	} else {
-		num = fmt.Sprintf("%*s", numW, num)
+		num = strings.Repeat(" ", max(numW-len(num), 0)) + num
 	}
 
 	name := safeText(l.Text) // same length: the cursor's offset still fits
@@ -488,18 +495,30 @@ func (m *Model) oilRow(l mutation.Line, r, numW int) string {
 	if l.ID > 0 {
 		e := &st.entries[l.ID-1]
 		isDir = e.IsDir
-		facts = oilFacts(e)
+		facts = oilFacts(e, year)
 	}
 
 	// Hidden by its name, not its line: in results the line is a path,
 	// "src/.env".
-	nameSt := pick(strings.HasPrefix(filepath.Base(strings.TrimSuffix(name, "/")), "."), &stNameHidden, &stName)
-	// One concatenation either way: built up piece by piece, every row of
-	// every frame would allocate twice more.
+	hidden := strings.HasPrefix(filepath.Base(strings.TrimSuffix(name, "/")), ".")
+	nameSt := pick(hidden, &stNameHidden, &stName)
 	var left string
-	if m.icons {
+	switch {
+	case focused && st.buf.Mode() == oil.Normal:
+		a := &accentLocal
+		focus := pick(hidden, &stOilHiddenFocus, &a.selected)
+		if name == "" {
+			name = " "
+		}
+		if m.icons {
+			icon := ansi.Strip(iconFor(strings.TrimSuffix(name, "/"), isDir))
+			left = stPrompt.Render(num) + a.open + focus.Render(icon+" "+name) + a.close
+		} else {
+			left = stPrompt.Render(num) + a.edge + focus.Render(name) + a.edge
+		}
+	case m.icons:
 		left = stDir.Render(num) + " " + iconFor(strings.TrimSuffix(name, "/"), isDir) + " " + nameSt.Render(name)
-	} else { // the "/" a folder's line carries says it
+	default:
 		left = stDir.Render(num) + " " + nameSt.Render(name)
 	}
 	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(facts) - 1
@@ -511,10 +530,10 @@ func (m *Model) oilRow(l mutation.Line, r, numW int) string {
 
 // oilFacts is the size and date of an entry, as Oil's size and mtime
 // columns show them.
-func oilFacts(e *indexer.Entry) string {
+func oilFacts(e *indexer.Entry, year int) string {
 	t := time.Unix(0, e.ModTime)
 	date := t.Format("2 Jan")
-	if t.Year() != time.Now().Year() {
+	if t.Year() != year {
 		date = t.Format("Jan 2006")
 	}
 	size := ""
@@ -534,15 +553,23 @@ func (m *Model) oilStatus() string {
 	// What gives way when space runs out: the folder first, cut from the
 	// left; the notice or the count of changes, which say what is at
 	// stake, last.
-	mode, name := pick(st.buf.Mode() == oil.Insert, &stModeInsert, &stMode), st.buf.Mode().String()
-	if st.plan != nil {
-		mode, name = &stModeConfirm, "CONFIRM"
+	mode, name, modeCap := &stMode, st.buf.Mode().String(), accentLocal.barClose
+	switch {
+	case st.plan != nil:
+		mode, name, modeCap = &stModeConfirm, "CONFIRM", oilConfirmCap
+	case st.buf.Mode() == oil.Insert:
+		mode, modeCap = &stModeInsert, oilInsertCap
 	}
 	left := mode.Render(" " + name + " ")
+	if m.icons {
+		left += modeCap
+	}
 	right := ""
 	switch {
 	case m.notice != "":
 		right = pick(m.noticeErr, &stBarErr, &stBarText).Render(ansi.Truncate(m.notice, max(m.width-ansi.StringWidth(left)-2, 0), "…"))
+	case st.plan != nil && m.width-ansi.StringWidth(left) >= 20:
+		right = stBarText.Render("y apply · n back")
 	case st.changes == 1:
 		right = stBarWarn.Render("1 change")
 	case st.changes > 1:
@@ -558,7 +585,7 @@ func (m *Model) oilStatus() string {
 	return left + stBar.Render(strings.Repeat(" ", gap)) + right + stBar.Render(" ")
 }
 
-// oilCursor places the terminal's cursor on the buffer's: a block on a
+// oilCursor places the terminal's cursor on the buffer's: an underline on a
 // character in Normal mode, a bar between characters while typing, and
 // at the end of the command line while one is typed.
 func (m *Model) oilCursor(numW int) *tea.Cursor {
@@ -569,10 +596,13 @@ func (m *Model) oilCursor(numW int) *tea.Cursor {
 		return c
 	}
 	text := safeText(st.buf.Line(st.buf.Row()).Text)
-	x := numW + 1 + 2 + ansi.StringWidth(text[:st.buf.Col()]) // number, space, icon and its space
+	x := numW + 1 + ansi.StringWidth(text[:st.buf.Col()])
+	if m.icons {
+		x += iconCells
+	}
 	c := tea.NewCursor(min(x, m.width-1), 2+st.buf.Row()-st.offset)
-	c.Color = colLocal
-	c.Shape = tea.CursorBlock
+	c.Color = colBar
+	c.Shape = tea.CursorUnderline
 	if st.buf.Mode() == oil.Insert {
 		c.Shape, c.Color = tea.CursorBar, colWarn
 	}

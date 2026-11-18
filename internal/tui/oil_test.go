@@ -174,6 +174,25 @@ func TestOilTyping(t *testing.T) {
 	}
 }
 
+func TestOilCursorMatchesIconSetting(t *testing.T) {
+	m, _ := oilModel(t)
+	m.icons = false
+	view := m.View()
+	if view.Cursor.X != 4 || view.Cursor.Shape != tea.CursorUnderline || strings.ContainsAny(view.Content, "") {
+		t.Fatalf("without icons: cursor = %+v, want underline at column 4 and no caps", view.Cursor)
+	}
+	m.icons = true
+	view = m.View()
+	if view.Cursor.X != 6 || view.Cursor.Shape != tea.CursorUnderline || !strings.Contains(view.Content, "") {
+		t.Fatalf("with icons: cursor = %+v, want underline at column 6 and a selection cap", view.Cursor)
+	}
+	key(m, 'i', 0)
+	view = m.View()
+	if view.Cursor.X != 6 || view.Cursor.Shape != tea.CursorBar || strings.Contains(view.Content, "") {
+		t.Fatalf("insert: cursor = %+v, want bar on first character and no selection cap", view.Cursor)
+	}
+}
+
 func TestOilBadCommand(t *testing.T) {
 	m, _ := oilModel(t)
 	command(m, "nope")
@@ -270,7 +289,7 @@ func TestOilRename(t *testing.T) {
 	command(m, "w")
 
 	view := m.View().Content
-	for _, s := range []string{"Apply 1 change?", "rename", "README.md → NOTES.md", " CONFIRM "} {
+	for _, s := range []string{"Apply 1 change?", "rename", "README.md → NOTES.md", " CONFIRM ", "y apply · n back"} {
 		if !strings.Contains(view, s) {
 			t.Errorf("plan screen lacks %q", s)
 		}

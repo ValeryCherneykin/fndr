@@ -20,6 +20,7 @@ var (
 	colHair     = lipgloss.Color("#938ba8")
 	colBar      = lipgloss.Color("#181322")
 	colChip     = lipgloss.Color("#33264a")
+	colPlan     = lipgloss.Color("#231a32")
 	colLocal    = lipgloss.Color("#a18bff")
 	colLocalHi  = lipgloss.Color("#d0bdff")
 	colGlobal   = lipgloss.Color("#e39eff")
@@ -58,15 +59,21 @@ var (
 	stMode       = lipgloss.NewStyle().Background(colLocal).Foreground(colBar).Bold(true)
 	stModeInsert = stMode.Background(colWarn) // OIL is typing: keys are text now
 
-	stModeConfirm = stMode.Background(colAlert) // a plan waits for y: the disk is next
-	stPlanTitle   = lipgloss.NewStyle().Foreground(colBright).Bold(true)
-	stPlanBorder  = lipgloss.NewStyle().Foreground(colDim)
-	stPlanVerb    = lipgloss.NewStyle().Foreground(colDim)
-	stPlanTrash   = lipgloss.NewStyle().Foreground(colAlert)
+	stModeConfirm = stMode.Background(colGlobal)
+	oilInsertCap  = stBar.Foreground(colWarn).Render("")
+	oilConfirmCap = stBar.Foreground(colGlobal).Render("")
+	stPlanSurface = lipgloss.NewStyle().Background(colPlan)
+	stPlanTitle   = stPlanSurface.Foreground(colBright).Bold(true)
+	stPlanBorder  = stPlanSurface.Foreground(colLocalHi)
+	stPlanVerb    = stPlanSurface.Foreground(colDim)
+	stPlanText    = stPlanSurface.Foreground(colText)
+	stPlanTrash   = stPlanSurface.Foreground(colAlert)
+	stPlanKey     = stMode
 
 	// The scopes' accents (see accent).
-	accentLocal  = newAccent("LOCAL", colLocal, colLocalHi)
-	accentGlobal = newAccent("GLOBAL", colGlobal, colGlobalHi)
+	accentLocal      = newAccent("LOCAL", colLocal, colLocalHi)
+	accentGlobal     = newAccent("GLOBAL", colGlobal, colGlobalHi)
+	stOilHiddenFocus = accentLocal.selected.Foreground(lipgloss.Color("#4b365d"))
 )
 
 // stCode colours highlighted code, in the spirit of Tokyo Night: muted
