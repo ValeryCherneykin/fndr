@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -365,6 +366,27 @@ func TestStatusBarIsHonest(t *testing.T) {
 		if !strings.Contains(status, want) {
 			t.Errorf("status %q is missing %q", status, want)
 		}
+	}
+}
+
+func TestStatusShowsSelectedFileDetails(t *testing.T) {
+	m := testModel(t, "/r/a.go", "/r/b.go")
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	typeText(m, ".go")
+	date := time.Date(2026, time.January, 8, 12, 0, 0, 0, time.Local).UnixNano()
+	for i, size := range []int64{2000, 5000} {
+		path := m.results[i].Entry.Path
+		m.results[i].Entry = indexer.NewEntry(path, size, date, false)
+	}
+	for _, size := range []string{"2 KB", "5 KB"} {
+		if got := ansi.Strip(m.viewStatus()); !strings.Contains(got, size+" · 8 Jan 2026") {
+			t.Fatalf("status %q, want %s and date", got, size)
+		}
+		key(m, tea.KeyDown, 0)
+	}
+	m.setNotice("cannot open file", true)
+	if got := ansi.Strip(m.viewStatus()); !strings.Contains(got, "cannot open file") || strings.Contains(got, "Jan") {
+		t.Errorf("status %q, want the error instead of the details", got)
 	}
 }
 

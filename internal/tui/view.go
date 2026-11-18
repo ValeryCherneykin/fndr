@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -89,11 +90,12 @@ func (m *Model) viewList(b *strings.Builder) {
 		return
 	}
 
+	root, scope, browsing := m.under(), m.accent(), m.browsing()
 	for i := range h {
 		if r := m.offset + i; r < len(m.results) {
-			habit := m.browsing() && (m.globalOn || r < m.habits) // GLOBAL's empty query is all habits
+			habit := browsing && (m.globalOn || r < m.habits) // GLOBAL's empty query is all habits
 			look := rowLook{selected: r == m.cursor, habit: habit, icons: m.icons, aside: m.ghostAside(m.results[r].Entry.Path)}
-			b.WriteString(renderRow(&m.results[r], m.under(), w, look, m.accent()))
+			b.WriteString(renderRow(&m.results[r], root, w, look, scope))
 		} else {
 			b.WriteString(strings.Repeat(" ", w))
 		}
@@ -112,6 +114,9 @@ func (m *Model) viewList(b *strings.Builder) {
 func (m *Model) viewStatus() string {
 	a := m.accent()
 	mode := a.mode.Render(" " + a.name + " ")
+	if m.icons {
+		mode += a.barClose
+	}
 	if m.wide != nil {
 		mode += stBarWarn.Render(" +ignored")
 	}
@@ -124,8 +129,9 @@ func (m *Model) viewStatus() string {
 	avail := m.width - ansi.StringWidth(mode) - 2
 
 	var right []string
-	if t := m.taskStatus(); t != "" {
-		right = append(right, stBarText.Render(t))
+	task := m.taskStatus()
+	if task != "" {
+		right = append(right, stBarText.Render(task))
 	}
 	s := m.current()
 	if s.err != nil {
@@ -140,12 +146,26 @@ func (m *Model) viewStatus() string {
 	}
 	if s.crawling && s.next == nil { // a refresh is quiet: what is searched is whole
 		count = "indexing " + count
+	} else if m.browsing() && m.cursor < len(m.results) {
+		count = fmt.Sprintf("%d/%d", m.cursor+1, len(m.results))
 	}
 	if m.rename != nil {
 		count = "enter rename · esc cancel" // what counts now is how to finish
 	}
 	right = append(right, stBar.Render(count))
 	rest := strings.Join(right, sep)
+	if m.notice == "" && task == "" && m.rename == nil && s.err == nil && m.cursor < len(m.results) {
+		e := m.results[m.cursor].Entry
+		if e.ModTime != 0 {
+			details := time.Unix(0, e.ModTime).Format("2 Jan 2006")
+			if !e.IsDir {
+				details = humanSize(e.Size) + " · " + details
+			}
+			if ansi.StringWidth(details)+ansi.StringWidth(rest)+20 <= avail {
+				rest = stBarText.Render(details) + sep + rest
+			}
+		}
+	}
 
 	if m.notice != "" {
 		room := avail - ansi.StringWidth(rest) - ansi.StringWidth(sep)

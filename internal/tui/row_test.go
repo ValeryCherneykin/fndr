@@ -23,18 +23,18 @@ func TestRenderRowLayout(t *testing.T) {
 	r := result("/home/v/dev/fndr/cmd/fndr/main.go")
 	got := plain(r, "/home/v/dev", 50, true)
 
-	if !strings.HasPrefix(got, "▎ "+ansi.Strip(iconFor("main.go", false))+" main.go ") {
-		t.Errorf("row = %q, want marker, icon, then the name", got)
+	if !strings.HasPrefix(got, " "+ansi.Strip(iconFor("main.go", false))+" main.go ") {
+		t.Errorf("row = %q, want icon and name inside selection", got)
 	}
 	if !strings.HasSuffix(got, "fndr/cmd/fndr ") {
 		t.Errorf("row = %q, want the directory relative to root, right-aligned", got)
 	}
 }
 
-func TestRenderRowUnselectedHasNoMarker(t *testing.T) {
+func TestRenderRowUnselectedHasNoCaps(t *testing.T) {
 	got := plain(result("/r/a.go"), "/r", 30, false)
-	if strings.Contains(got, "▎") || !strings.HasPrefix(got, "  ") {
-		t.Errorf("row = %q, want a blank marker column", got)
+	if strings.ContainsAny(got, "") || !strings.HasPrefix(got, "  ") {
+		t.Errorf("row = %q, want a blank cap column", got)
 	}
 }
 

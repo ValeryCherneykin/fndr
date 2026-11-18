@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"image/color"
+
 	"charm.land/lipgloss/v2"
 
 	"github.com/ValeryCherneykin/fndr/internal/highlight"
@@ -13,14 +15,15 @@ import (
 var (
 	colBright   = lipgloss.Color("#fafafa") // selected name, titles
 	colText     = lipgloss.Color("#d4d4d8") // names
-	colDim      = lipgloss.Color("#71717a") // secondary text: directories, counts
-	colMuted    = lipgloss.Color("#52525b") // tertiary text: hints
-	colHair     = lipgloss.Color("#27272a") // hairlines
-	colBar      = lipgloss.Color("#131316") // status bar background
-	colLocal    = lipgloss.Color("#38bdf8") // LOCAL scope accent
-	colLocalHi  = lipgloss.Color("#7dd3fc") // matched characters
-	colGlobal   = lipgloss.Color("#a78bfa") // GLOBAL scope accent
-	colGlobalHi = lipgloss.Color("#c4b5fd")
+	colDim      = lipgloss.Color("#a59bb5")
+	colMuted    = lipgloss.Color("#81788f")
+	colHair     = lipgloss.Color("#938ba8")
+	colBar      = lipgloss.Color("#181322")
+	colChip     = lipgloss.Color("#33264a")
+	colLocal    = lipgloss.Color("#a18bff")
+	colLocalHi  = lipgloss.Color("#d0bdff")
+	colGlobal   = lipgloss.Color("#e39eff")
+	colGlobalHi = lipgloss.Color("#f3caff")
 	colWarn     = lipgloss.Color("#f97316")
 	colAlert    = lipgloss.Color("#ef4444")
 )
@@ -31,9 +34,8 @@ var (
 	stPrompt       = lipgloss.NewStyle().Foreground(colLocal).Bold(true)
 	stPromptRename = stPrompt.Foreground(colWarn) // the line is a path to rename, not a query
 	stQuery        = lipgloss.NewStyle().Foreground(colBright)
-	stChip         = lipgloss.NewStyle().Background(colHair).Foreground(colText) // a tag before the query
+	stChip         = lipgloss.NewStyle().Background(colChip).Foreground(colText)
 	stHair         = lipgloss.NewStyle().Foreground(colHair)
-	stMarker       = lipgloss.NewStyle().Foreground(colLocal)
 
 	stName       = lipgloss.NewStyle().Foreground(colText)
 	stNameSel    = lipgloss.NewStyle().Foreground(colBright).Bold(true)
@@ -63,18 +65,8 @@ var (
 	stPlanTrash   = lipgloss.NewStyle().Foreground(colAlert)
 
 	// The scopes' accents (see accent).
-	accentLocal = accent{
-		name: "LOCAL", mode: stMode, prompt: stPrompt, marker: stMarker,
-		nameHit: stNameHit, dirHit: stDirHit,
-	}
-	accentGlobal = accent{
-		name:    "GLOBAL",
-		mode:    stMode.Background(colGlobal),
-		prompt:  stPrompt.Foreground(colGlobal),
-		marker:  stMarker.Foreground(colGlobal),
-		nameHit: stNameHit.Foreground(colGlobalHi),
-		dirHit:  stDirHit.Foreground(colGlobal),
-	}
+	accentLocal  = newAccent("LOCAL", colLocal, colLocalHi)
+	accentGlobal = newAccent("GLOBAL", colGlobal, colGlobalHi)
 )
 
 // stCode colours highlighted code, in the spirit of Tokyo Night: muted
@@ -99,10 +91,20 @@ const (
 	iconFile = "" // nf-fa-file
 )
 
-// accent is the colour of where search runs: LOCAL sky blue, GLOBAL
-// violet. The mode block, the prompt, the selection marker and the matched
-// letters all take it, so the scope is plain wherever the eye is.
 type accent struct {
-	name                                  string
-	mode, prompt, marker, nameHit, dirHit lipgloss.Style
+	name                                                 string
+	mode, prompt, nameHit, dirHit, selected, selectedHit lipgloss.Style
+	open, close, edge, barClose                          string
+}
+
+func newAccent(name string, base, bright color.Color) accent {
+	capStyle := lipgloss.NewStyle().Foreground(base)
+	selected := lipgloss.NewStyle().Foreground(colBar).Background(base).Bold(true)
+	return accent{
+		name: name, mode: stMode.Background(base), prompt: stPrompt.Foreground(base),
+		nameHit: stNameHit.Foreground(bright), dirHit: stDirHit.Foreground(base),
+		selected: selected, selectedHit: selected.Underline(true),
+		open: capStyle.Render(""), close: capStyle.Render(""), edge: selected.Render(" "),
+		barClose: capStyle.Background(colBar).Render(""),
+	}
 }

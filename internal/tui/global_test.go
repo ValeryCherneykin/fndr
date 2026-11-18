@@ -45,7 +45,8 @@ func TestTabSearchesHome(t *testing.T) {
 	if len(m.results) == 0 || m.results[0].Entry.Path != readme {
 		t.Errorf("GLOBAL: %q, want README.md", m.resultPaths())
 	}
-	if m.query != "readme" || !strings.HasPrefix(strings.TrimSpace(m.status()), "GLOBAL  ~ ") {
+	status := strings.ReplaceAll(m.status(), "", "")
+	if m.query != "readme" || !strings.HasPrefix(strings.TrimSpace(status), "GLOBAL  ~ ") {
 		t.Errorf("query %q, status %q; want the query kept and GLOBAL shown", m.query, m.status())
 	}
 	if m.local.ix.Len() != 2 {

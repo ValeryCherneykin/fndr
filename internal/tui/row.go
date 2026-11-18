@@ -14,16 +14,16 @@ import (
 
 // Row layout, in terminal cells:
 //
-//	▎ <icon> <name>     <dir>␠
+//	<icon> <name>     <dir>␠
 //
 // With icons off, a folder is told by a "/" after its name, as ls -F
-// writes it: "▎ src/".
+// writes it.
 //
-// The marker column is always reserved, so rows do not shift sideways when
+// The first cell is reserved for the selection cap, so rows do not shift when
 // the selection moves. The directory is shown relative to the search root and
 // right-aligned, dim, so the eye goes to the name first.
 const (
-	rowFixed  = 5 // marker, space, icon, space, right padding
+	rowFixed  = 5 // cap, space, icon, space, right padding
 	iconCells = 2 // of rowFixed, the icon and its space: none with icons off
 	rowMinGap = 2 // minimum spaces between name and directory
 	ellipsis  = "…"
@@ -31,7 +31,7 @@ const (
 
 // rowLook is how a row is drawn, apart from what it shows.
 type rowLook struct {
-	selected bool // under the cursor: the marker, bright
+	selected bool
 	habit    bool // a place the user often goes: a clock instead of its type
 	icons    bool // Nerd Font icons; off, a "/" after a folder
 	// aside, if set, is shown on the right instead of the folder, and the
@@ -56,17 +56,20 @@ func renderRow(r *indexer.Result, root string, width int, look rowLook, a *accen
 	nameLo := len(path) - len(r.Entry.Name())
 	dirLo, dirHi := relDir(path, nameLo, root)
 
-	nameSt, dirSt := &stName, &stDir
+	nameSt, nameHit, dirSt := &stName, &a.nameHit, &stDir
 	switch {
+	case look.selected:
+		nameSt, nameHit, dirSt = &a.selected, &a.selectedHit, &stDirSel
 	case look.aside != "":
 		nameSt = &stNameHidden // not there yet: never as bright as what is
-	case look.selected:
-		nameSt, dirSt = &stNameSel, &stDirSel
 	case strings.HasPrefix(r.Entry.Name(), "."):
 		nameSt = &stNameHidden // there when looked for, never competing with the rest
 	}
 
 	avail := width - rowFixed
+	if look.selected {
+		avail--
+	}
 	var slash string
 	if !look.icons {
 		avail += iconCells
@@ -79,30 +82,44 @@ func renderRow(r *indexer.Result, root string, width int, look rowLook, a *accen
 	}
 
 	var b strings.Builder
+	closingCap := ""
 	if look.selected {
-		b.WriteString(a.marker.Render("▎"))
+		closingCap = a.edge
+		if look.icons {
+			b.WriteString(a.open)
+			closingCap = a.close
+			icon := iconHabitStyled
+			if !look.habit {
+				icon = iconFor(r.Entry.Name(), r.Entry.IsDir)
+			}
+			b.WriteString(nameSt.Render(" " + ansi.Strip(icon) + " "))
+		} else {
+			b.WriteString(a.edge)
+			b.WriteString(a.edge)
+		}
 	} else {
-		b.WriteByte(' ')
-	}
-	b.WriteByte(' ')
-	switch {
-	case !look.icons:
-	case look.habit:
-		b.WriteString(iconHabitStyled + " ")
-	default:
-		b.WriteString(iconFor(r.Entry.Name(), r.Entry.IsDir) + " ")
+		b.WriteString("  ")
+		switch {
+		case !look.icons:
+		case look.habit:
+			b.WriteString(iconHabitStyled + " ")
+		default:
+			b.WriteString(iconFor(r.Entry.Name(), r.Entry.IsDir) + " ")
+		}
 	}
 
 	nameW := ansi.StringWidth(path[nameLo:]) + lipgloss.Width(slash)
 	if nameW > avail {
 		// The name alone overflows: cut it and show no directory.
 		hi := cutRight(path, nameLo, len(path), avail-1)
-		b.WriteString(styleRange(path, nameLo, hi, r.Positions, nameSt, &a.nameHit))
+		b.WriteString(styleRange(path, nameLo, hi, r.Positions, nameSt, nameHit))
 		b.WriteString(nameSt.Render(ellipsis))
+		b.WriteString(closingCap)
 		return finish(b.String(), width)
 	}
-	b.WriteString(styleRange(path, nameLo, len(path), r.Positions, nameSt, &a.nameHit))
+	b.WriteString(styleRange(path, nameLo, len(path), r.Positions, nameSt, nameHit))
 	b.WriteString(slash)
+	b.WriteString(closingCap)
 
 	if look.aside != "" {
 		aside := ansi.Truncate(look.aside, max(avail-nameW-rowMinGap, 0), "")
@@ -156,7 +173,13 @@ func relDir(path string, nameLo int, root string) (lo, hi int) {
 // Consecutive characters of the same kind are rendered as one run, so a row
 // costs a handful of style calls rather than one per character.
 func styleRange(path string, lo, hi int, pos []int, base, hit *lipgloss.Style) string {
+	if lo == hi {
+		return ""
+	}
 	k, _ := slices.BinarySearch(pos, lo) // first position at or after lo
+	if k == len(pos) || pos[k] >= hi {
+		return base.Render(path[lo:hi])
+	}
 
 	var b strings.Builder
 	runLo, runHit := lo, false
