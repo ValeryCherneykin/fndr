@@ -66,6 +66,22 @@ func Create(dir, name string) (Created, error) {
 	return c, nil
 }
 
+func stageCreate(dir, name, tmp string) error {
+	name = strings.TrimSpace(name)
+	_, err := resolve(dir, name)
+	if err == nil {
+		if strings.HasSuffix(name, "/") {
+			err = makeDir(tmp)
+		} else {
+			err = makeFile(tmp)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("create %q: %w", name, err)
+	}
+	return nil
+}
+
 // resolve turns a typed name into the paths it would create, refusing
 // names that are empty or would leave dir. It only looks at the text; the
 // disk is not touched.
@@ -85,12 +101,14 @@ func resolve(dir, name string) (Created, error) {
 
 // makeDir creates the folder path and any missing parents.
 func makeDir(path string) error {
-	// MkdirAll succeeds on a folder that already exists; the user asked
-	// for a new one, so say it is there instead of pretending.
-	if _, err := os.Lstat(path); err == nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // the user's umask applies
+		return err
+	}
+	err := os.Mkdir(path, 0o755) //nolint:gosec // the user's umask applies
+	if errors.Is(err, fs.ErrExist) {
 		return ErrExists
 	}
-	return os.MkdirAll(path, 0o755) //nolint:gosec // the user's own folder: their umask decides
+	return err
 }
 
 // makeFile creates an empty file at path, and the folders above it.

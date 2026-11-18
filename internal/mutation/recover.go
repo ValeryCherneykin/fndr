@@ -42,12 +42,29 @@ type Intent struct {
 type Planned struct {
 	// ID is the entry an op moves, as it is before: a delete's, a
 	// rename's. Zero for others.
-	ID     FileID `json:"id,omitzero"`
-	Before FileID `json:"before,omitzero"`
-	// Temp is a rename's temporary name, between its two phases.
+	ID   FileID `json:"id,omitzero"`
 	Temp string `json:"temp,omitempty"`
 	// Made is the top folder the op will make on the way, if any.
-	Made string `json:"made,omitempty"`
+	Made  string    `json:"made,omitempty"`
+	Proof FileStamp `json:"-"`
+}
+
+// FileStamp checks metadata that survives publication, where an inode alone could be reused.
+type FileStamp struct {
+	ID    FileID `json:"id"`
+	Birth int64  `json:"birth,omitempty"`
+}
+
+func stamp(path string) (FileStamp, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return FileStamp{}, err
+	}
+	id, err := fileID(info)
+	if err != nil {
+		return FileStamp{}, err
+	}
+	return FileStamp{ID: id, Birth: birthTime(path, info, id)}, nil
 }
 
 // Prepare returns the Intent of running p in dir now. It reads the disk,
@@ -65,14 +82,10 @@ func Prepare(dir string, p Plan) Intent {
 			o.Temp = filepath.Join(dir, ".fndr-rename-"+strconv.Itoa(in.PID)+"-"+strconv.Itoa(renames))
 			renames++
 			o.Made = madeIn(dir, Target(dir, op.To))
-		case OpCopy:
-			to := Target(dir, op.To)
+		case OpCopy, OpCreate:
+			to := plannedDestination(dir, op)
 			o.Made = madeIn(dir, to)
-			o.Before, _ = idOf(to) //nolint:errcheck // an absent destination has no identity
-		case OpCreate:
-			to := filepath.Join(dir, filepath.Clean(op.To))
-			o.Made = madeIn(dir, to)
-			o.Before, _ = idOf(to) //nolint:errcheck // an absent destination has no identity
+			o.Temp = stagingPath(to)
 		}
 	}
 	return in
@@ -83,6 +96,9 @@ func Prepare(dir string, p Plan) Intent {
 // how many entries it moved from a temporary name. err names what it
 // could not place; the rest is recovered all the same.
 func Recover(in Intent, trash *Trash) (steps []Step, fixed int, err error) {
+	if len(in.Plan) != len(in.Ops) {
+		return nil, 0, errors.New("invalid recovery plan")
+	}
 	var failed []string
 	swept := map[string]bool{}
 	dir := in.Dir
@@ -97,18 +113,25 @@ func Recover(in Intent, trash *Trash) (steps []Step, fixed int, err error) {
 			if at := trash.find(o.ID); at != "" {
 				steps = append(steps, Step{Kind: OpDelete, From: from, To: at, ID: o.ID})
 			}
-		case OpCopy:
-			from, to := Target(dir, op.From), Target(dir, op.To)
-			if d := filepath.Dir(to); !swept[d] {
+		case OpCopy, OpCreate:
+			to := plannedDestination(dir, op)
+			if d := filepath.Dir(to); op.Kind == OpCopy && o.Temp == "" && !swept[d] {
 				swept[d] = true
 				sweepCopies(d, in.PID)
 			}
-			if id, err := idOf(to); err == nil {
-				if id != o.Before {
-					steps = append(steps, Step{Kind: OpCopy, From: from, To: to, Made: o.Made, ID: id})
+			_, tempErr := os.Lstat(o.Temp)
+			if tempErr == nil && (o.Proof.ID == (FileID{}) || is(o.Temp, o.Proof.ID)) {
+				discard(o.Temp)
+			}
+			got, readErr := stamp(to)
+			if o.Proof.Birth != 0 && errors.Is(tempErr, os.ErrNotExist) && readErr == nil && got == o.Proof {
+				from := ""
+				if op.Kind == OpCopy {
+					from = Target(dir, op.From)
 				}
-			} else {
-				removeEmpty(filepath.Dir(to), o.Made) // made on the way to a copy that never got there
+				steps = append(steps, Step{Kind: op.Kind, From: from, To: to, Made: o.Made, ID: got.ID, Birth: got.Birth})
+			} else if errors.Is(readErr, os.ErrNotExist) {
+				removeEmpty(filepath.Dir(to), o.Made)
 			}
 		case OpRename:
 			from, to := filepath.Join(dir, op.From), Target(dir, op.To)
@@ -127,21 +150,19 @@ func Recover(in Intent, trash *Trash) (steps []Step, fixed int, err error) {
 					failed = append(failed, fmt.Sprintf("%q is left as %q", op.From, filepath.Base(o.Temp)))
 				}
 			}
-		case OpCreate:
-			to := filepath.Join(dir, filepath.Clean(op.To))
-			if id, err := idOf(to); err == nil {
-				if id != o.Before {
-					steps = append(steps, Step{Kind: OpCreate, To: to, Made: o.Made, ID: id})
-				}
-			} else {
-				removeEmpty(filepath.Dir(to), o.Made)
-			}
 		}
 	}
 	if len(failed) > 0 {
 		return steps, fixed, errors.New(strings.Join(failed, ", "))
 	}
 	return steps, fixed, nil
+}
+
+func plannedDestination(dir string, op Op) string {
+	if op.Kind == OpCreate {
+		return filepath.Join(dir, strings.TrimSpace(op.To))
+	}
+	return Target(dir, op.To)
 }
 
 // is reports whether the file at path is id's.

@@ -131,6 +131,22 @@ func TestUndoChanged(t *testing.T) {
 	}
 }
 
+func TestUndoChecksBirthOfCopiedFile(t *testing.T) {
+	dir := tree(t, "source")
+	steps, err := Run(t.Context(), dir, Plan{{Kind: OpCopy, From: "source", To: "copy"}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps[0].Birth++
+	n, err := Undo(steps, trashes(t)["macOS"])
+	if n != 0 || err == nil || !strings.Contains(err.Error(), ErrChanged.Error()) {
+		t.Fatalf("Undo = %d, %v, want changed file", n, err)
+	}
+	if got := content(t, filepath.Join(dir, "copy")); got != "source" {
+		t.Errorf("copy = %q, want source", got)
+	}
+}
+
 // TestUndoNameTaken: a file trashed, and a new one made at its name since:
 // the new one stays, the old one stays in the trash.
 func TestUndoNameTaken(t *testing.T) {

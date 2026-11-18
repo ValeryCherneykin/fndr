@@ -102,6 +102,46 @@ func TestApplyNeverReplaces(t *testing.T) {
 	}
 }
 
+func TestExclusiveRenameHasOneWinner(t *testing.T) {
+	for _, folder := range []bool{false, true} {
+		dir := t.TempDir()
+		dest := filepath.Join(dir, "dest")
+		const contenders = 16
+		start := make(chan struct{})
+		results := make(chan error, contenders)
+		for i := range contenders {
+			src := filepath.Join(dir, strconv.Itoa(i))
+			var err error
+			if folder {
+				err = os.Mkdir(src, 0o700)
+			} else {
+				err = os.WriteFile(src, []byte(strconv.Itoa(i)), 0o600)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			go func() {
+				<-start
+				results <- noReplace(src, dest)
+			}()
+		}
+		close(start)
+		winners := 0
+		for range contenders {
+			err := <-results
+			switch {
+			case err == nil:
+				winners++
+			case !errors.Is(err, ErrExists):
+				t.Errorf("rename = %v, want ErrExists", err)
+			}
+		}
+		if winners != 1 {
+			t.Errorf("folder=%v: %d winners, want exactly one", folder, winners)
+		}
+	}
+}
+
 // TestApplyRollsBack: a rename that fails in the second phase, past the
 // check (here a folder that may not be written), sends the items still
 // under temporary names back to their own: y is done, a is back, and no

@@ -258,6 +258,64 @@ func TestRecoverCutOff(t *testing.T) {
 	}
 }
 
+func TestRecoverUsesPreparedWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		replace bool
+	}{
+		{name: "published"},
+		{name: "replaced", replace: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("XDG_DATA_HOME", "")
+			m, root := browseModel(t, "")
+			m.journal = filepath.Join(t.TempDir(), "journal")
+			j := journaled{path: m.journal, id: "cut"}
+			in := mutation.Prepare(root, mutation.Plan{
+				{Kind: mutation.OpCopy, From: "README.md", To: "copy.md"},
+				{Kind: mutation.OpCreate, To: "new.md"},
+			})
+			in.PID = deadPID(t)
+			if err := j.begin(in); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := mutation.RunIntent(t.Context(), in, nil, nil, j.prepare); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"copy.md", "new.md"} {
+				if tc.replace {
+					p := filepath.Join(root, name)
+					if err := os.Rename(p, p+".ours"); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(p, []byte("external"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+
+			send(m, recoverJournal(m.journal)())
+			ctrlZ(m)
+			if tc.replace {
+				if m.notice != "nothing to undo" {
+					t.Fatalf("foreign files offered for undo: %q", m.notice)
+				}
+			} else {
+				if !strings.Contains(m.notice, "1 copied, 1 created") {
+					t.Fatalf("missing recovered undo: %q", m.notice)
+				}
+				typeText(m, "y")
+			}
+			for _, name := range []string{"copy.md", "new.md"} {
+				if exists(filepath.Join(root, name)) != tc.replace {
+					t.Errorf("unexpected presence of %q after undo: %q", name, m.notice)
+				}
+			}
+		})
+	}
+}
+
 // TestRecoverLeavesLiveFndr: a change begun by a fndr still running, in
 // another pane, is under way, not cut off: left alone.
 func TestRecoverLeavesLiveFndr(t *testing.T) {
@@ -354,6 +412,7 @@ func TestRecoverReadsAgain(t *testing.T) {
 	}
 	in := mutation.Prepare(root, mutation.Plan{{Kind: mutation.OpCopy, From: "README.md", To: "README copy.md"}})
 	in.PID = pid
+	in.Ops[0].Temp = ""
 	if err := (journaled{path: path, id: "cut"}).begin(in); err != nil {
 		t.Fatal(err)
 	}

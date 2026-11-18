@@ -137,18 +137,12 @@ func (t *Trash) put(path, name string) (string, error) {
 			return "", err
 		}
 	}
-	// rename would replace a file at dst; check first. A file appearing
-	// in between is not ours to worry about: nobody else writes here under
-	// a name we have just found free, and the info file claims it on Linux.
-	if _, err := os.Lstat(dst); err == nil {
+	if err := noReplace(path, dst); err != nil {
 		if info != "" {
 			_ = os.Remove(info) //nolint:errcheck // releasing our own claim
 		}
-		return "", fs.ErrExist
-	}
-	if err := os.Rename(path, dst); err != nil {
-		if info != "" {
-			_ = os.Remove(info) //nolint:errcheck // releasing our own claim
+		if errors.Is(err, ErrExists) {
+			return "", fs.ErrExist
 		}
 		if errors.Is(err, syscall.EXDEV) {
 			return "", ErrOtherVolume

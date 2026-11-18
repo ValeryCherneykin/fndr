@@ -47,7 +47,8 @@ type Step struct {
 	// with no a before), or "".
 	Made string `json:"made,omitempty"`
 	// ID is To's file right after the step.
-	ID FileID `json:"id"`
+	ID    FileID `json:"id"`
+	Birth int64  `json:"birth,omitempty"`
 }
 
 // FileID tells one file from another for as long as it exists, wherever it
@@ -63,6 +64,10 @@ func idOf(path string) (FileID, error) {
 	if err != nil {
 		return FileID{}, err
 	}
+	return fileID(info)
+}
+
+func fileID(info os.FileInfo) (FileID, error) {
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return FileID{}, errors.New("no inode here")
@@ -75,6 +80,10 @@ func idOf(path string) (FileID, error) {
 // ID, which nothing matches: that step is never undone, never the wrong
 // file.
 func took(kind Kind, from, to, made string) Step {
+	if kind == OpCreate {
+		proof, _ := stamp(to) //nolint:errcheck // an unknown identity cannot be undone
+		return Step{Kind: kind, From: from, To: to, Made: made, ID: proof.ID, Birth: proof.Birth}
+	}
 	id, _ := idOf(to) //nolint:errcheck // see above
 	return Step{Kind: kind, From: from, To: to, Made: made, ID: id}
 }
@@ -230,7 +239,7 @@ func undoStep(s Step, trash *Trash) error {
 		removeEmpty(filepath.Dir(s.To), s.Made)
 		return nil
 	}
-	if id, err := idOf(s.To); err != nil || id != s.ID {
+	if !matchesStep(s) {
 		return ErrChanged
 	}
 	switch s.Kind {
@@ -259,6 +268,14 @@ func undoStep(s Step, trash *Trash) error {
 	crashPoint()
 	removeEmpty(filepath.Dir(s.To), s.Made)
 	return nil
+}
+
+func matchesStep(s Step) bool {
+	if s.Birth == 0 {
+		return is(s.To, s.ID)
+	}
+	got, err := stamp(s.To)
+	return err == nil && got == (FileStamp{ID: s.ID, Birth: s.Birth})
 }
 
 // back reports whether step s is undone already: its file at its old

@@ -139,7 +139,7 @@ func renameEntry(dir string, op mutation.Op, prune *indexer.Prune, j journaled) 
 			msg.err = fmt.Errorf("journal: %w", err) // refused before anything is done, as in OIL
 			return msg
 		}
-		steps, err := mutation.RunIntent(context.Background(), in, nil, nil)
+		steps, err := mutation.RunIntent(context.Background(), in, nil, nil, nil)
 		msg.journalErr = j.finish(steps)
 		msg.err, msg.done, msg.steps = err, plan[:len(steps)], steps
 		msg.remove, msg.add = indexChanges(dir, msg.done, nil, prune, made)

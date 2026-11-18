@@ -2,13 +2,13 @@ package mutation
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync/atomic"
 	"syscall"
 )
@@ -22,9 +22,6 @@ var (
 	// forever, and what a device would give is not a file.
 	ErrNotCopied = errors.New("only files, folders and links are copied")
 )
-
-// copySeq makes the temporary names of copies unique within a process.
-var copySeq atomic.Int64
 
 // Progress is what a running Apply has copied so far: entries (files,
 // folders, links) and bytes. Apply adds to it; another goroutine, the
@@ -64,25 +61,41 @@ func (c copying) count(entries, bytes int64) {
 // The copy is made under a hidden temporary name beside dst and renamed
 // to dst only once whole: stopped halfway (no room, no permission), it is
 // removed, and dst never holds half a copy. So is a copy stopped by ctx.
-func copyEntry(ctx context.Context, src, dst string, prog *Progress) error {
+func copyEntry(ctx context.Context, src, tmp, dst string, prog *Progress) (FileStamp, error) {
+	if err := stageCopy(ctx, src, tmp, dst, prog); err != nil {
+		return FileStamp{}, err
+	}
+	proof, err := stamp(tmp)
+	if err == nil {
+		err = publishStaged(ctx, tmp, dst)
+	}
+	if err != nil {
+		discard(tmp)
+	}
+	return proof, err
+}
+
+func stageCopy(ctx context.Context, src, tmp, dst string, prog *Progress) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //nolint:gosec // the user's own folders: their umask decides
 		return err
 	}
-	tmp := filepath.Join(filepath.Dir(dst), copyPrefix(os.Getpid())+strconv.FormatInt(copySeq.Add(1), 10))
 	if err := (copying{ctx, prog}).tree(src, tmp); err != nil {
 		discard(tmp)
 		return err
 	}
-	crashPoint() // a whole copy, under its temporary name
-	if err := ctx.Err(); err != nil {
-		discard(tmp)
-		return err
-	}
-	if err := noReplace(tmp, dst); err != nil {
-		discard(tmp)
-		return err
-	}
 	return nil
+}
+
+func stagingPath(dst string) string {
+	return filepath.Join(filepath.Dir(dst), copyPrefix(os.Getpid())+rand.Text())
+}
+
+func publishStaged(ctx context.Context, tmp, dst string) error {
+	crashPoint()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return noReplace(tmp, dst)
 }
 
 // discard removes a copy cut short, whole. Each folder of it was given its

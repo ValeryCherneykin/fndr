@@ -71,7 +71,7 @@ func TestCopyCanceledBeforePublish(t *testing.T) {
 	crashPoint = cancel
 	defer func() { crashPoint = before }()
 
-	if err := copyEntry(ctx, filepath.Join(dir, "src"), dst, nil); !errors.Is(err, context.Canceled) {
+	if _, err := copyEntry(ctx, filepath.Join(dir, "src"), stagingPath(dst), dst, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("copy: %v, want canceled", err)
 	}
 	if _, err := os.Lstat(dst); !errors.Is(err, os.ErrNotExist) {
@@ -406,7 +406,8 @@ func TestCopyStoppedReadOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // for TempDir to remove it
-		err := copyEntry(&dyingContext{Context: context.Background(), n: n}, src, filepath.Join(dir, "dst"), nil)
+		dst := filepath.Join(dir, "dst")
+		_, err := copyEntry(&dyingContext{Context: context.Background(), n: n}, src, stagingPath(dst), dst, nil)
 		names := ls(t, dir)
 		switch {
 		case err == nil && slices.Equal(names, []string{"dst", "src"}):

@@ -3,6 +3,7 @@ package mutation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"maps"
 	"os"
@@ -45,7 +46,12 @@ func runUntil(in Intent, trash *Trash, n int) (changes int) {
 		}
 	}
 	defer func() { crashPoint = func() {} }()
-	_, _ = RunIntent(context.Background(), in, trash, nil) //nolint:errcheck // a crash, or done: the disk is what is checked
+	_, _ = RunIntent(context.Background(), in, trash, nil, func(files []PreparedFile) error { //nolint:errcheck // a crash, or done: the disk is what is checked
+		for _, file := range files {
+			in.Ops[file.Op].Proof = file.Proof
+		}
+		return nil
+	})
 	return changes
 }
 
@@ -118,11 +124,90 @@ func TestRecoverLeavesExistingDestinations(t *testing.T) {
 	}
 }
 
+func TestRecoverLeavesUnverifiedDestinations(t *testing.T) {
+	dir := tree(t, "source")
+	in := Prepare(dir, Plan{{Kind: OpCopy, From: "source", To: "copy"}})
+	plant(t, dir, map[string]string{"copy": "external"})
+	for range 2 {
+		steps, _, err := Recover(in, nil)
+		if err != nil || len(steps) != 0 || content(t, filepath.Join(dir, "copy")) != "external" {
+			t.Fatalf("Recover = %v, %v; foreign file must stay untouched", steps, err)
+		}
+	}
+}
+
+func TestWriteDoesNotPublishWithoutProof(t *testing.T) {
+	dir := tree(t, "source")
+	refused := errors.New("journal unavailable")
+	for _, op := range []Op{{Kind: OpCopy, From: "source", To: "copy"}, {Kind: OpCreate, To: "new/"}} {
+		in := Prepare(dir, Plan{op})
+		steps, err := RunIntent(t.Context(), in, nil, nil, func([]PreparedFile) error { return refused })
+		if !errors.Is(err, refused) || len(steps) != 0 {
+			t.Fatalf("RunIntent = %v, %v, want journal error", steps, err)
+		}
+		if _, err := os.Lstat(Target(dir, op.To)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("published %q without proof: %v", op.To, err)
+		}
+		if left := hidden(t, dir); len(left) > 0 {
+			t.Fatalf("staging files left behind: %q", left)
+		}
+	}
+}
+
+func TestSiblingWritesShareProofRecord(t *testing.T) {
+	dir := tree(t, "source")
+	in := Prepare(dir, Plan{
+		{Kind: OpCopy, From: "source", To: "first"},
+		{Kind: OpCopy, From: "source", To: "second"},
+	})
+	saves := 0
+	steps, err := RunIntent(t.Context(), in, nil, nil, func(files []PreparedFile) error {
+		saves++
+		if len(files) != 2 {
+			t.Fatalf("prepared %d files, want 2", len(files))
+		}
+		for _, f := range files {
+			to := Target(dir, in.Plan[f.Op].To)
+			if _, err := os.Lstat(to); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("%q was published before the journal: %v", to, err)
+			}
+			if !is(in.Ops[f.Op].Temp, f.Proof.ID) {
+				t.Fatalf("proof does not identify the staged copy at operation %d", f.Op)
+			}
+		}
+		return nil
+	})
+	if err != nil || len(steps) != 2 || saves != 1 {
+		t.Fatalf("RunIntent = %v, %v, saved %d times", steps, err, saves)
+	}
+}
+
+func TestCopyLeavesDestinationCreatedAfterProof(t *testing.T) {
+	dir := tree(t, "source")
+	in := Prepare(dir, Plan{{Kind: OpCopy, From: "source", To: "copy"}})
+	steps, err := RunIntent(t.Context(), in, nil, nil, func(files []PreparedFile) error {
+		in.Ops[0].Proof = files[0].Proof
+		return os.WriteFile(filepath.Join(dir, "copy"), []byte("external"), 0o600)
+	})
+	if !errors.Is(err, ErrExists) || len(steps) != 0 {
+		t.Fatalf("RunIntent = %v, %v, want occupied destination", steps, err)
+	}
+	got, _, err := Recover(in, nil)
+	if err != nil || len(got) != 0 || content(t, filepath.Join(dir, "copy")) != "external" {
+		t.Fatalf("Recover = %v, %v, want untouched external file", got, err)
+	}
+}
+
 // TestRecoverWhole: a plan not cut off recovers as the steps Run returned.
 func TestRecoverWhole(t *testing.T) {
 	dir, trash := crashFolder(t)
 	in := Prepare(dir, crashPlan)
-	steps, err := RunIntent(context.Background(), in, trash, nil)
+	steps, err := RunIntent(context.Background(), in, trash, nil, func(files []PreparedFile) error {
+		for _, file := range files {
+			in.Ops[file.Op].Proof = file.Proof
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

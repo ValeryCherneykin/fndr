@@ -27,12 +27,9 @@ import (
 // ctrl+z asks first, naming what it takes back and when: it may be a
 // batch of another day, and the user must know which.
 //
-// A change is written down twice: what it is about to do before it starts
-// (begin: the plan, every name it will use, mutation.Intent), what it did
-// once it ends (batch). A begin with no batch is a change cut off by a
-// crash; the next fndr to start makes sense of it on the disk
-// (mutation.Recover), writes its batch, and says so: ctrl+z takes it back
-// like any other.
+// A begin with no batch is a change cut off by a crash. Copies and creates
+// need a prepared record synced before publication so recovery can tell
+// their result from a file put there by another process.
 
 // batch is a change carried out: one write, one rename.
 type batch struct {
@@ -48,6 +45,11 @@ type begun struct {
 	Intent mutation.Intent `json:"intent"`
 }
 
+type preparedWrite struct {
+	Batch string                  `json:"batch"`
+	Files []mutation.PreparedFile `json:"files"`
+}
+
 // undoing is an undo about to start: the batch, and the process that
 // undoes it, whose temporary names a crash may leave (mutation.RecoverUndo).
 type undoing struct {
@@ -55,15 +57,13 @@ type undoing struct {
 	PID int    `json:"pid"`
 }
 
-// record is one record of the journal, one of: a change begun, a batch
-// done, an undo begun, a batch undone, an undo cut off and put right (its
-// batch not undone: ctrl+z finishes it).
 type record struct {
-	Begin     *begun   `json:"begin,omitempty"`
-	Batch     *batch   `json:"batch,omitempty"`
-	Undoing   *undoing `json:"undoing,omitempty"`
-	Undone    string   `json:"undone,omitempty"`
-	Recovered string   `json:"recovered,omitempty"`
+	Begin     *begun         `json:"begin,omitempty"`
+	Prepared  *preparedWrite `json:"prepared,omitempty"`
+	Batch     *batch         `json:"batch,omitempty"`
+	Undoing   *undoing       `json:"undoing,omitempty"`
+	Undone    string         `json:"undone,omitempty"`
+	Recovered string         `json:"recovered,omitempty"`
 }
 
 // undoState is a batch ctrl+z offered to take back, for y to do it.
@@ -130,6 +130,16 @@ func (j journaled) finish(steps []mutation.Step) error {
 		return nil
 	}
 	return appendRecord(j.path, record{Batch: &batch{ID: j.id, Time: time.Now(), Steps: steps}})
+}
+
+func (j journaled) prepare(files []mutation.PreparedFile) error {
+	if j.path == "" {
+		return nil
+	}
+	if err := appendRecord(j.path, record{Prepared: &preparedWrite{Batch: j.id, Files: files}}); err != nil {
+		return fmt.Errorf("journal: %w", err)
+	}
+	return nil
 }
 
 func (m *Model) rememberBatch(id string, steps []mutation.Step) {
@@ -233,6 +243,7 @@ func undosCutOff(recs [][]byte) []undoCut {
 func cutOff(recs [][]byte) []begun {
 	var begins []begun
 	ended := map[string]bool{}
+	open := map[string]int{}
 	for _, data := range recs {
 		var r record
 		if json.Unmarshal(data, &r) != nil {
@@ -240,9 +251,21 @@ func cutOff(recs [][]byte) []begun {
 		}
 		switch {
 		case r.Begin != nil:
+			open[r.Begin.ID] = len(begins)
 			begins = append(begins, *r.Begin)
+		case r.Prepared != nil:
+			p := r.Prepared
+			if i, ok := open[p.Batch]; ok {
+				ops := begins[i].Intent.Ops
+				for _, file := range p.Files {
+					if file.Op >= 0 && file.Op < len(ops) {
+						ops[file.Op].Proof = file.Proof
+					}
+				}
+			}
 		case r.Batch != nil:
 			ended[r.Batch.ID] = true
+			delete(open, r.Batch.ID)
 		}
 	}
 	var out []begun

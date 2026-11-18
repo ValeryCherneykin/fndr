@@ -43,13 +43,13 @@ func ApplyContext(ctx context.Context, dir string, p Plan, trash *Trash, prog *P
 // in order, as Undo takes them back: also when it stops at a failure, so
 // the part done can be undone as well.
 func Run(ctx context.Context, dir string, p Plan, trash *Trash, prog *Progress) (steps []Step, err error) {
-	return RunIntent(ctx, Prepare(dir, p), trash, prog)
+	return RunIntent(ctx, Prepare(dir, p), trash, prog, nil)
 }
 
 // RunIntent is Run of a plan prepared, and written down, before: it does
 // exactly what in says, the temporary names included, so that Recover,
 // reading the same in after a crash, knows where to look.
-func RunIntent(ctx context.Context, in Intent, trash *Trash, prog *Progress) (steps []Step, err error) {
+func RunIntent(ctx context.Context, in Intent, trash *Trash, prog *Progress, save func([]PreparedFile) error) (steps []Step, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -74,16 +74,9 @@ func RunIntent(ctx context.Context, in Intent, trash *Trash, prog *Progress) (st
 	}
 	// Copies after the deletes, before the renames: a copy of an entry
 	// also renamed in the plan is of the entry as it was, still there.
-	for i, op := range p {
-		if op.Kind != OpCopy {
-			continue
-		}
-		from, to := Target(dir, op.From), Target(dir, op.To)
-		if err := copyEntry(ctx, from, to, prog); err != nil {
-			return steps, fmt.Errorf("copy %q to %q: %w", op.From, op.To, err)
-		}
-		crashPoint()
-		steps = append(steps, took(OpCopy, from, to, in.Ops[i].Made))
+	steps, err = runWrites(ctx, in, OpCopy, prog, save, steps)
+	if err != nil {
+		return steps, err
 	}
 
 	ops, temps := make([]Op, len(renames)), make([]string, len(renames))
@@ -98,18 +91,7 @@ func RunIntent(ctx context.Context, in Intent, trash *Trash, prog *Progress) (st
 		return steps, err
 	}
 
-	for i, op := range p {
-		if op.Kind != OpCreate {
-			continue
-		}
-		c, err := Create(dir, op.To)
-		if err != nil {
-			return steps, err
-		}
-		crashPoint()
-		steps = append(steps, took(OpCreate, "", c.Path, in.Ops[i].Made))
-	}
-	return steps, nil
+	return runWrites(ctx, in, OpCreate, prog, save, steps)
 }
 
 // check makes sure, before Apply changes anything, that every name the
@@ -271,21 +253,4 @@ func withUndo(err, undoErr error) error {
 		return err
 	}
 	return fmt.Errorf("%w; %w", err, undoErr)
-}
-
-// noReplace renames from to to, refusing if to exists. os.Rename alone
-// would silently replace a file there.
-//
-// The check and the rename are two steps: a file created at to in between
-// would be replaced. The kernels can do both at once (renameat2 with
-// RENAME_NOREPLACE on Linux, renamex_np with RENAME_EXCL on macOS), but
-// not through the standard library; in a folder the user is editing, the
-// gap is a few microseconds wide.
-func noReplace(from, to string) error {
-	if _, err := os.Lstat(to); err == nil {
-		return ErrExists
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return os.Rename(from, to)
 }

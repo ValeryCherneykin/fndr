@@ -175,7 +175,11 @@ func applyPlan(ctx context.Context, dir string, plan mutation.Plan, quit bool, s
 			msg.err = fmt.Errorf("journal: %w", err)
 			return msg
 		}
-		steps, err := mutation.RunIntent(ctx, in, trash, prog)
+		var save func([]mutation.PreparedFile) error
+		if j.path != "" {
+			save = j.prepare
+		}
+		steps, err := mutation.RunIntent(ctx, in, trash, prog, save)
 		msg.journalErr = j.finish(steps)
 		msg.done, msg.steps, msg.err = plan[:len(steps)], steps, err // Run goes in the plan's order
 		msg.remove, msg.add = indexChanges(dir, msg.done, snap, prune, made)
