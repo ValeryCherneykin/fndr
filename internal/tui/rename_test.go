@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
@@ -142,6 +143,24 @@ func TestRenameEveryScreenSize(t *testing.T) {
 				t.Fatalf("%dx%d: %d lines", w, h, len(lines))
 			}
 		}
+	}
+}
+
+func TestRenameKeepsCursorAndPathVisible(t *testing.T) {
+	m, _ := renameModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 24, Height: 12})
+	m.rename.line.set("a/very/long/folder/日本", "語/file.go")
+	view := m.View()
+	top, _, _ := strings.Cut(ansi.Strip(view.Content), "\n")
+	text, _, ok := strings.Cut(top, "語…")
+	if !ok || !strings.Contains(text, "…") || view.Cursor.X != ansi.StringWidth(text) {
+		t.Fatalf("path %q, cursor at %d, want cursor on the visible wide character", top, view.Cursor.X)
+	}
+	m.rename.line.pos = len("a/")
+	view = m.View()
+	top, _, _ = strings.Cut(ansi.Strip(view.Content), "\n")
+	if !strings.HasPrefix(top, " ❯ a/very/long/") || view.Cursor.X != promptWidth+2 {
+		t.Fatalf("path %q, cursor at %d, want the start of the path", top, view.Cursor.X)
 	}
 }
 

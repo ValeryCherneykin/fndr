@@ -475,6 +475,8 @@ func overlay(rows, box []string, width int) {
 	}
 }
 
+var oilDim = ansi.NewStyle().ForegroundColor(colMuted).String()
+
 // oilRow renders line r of the buffer: its number, relative to the
 // cursor's line as with relativenumber, an icon, the name, and, for an
 // entry that was loaded, its size and date, dim, at the right edge.
@@ -517,30 +519,32 @@ func (m *Model) oilRow(l mutation.Line, r, numW, year int) string {
 			left = stPrompt.Render(num) + a.edge + focus.Render(name) + a.edge
 		}
 	case m.icons:
-		left = stDir.Render(num) + " " + iconFor(strings.TrimSuffix(name, "/"), isDir) + " " + nameSt.Render(name)
+		left = oilDim + num + ansi.ResetStyle + " " + iconFor(strings.TrimSuffix(name, "/"), isDir) + " " + nameSt.Render(name)
 	default:
-		left = stDir.Render(num) + " " + nameSt.Render(name)
+		left = oilDim + num + ansi.ResetStyle + " " + nameSt.Render(name)
 	}
 	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(facts) - 1
 	if facts == "" || gap < 2 {
 		return finish(left, m.width)
 	}
-	return finish(left+strings.Repeat(" ", gap)+stDir.Render(facts), m.width)
+	return finish(left+strings.Repeat(" ", gap)+oilDim+facts+ansi.ResetStyle, m.width)
 }
 
 // oilFacts is the size and date of an entry, as Oil's size and mtime
 // columns show them.
 func oilFacts(e *indexer.Entry, year int) string {
 	t := time.Unix(0, e.ModTime)
-	date := t.Format("2 Jan")
+	layout := "2 Jan"
 	if t.Year() != year {
-		date = t.Format("Jan 2006")
+		layout = "Jan 2006"
 	}
+	date := t.Format(layout)
 	size := ""
 	if !e.IsDir {
 		size = humanSize(e.Size)
 	}
-	return fmt.Sprintf("%7s  %8s", size, date)
+	return strings.Repeat(" ", max(7-len(size), 0)) + size +
+		strings.Repeat(" ", max(10-len(date), 2)) + date
 }
 
 // oilStatus is the status bar in OIL: the mode, the folder, and how many
@@ -558,7 +562,7 @@ func (m *Model) oilStatus() string {
 	case st.plan != nil:
 		mode, name, modeCap = &stModeConfirm, "CONFIRM", oilConfirmCap
 	case st.buf.Mode() == oil.Insert:
-		mode, modeCap = &stModeInsert, oilInsertCap
+		mode, modeCap = &stModeInsert, editModeCap
 	}
 	left := mode.Render(" " + name + " ")
 	if m.icons {

@@ -25,8 +25,18 @@ func (m *Model) View() tea.View {
 		return m.viewHelp()
 	}
 
+	var prompt string
+	var cursorX int
+	cursorColor := colWarn
+	if m.rename != nil {
+		prompt, cursorX = m.renamePrompt()
+	} else {
+		prompt = m.viewPrompt()
+		cursorColor = m.accent().prompt.GetForeground()
+		cursorX = promptWidth + ansi.StringWidth(m.viewChips()) + ansi.StringWidth(safeText(m.query[:m.qpos]))
+	}
 	var b strings.Builder
-	b.WriteString(finish(m.viewPrompt(), m.width))
+	b.WriteString(finish(prompt, m.width))
 	b.WriteByte('\n')
 	b.WriteString(m.viewHairline())
 	b.WriteByte('\n')
@@ -40,22 +50,29 @@ func (m *Model) View() tea.View {
 	if frame := m.inline.Load(); frame != nil {
 		v.WindowTitle = frame.title
 	}
-	line, color, x := m.queryLine(), colLocal, promptWidth+ansi.StringWidth(m.viewChips())
-	if m.rename != nil {
-		line, color, x = m.rename.line, colWarn, promptWidth
-	}
-	v.Cursor = tea.NewCursor(min(x+ansi.StringWidth(safeText(line.text[:line.pos])), m.width-1), 0)
+	v.Cursor = tea.NewCursor(min(cursorX, m.width-1), 0)
 	v.Cursor.Shape = tea.CursorBar
-	v.Cursor.Color = color
+	v.Cursor.Color = cursorColor
 	return v
 }
 
 // viewPrompt renders the query line.
 func (m *Model) viewPrompt() string {
-	if m.rename != nil {
-		return " " + stPromptRename.Render("❯") + " " + stQuery.Render(safeText(m.rename.line.text))
-	}
 	return " " + m.accent().prompt.Render("❯") + " " + m.viewChips() + stQuery.Render(m.query)
+}
+
+func (m *Model) renamePrompt() (prompt string, cursorX int) {
+	line := m.rename.line
+	room := max(m.width-promptWidth, 0)
+	left := ""
+	before, after := safeText(line.text[:line.pos]), safeText(line.text[line.pos:])
+	reserve := max(1, min(3, ansi.StringWidth(after)))
+	if room > reserve {
+		left = shortenLeft(before, room-reserve)
+	}
+	x := ansi.StringWidth(left)
+	right := ansi.Truncate(after, room-x, "…")
+	return " " + stPromptRename.Render("❯") + " " + stQuery.Render(left+right), promptWidth + x
 }
 
 // viewList writes listHeight lines: the visible results, or an empty state
@@ -122,6 +139,9 @@ func (m *Model) viewStatus() string {
 	}
 	if m.rename != nil {
 		mode = stModeInsert.Render(" RENAME ") // keys are text now, as in OIL's INSERT
+		if m.icons {
+			mode += editModeCap
+		}
 	}
 	sep := stBar.Render("  ")
 	// Cells left once the scope block, one cell of gap and one of right

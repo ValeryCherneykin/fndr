@@ -60,7 +60,7 @@ var (
 	stModeInsert = stMode.Background(colWarn) // OIL is typing: keys are text now
 
 	stModeConfirm = stMode.Background(colGlobal)
-	oilInsertCap  = stBar.Foreground(colWarn).Render("")
+	editModeCap   = stBar.Foreground(colWarn).Render("")
 	oilConfirmCap = stBar.Foreground(colGlobal).Render("")
 	stPlanSurface = lipgloss.NewStyle().Background(colPlan)
 	stPlanTitle   = stPlanSurface.Foreground(colBright).Bold(true)
