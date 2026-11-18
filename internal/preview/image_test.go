@@ -39,6 +39,27 @@ func TestBuildImage(t *testing.T) {
 	}
 }
 
+func TestWebPPreview(t *testing.T) {
+	path := filepath.Join("testdata", "red.webp")
+	p, err := Build(path, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != Image || p.Type != "WebP image" {
+		t.Fatalf("Build = %+v, want WebP image", p)
+	}
+	img, err := LoadImage(path, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := img.Bounds().Size(); got != image.Pt(2, 1) {
+		t.Errorf("size = %v, want (2,1)", got)
+	}
+	if got := color.RGBAModel.Convert(img.At(0, 0)); got != (color.RGBA{R: 255, A: 255}) {
+		t.Errorf("pixel = %v, want opaque red", got)
+	}
+}
+
 func TestLoadImageShrinks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "big.png")
 	writePNG(t, path, image.NewRGBA(image.Rect(0, 0, 1000, 400)))

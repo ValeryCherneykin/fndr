@@ -23,6 +23,9 @@ var fileTypes = []fileType{
 // typeName names the format of a file from its first bytes, or "binary
 // file" when the signature is not one of fileTypes.
 func typeName(head []byte) string {
+	if len(head) >= 12 && string(head[:4]) == "RIFF" && string(head[8:12]) == "WEBP" {
+		return "WebP image"
+	}
 	for _, t := range fileTypes {
 		if bytes.HasPrefix(head, []byte(t.magic)) {
 			return t.name

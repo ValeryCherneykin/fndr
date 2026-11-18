@@ -7,16 +7,17 @@ import (
 	"image/draw"
 	"io"
 
-	// Registered with image.Decode: the formats the standard library reads.
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+
+	_ "golang.org/x/image/webp"
 
 	"github.com/ValeryCherneykin/fndr/internal/opener"
 )
 
 // decodable are the fileTypes names LoadImage can decode.
-var decodable = map[string]bool{"PNG image": true, "JPEG image": true, "GIF image": true}
+var decodable = map[string]bool{"PNG image": true, "JPEG image": true, "GIF image": true, "WebP image": true}
 
 // maxPixels is the largest picture LoadImage decodes: 64 megapixels, above
 // any phone camera (48). Decoding holds every pixel in memory, and the size
