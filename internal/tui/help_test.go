@@ -50,7 +50,7 @@ func TestHelpScrolls(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
 	typeText(m, "rea")
 	key(m, tea.KeyF1, 0)
-	total, page := len(m.helpLines()), m.listHeight()
+	total, page := len(m.help.lines), m.listHeight()
 	typeText(m, "jj")
 	key(m, 'n', tea.ModCtrl)
 	if m.help.scroll != 3 {
@@ -103,5 +103,20 @@ func TestHelpFillsScreenExactly(t *testing.T) {
 			}
 			key(m, tea.KeyPgDown, 0)
 		}
+	}
+}
+
+func TestHelpNarrowLayoutAndResize(t *testing.T) {
+	m := keysModel(t, "key.down = ctrl+j\n")
+	m.Update(tea.WindowSizeMsg{Width: 36, Height: 12})
+	key(m, tea.KeyF1, 0)
+	v := ansi.Strip(m.View().Content)
+	if !strings.Contains(v, "ctrl+j") || !strings.Contains(v, "Move down the list.") || !strings.Contains(v, "1–9/") {
+		t.Fatalf("narrow help loses information:\n%s", v)
+	}
+	typeText(m, "G")
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 100})
+	if m.help.scroll != 0 || !strings.Contains(ansi.Strip(m.View().Content), "Move down the list.") {
+		t.Fatalf("help after resize: scroll = %d", m.help.scroll)
 	}
 }

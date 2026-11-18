@@ -304,6 +304,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if m.oil != nil {
 			m.oilScroll()
 		}
+		if m.help != nil {
+			m.help.clamp(m.listHeight())
+		}
 		if m.graphics == graphicsSixel {
 			return requestCellSize()
 		}

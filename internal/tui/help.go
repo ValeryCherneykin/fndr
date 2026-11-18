@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -16,6 +17,11 @@ import (
 // helpState is the help page while it is open; nil, it is closed.
 type helpState struct {
 	scroll int // the first line shown
+	lines  []helpLine
+}
+
+func (h *helpState) clamp(page int) {
+	h.scroll = min(max(h.scroll, 0), max(len(h.lines)-page, 0))
 }
 
 // helpLine is one line of the page: a key column and what it does, or,
@@ -32,7 +38,12 @@ const helpKeyWidth = 22
 // helpLines writes the page from the model's keys and chords.
 func (m *Model) helpLines() []helpLine {
 	var ls []helpLine
-	head := func(s string) { ls = append(ls, helpLine{}, helpLine{text: s, heading: true}) }
+	head := func(s string) {
+		if len(ls) != 0 {
+			ls = append(ls, helpLine{})
+		}
+		ls = append(ls, helpLine{text: s, heading: true})
+	}
 	say := func(key, text string) { ls = append(ls, helpLine{key: key, text: text}) }
 
 	head("Search")
@@ -42,7 +53,7 @@ func (m *Model) helpLines() []helpLine {
 
 	for _, a := range config.Actions {
 		if a.Group != "" {
-			head("Keys · " + a.Group)
+			head(a.Group)
 		}
 		say(m.keysOf(a.Name), a.Doc)
 	}
@@ -115,10 +126,10 @@ func (m *Model) helpKey(msg tea.KeyPressMsg) tea.Cmd {
 	case action == "first", k == "g":
 		m.help.scroll = 0
 	case action == "last", k == "G":
-		m.help.scroll = len(m.helpLines())
+		m.help.scroll = len(m.help.lines)
 	}
 	if m.help != nil {
-		m.help.scroll = min(max(m.help.scroll, 0), max(len(m.helpLines())-page, 0))
+		m.help.clamp(page)
 	}
 	return nil
 }
@@ -126,32 +137,52 @@ func (m *Model) helpKey(msg tea.KeyPressMsg) tea.Cmd {
 // viewHelp draws the page: a title, the hairline, the lines that fit, and
 // the status bar's place saying how to get about.
 func (m *Model) viewHelp() tea.View {
+	st, a := m.help, m.accent()
+	h, w := m.listHeight(), m.width
 	var b strings.Builder
-	b.WriteString(finish(" "+stPaneTitle.Render("fndr help"), m.width))
-	b.WriteByte('\n')
-	b.WriteString(stHair.Render(strings.Repeat("─", m.width)))
-	b.WriteByte('\n')
-
-	ls, h := m.helpLines(), m.listHeight()
-	for i := range h {
-		var line string
-		if r := m.help.scroll + i; r < len(ls) {
-			l := ls[r]
-			switch {
-			case l.heading:
-				line = "  " + stNameSel.Render(l.text)
-			case l.key == "":
-				line = "  " + stName.Render(l.text)
-			default:
-				key := l.key + strings.Repeat(" ", max(helpKeyWidth-ansi.StringWidth(l.key), 1))
-				line = "  " + m.accent().nameHit.Render(key) + stDir.Render(l.text)
+	title := a.mode.Render(" HELP ")
+	if m.icons {
+		title += a.barClose
+	}
+	if room := w - ansi.StringWidth(title) - 2; room >= 8 && st.scroll < len(st.lines) && !st.lines[st.scroll].heading {
+		for i := st.scroll - 1; i >= 0; i-- {
+			if st.lines[i].heading {
+				title += "  " + stPaneTitle.Render(ansi.Truncate(safeText(st.lines[i].text), room, "…"))
+				break
 			}
 		}
-		b.WriteString(finish(line, m.width))
+	}
+	b.WriteString(finish(title, w))
+	b.WriteByte('\n')
+	b.WriteString(stHair.Render(strings.Repeat("─", w)))
+	b.WriteByte('\n')
+
+	keyWidth := min(helpKeyWidth, max((w-2)/3, 1))
+	for i := range h {
+		var line string
+		if r := st.scroll + i; r < len(st.lines) {
+			l := st.lines[r]
+			switch {
+			case l.heading:
+				line = "  " + a.nameHit.Render(safeText(l.text))
+			case l.key == "":
+				line = "  " + stName.Render(safeText(l.text))
+			default:
+				key := ansi.Truncate(safeText(l.key), keyWidth-1, "…")
+				gap := strings.Repeat(" ", max(keyWidth-ansi.StringWidth(key), 1))
+				style := pick(l.key == "(off)", &stDir, &stChip)
+				line = "  " + style.Render(key) + gap + stName.Render(safeText(l.text))
+			}
+		}
+		b.WriteString(finish(line, w))
 		b.WriteByte('\n')
 	}
 	bar := " j k scroll · esc closes"
-	b.WriteString(finish(stBar.Render(bar+strings.Repeat(" ", max(m.width-ansi.StringWidth(bar), 0))), m.width))
+	progress := fmt.Sprintf("%d–%d/%d ", st.scroll+1, min(st.scroll+h, len(st.lines)), len(st.lines))
+	if gap := w - ansi.StringWidth(bar) - ansi.StringWidth(progress); gap > 0 {
+		bar += strings.Repeat(" ", gap) + progress
+	}
+	b.WriteString(stBar.Render(finish(bar, w)))
 
 	v := tea.NewView(b.String())
 	v.AltScreen = true
