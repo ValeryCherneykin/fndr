@@ -37,11 +37,12 @@ type paneImage struct {
 	id         int // firstImageID-255: the id travels as a 256-colour index, see lines
 	cols, rows int
 	seq        string // transmission and placement, written to the terminal once
+	protocol   graphicsProtocol
 }
 
 // box is the room a picture is fit into, in cells: the pane, less its
 // border and margins.
-type box struct{ cols, rows int }
+type box struct{ cols, rows, cellWidth, cellHeight int }
 
 // paneImageMsg carries a picture prepared for the terminal, or nil when it
 // could not be decoded (the card is shown instead). box is the room it was
@@ -52,22 +53,29 @@ type paneImageMsg struct {
 	img  *paneImage
 }
 
-// detectGraphics reports whether the terminal can show pictures with
-// Unicode placeholders, and whether output goes through tmux.
-//
-// The environment is the only cheap, synchronous signal. Querying the
-// terminal would be exact, but its answer arrives as input, mixed with the
-// user's keys. Inside tmux, TERM is tmux's own, but the terminal's variables
-// are inherited by the tmux server from the terminal that started it.
-func detectGraphics(getenv func(string) string) (graphics, tmux bool) {
+type graphicsProtocol uint8
+
+const (
+	graphicsNone graphicsProtocol = iota
+	graphicsKitty
+	graphicsITerm
+	graphicsSixel
+)
+
+func (p graphicsProtocol) inline() bool { return p == graphicsITerm || p == graphicsSixel }
+
+func detectGraphics(getenv func(string) string) (graphics graphicsProtocol, tmux bool) {
 	tmux = getenv("TMUX") != ""
+	program := strings.ToLower(getenv("TERM_PROGRAM"))
 	switch {
 	case getenv("KITTY_WINDOW_ID") != "", getenv("GHOSTTY_RESOURCES_DIR") != "":
-		graphics = true
+		graphics = graphicsKitty
 	case getenv("TERM") == "xterm-kitty", getenv("TERM") == "xterm-ghostty":
-		graphics = true
-	case strings.EqualFold(getenv("TERM_PROGRAM"), "ghostty"):
-		graphics = true
+		graphics = graphicsKitty
+	case program == "ghostty":
+		graphics = graphicsKitty
+	case !tmux && (program == "iterm.app" || program == "wezterm" || getenv("ITERM_SESSION_ID") != ""):
+		graphics = graphicsITerm
 	}
 	return graphics, tmux
 }
@@ -90,7 +98,11 @@ const firstImageID = 16
 // shown or on its way, is forgotten, and wantImage asks for it again when
 // it is next shown.
 func (m *Model) nextImageID(path string) int {
-	if m.imageSeq < firstImageID || m.imageSeq >= 255 {
+	lastID := 255
+	if m.graphics.inline() {
+		lastID = firstImageID + 7
+	}
+	if m.imageSeq < firstImageID || m.imageSeq >= lastID {
 		m.imageSeq = firstImageID - 1
 	}
 	m.imageSeq++
@@ -107,9 +119,15 @@ func (m *Model) nextImageID(path string) int {
 
 // loadImage prepares the picture at path for the pane, off the UI
 // goroutine. It is fit into b keeping its shape.
-func loadImage(path string, id int, b box, tmux bool) tea.Cmd {
+func loadImage(path string, id int, b box, protocol graphicsProtocol, tmux bool) tea.Cmd {
 	return func() tea.Msg {
-		img, err := buildImage(path, id, b.cols, b.rows, tmux)
+		var img *paneImage
+		var err error
+		if protocol == graphicsKitty {
+			img, err = buildImage(path, id, b.cols, b.rows, tmux)
+		} else {
+			img, err = buildInlineImage(path, id, b, protocol)
+		}
 		if err != nil {
 			return paneImageMsg{path: path, box: b}
 		}
@@ -143,7 +161,7 @@ func buildImage(path string, id, maxCols, maxRows int, tmux bool) (*paneImage, e
 	if err := kitty.EncodeGraphics(&seq, img, opts); err != nil {
 		return nil, fmt.Errorf("image: %w", err)
 	}
-	return &paneImage{id: id, cols: cols, rows: rows, seq: seq.String()}, nil
+	return &paneImage{id: id, cols: cols, rows: rows, seq: seq.String(), protocol: graphicsKitty}, nil
 }
 
 // fit returns the cells a w×h pixel picture takes in a box of maxCols ×

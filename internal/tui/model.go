@@ -5,9 +5,11 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 
 	"github.com/ValeryCherneykin/fndr/internal/config"
 	"github.com/ValeryCherneykin/fndr/internal/filter"
@@ -183,9 +185,15 @@ type Model struct {
 	// Pictures in the pane (image.go). graphics: the terminal can show
 	// them; tmux: escape sequences must be wrapped to pass through it.
 	// imageOwner maps each image id handed out to the path it shows.
-	graphics, tmux bool
-	imageSeq       int
-	imageOwner     [256]string
+	graphics                            graphicsProtocol
+	tmux, probeGraphics, graphicsProbed bool
+	cellWidth, cellHeight               int
+	cellExact                           bool
+	imageSeq                            int
+	imageOwner                          [256]string
+	inlineSeq                           int
+	inlineClearing                      bool
+	inline                              atomic.Pointer[inlineFrame]
 
 	// exitDir is the folder the shell should change to once fndr exits: set
 	// by ctrl+e, left empty by esc and ctrl+c, which leave the shell where
@@ -210,7 +218,10 @@ func New(root string, cfg *config.Config, cfgErrs []error) *Model {
 	// Pictures off is the terminal's lack of them: a card for every file,
 	// and nothing sent to tmux to let them through.
 	m.graphics, m.tmux = detectGraphics(os.Getenv)
-	m.graphics = m.graphics && cfg.Images
+	if !cfg.Images {
+		m.graphics = graphicsNone
+	}
+	m.probeGraphics = cfg.Images && m.graphics == graphicsNone && !m.tmux
 
 	// Off, the index and the history are neither read nor written: what is
 	// on the disk from before is left as it is, for the user to delete.
@@ -251,7 +262,7 @@ func newModel(root, home string, ix *indexer.Index) *Model {
 // Init reads the starting directory and starts the crawl.
 func (m *Model) Init() tea.Cmd {
 	var passthrough tea.Cmd
-	if m.graphics && m.tmux {
+	if m.graphics == graphicsKitty && m.tmux {
 		passthrough = allowPassthrough
 	}
 	if m.journal != "" {
@@ -275,7 +286,12 @@ func (m *Model) Init() tea.Cmd {
 // catches up with the selection, wherever the event moved it: a key, a search
 // reply, a folder listing.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	return m, tea.Batch(m.update(msg), m.wantPreview())
+	cmd := m.update(msg)
+	pane := m.wantPreview()
+	if !m.probeGraphics && !m.graphics.inline() {
+		return m, tea.Batch(cmd, pane)
+	}
+	return m, tea.Batch(cmd, pane, m.probeInline(), m.syncInline())
 }
 
 // update does the work of Update for one event; Update wraps it so the pane
@@ -288,7 +304,22 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if m.oil != nil {
 			m.oilScroll()
 		}
+		if m.graphics == graphicsSixel {
+			return requestCellSize()
+		}
 		return nil
+	case uv.PrimaryDeviceAttributesEvent:
+		return m.enableSixel(msg)
+	case inlineClearedMsg:
+		m.inlineClearing = false
+	case uv.CellSizeEvent:
+		if m.graphics == graphicsSixel && m.setCellSize(msg.Width, msg.Height) {
+			m.cellExact = true
+		}
+	case uv.PixelSizeEvent:
+		if m.graphics == graphicsSixel && !m.cellExact && m.width > 0 && m.height > 0 {
+			m.setCellSize(msg.Width/m.width, msg.Height/m.height)
+		}
 
 	case oilMsg:
 		cmd := m.oilLoaded(&msg)
@@ -446,7 +477,7 @@ func (m *Model) quit() tea.Cmd {
 		return nil
 	}
 	m.stop()
-	if m.imageSeq > 0 { // pictures were sent: free them before leaving
+	if m.graphics == graphicsKitty && m.imageSeq > 0 {
 		return tea.Sequence(tea.Raw(deleteImages(m.tmux)), tea.Quit)
 	}
 	return tea.Quit

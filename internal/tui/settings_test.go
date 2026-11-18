@@ -33,7 +33,7 @@ func tempHome(t *testing.T) string {
 func TestSettingsAsComeIn(t *testing.T) {
 	home := tempHome(t)
 	m := New(home, new(config.Default()), nil)
-	if m.preview || !m.graphics || m.editor != "" || m.hist == nil || m.savedPath == "" || !m.icons || m.tmuxOn {
+	if m.preview || m.graphics != graphicsKitty || m.editor != "" || m.hist == nil || m.savedPath == "" || !m.icons || m.tmuxOn {
 		t.Errorf("defaults: preview %v, graphics %v, editor %q, hist %v, saved %q, icons %v, tmux %v", m.preview, m.graphics, m.editor, m.hist, m.savedPath, m.icons, m.tmuxOn)
 	}
 
@@ -41,7 +41,7 @@ func TestSettingsAsComeIn(t *testing.T) {
 	cfg.Preview, cfg.Images, cfg.Editor, cfg.Icons, cfg.EditorGUI = true, false, "code", false, true
 	cfg.Tmux, cfg.TmuxRun = true, "ve"
 	m = New(home, &cfg, nil)
-	if !m.preview || m.graphics || m.editor != "code" || m.icons || !m.tmuxOn || m.tmuxRun != "ve" || m.tmuxCmd == nil {
+	if !m.preview || m.graphics != graphicsNone || m.editor != "code" || m.icons || !m.tmuxOn || m.tmuxRun != "ve" || m.tmuxCmd == nil {
 		t.Errorf("set: preview %v, graphics %v, editor %q, icons %v, tmux %v %q", m.preview, m.graphics, m.editor, m.icons, m.tmuxOn, m.tmuxRun)
 	}
 	// The command is looked at, never run: it would open VS Code.

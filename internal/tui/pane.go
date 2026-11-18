@@ -99,23 +99,30 @@ func (m *Model) wantPreview() tea.Cmd {
 // Until it arrives the pane shows the card.
 func (m *Model) wantImage(path string) tea.Cmd {
 	e, ok := m.paneCache[path]
-	if !ok || e.err != nil || e.p.Kind != preview.Image || !m.graphics {
+	if !ok || e.err != nil || e.p.Kind != preview.Image || m.graphics == graphicsNone {
 		return nil
 	}
 	b := m.imageBox()
+	if m.graphics == graphicsSixel && (b.cellWidth == 0 || b.cellHeight == 0) {
+		return nil
+	}
 	if e.imgFor == b {
 		return nil
 	}
 	id := m.nextImageID(path)
 	e.img, e.imgFor = nil, b
 	m.paneCache[path] = e
-	return loadImage(path, id, b, m.tmux)
+	return loadImage(path, id, b, m.graphics, m.tmux)
 }
 
 // imageBox is the room for a picture: the pane less its border and a cell
 // of margin each side.
 func (m *Model) imageBox() box {
-	return box{cols: m.width - m.listWidth() - 3, rows: m.listHeight()}
+	b := box{cols: m.width - m.listWidth() - 3, rows: m.listHeight()}
+	if m.graphics == graphicsSixel {
+		b.cellWidth, b.cellHeight = m.cellWidth, m.cellHeight
+	}
+	return b
 }
 
 // paneTick builds the preview the timer was started for, unless the
@@ -157,6 +164,9 @@ func (m *Model) imageLoaded(msg *paneImageMsg) tea.Cmd {
 	}
 	e.img = msg.img
 	m.paneCache[msg.path] = e
+	if msg.img.protocol != graphicsKitty {
+		return nil
+	}
 	return tea.Raw(msg.img.seq)
 }
 
@@ -214,7 +224,9 @@ func (m *Model) paneLines(h int) []string {
 		case e.p.Kind == preview.Text:
 			body = paneText(e.code[min(m.paneScroll, len(e.code)):], cw, h)
 		case e.p.Kind == preview.Image && e.img != nil:
-			body = e.img.lines()
+			if e.img.protocol == graphicsKitty {
+				body = e.img.lines()
+			}
 		default:
 			body = paneCard(&e.p)
 		}

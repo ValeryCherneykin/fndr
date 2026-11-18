@@ -76,8 +76,9 @@ in your editor. Hit **Ctrl+E** and your shell is standing in that folder.
   the strongest one selected: open fndr, press Enter, you're there.
 - **Preview pane** (`Ctrl+V`). Code with syntax highlighting (Go, Rust,
   Python, JS/TS, C/C++, Java, Lua, shell, SQL, YAML/TOML/JSON and more),
-  folders with their contents, **pictures as pictures** in kitty-compatible
-  terminals (Ghostty, kitty; tmux works too), and a card for everything else:
+  folders with their contents, and **pictures as pictures** via Kitty graphics
+  (including Ghostty and tmux), iTerm2 inline images, or Sixel. iTerm2 and
+  Sixel use a direct terminal connection. Other terminals show a file card:
   *PDF document · 2.1 MB · 8 Nov 2026*. Loaded off the UI thread with a 60 ms
   settle delay and a cache, so holding `↓` never lags. `Ctrl+J` / `Ctrl+K`
   scroll it.

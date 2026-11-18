@@ -88,7 +88,7 @@ func runTUI(root, configPath string) (string, error) {
 	// was some 5 ms more per key than the terminal's own echo; at 120,
 	// measured through tmux, as quick as the echo. Idle, the ticker costs
 	// about 0.35% more of one core.
-	final, err := tea.NewProgram(model, tea.WithFPS(120)).Run()
+	final, err := tea.NewProgram(model, tea.WithFPS(120), tea.WithOutput(model.TerminalOutput(os.Stdout))).Run()
 	if err != nil {
 		return "", err
 	}

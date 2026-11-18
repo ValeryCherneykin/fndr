@@ -36,6 +36,9 @@ func (m *Model) View() tea.View {
 	v.ReportFocus = true // back in fndr: catch up with the disk (catchup.go)
 	v.AltScreen = true
 	v.WindowTitle = "fndr"
+	if frame := m.inline.Load(); frame != nil {
+		v.WindowTitle = frame.title
+	}
 	line, color, x := m.queryLine(), colLocal, promptWidth+ansi.StringWidth(m.viewChips())
 	if m.rename != nil {
 		line, color, x = m.rename.line, colWarn, promptWidth

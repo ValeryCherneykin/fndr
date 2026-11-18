@@ -14,16 +14,20 @@ import (
 
 func TestDetectGraphics(t *testing.T) {
 	tests := []struct {
-		env            map[string]string
-		graphics, tmux bool
+		env      map[string]string
+		graphics graphicsProtocol
+		tmux     bool
 	}{
-		{map[string]string{"TERM": "xterm-ghostty"}, true, false},
-		{map[string]string{"TERM": "xterm-kitty"}, true, false},
-		{map[string]string{"TERM_PROGRAM": "ghostty"}, true, false},
+		{map[string]string{"TERM": "xterm-ghostty"}, graphicsKitty, false},
+		{map[string]string{"TERM": "xterm-kitty"}, graphicsKitty, false},
+		{map[string]string{"TERM_PROGRAM": "ghostty"}, graphicsKitty, false},
+		{map[string]string{"TERM_PROGRAM": "iTerm.app"}, graphicsITerm, false},
+		{map[string]string{"TERM_PROGRAM": "WezTerm"}, graphicsITerm, false},
+		{map[string]string{"TERM_PROGRAM": "tmux", "ITERM_SESSION_ID": "w0t0p0", "TMUX": "/tmp/x"}, graphicsNone, true},
 		// Inside tmux TERM is tmux's, but Ghostty's own variable is inherited.
-		{map[string]string{"TERM": "tmux-256color", "TMUX": "/tmp/x", "GHOSTTY_RESOURCES_DIR": "/a"}, true, true},
-		{map[string]string{"TERM": "xterm-256color", "TERM_PROGRAM": "Apple_Terminal"}, false, false},
-		{map[string]string{"TERM": "tmux-256color", "TMUX": "/tmp/x"}, false, true},
+		{map[string]string{"TERM": "tmux-256color", "TMUX": "/tmp/x", "GHOSTTY_RESOURCES_DIR": "/a"}, graphicsKitty, true},
+		{map[string]string{"TERM": "xterm-256color", "TERM_PROGRAM": "Apple_Terminal"}, graphicsNone, false},
+		{map[string]string{"TERM": "tmux-256color", "TMUX": "/tmp/x"}, graphicsNone, true},
 	}
 	for _, tt := range tests {
 		g, x := detectGraphics(func(k string) string { return tt.env[k] })
@@ -118,7 +122,7 @@ func TestImageLinesFillTheirCells(t *testing.T) {
 func TestPictureInPane(t *testing.T) {
 	m, root := browseModel(t, "")
 	path := pngFile(t, root, 64, 64)
-	m.graphics = true
+	m.graphics = graphicsKitty
 	send(m, m.load(m.cwd)())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
 	m.selectName(t, "pic.png")
@@ -180,7 +184,7 @@ func picModel(t *testing.T) (m *Model, path string) {
 	t.Helper()
 	m, root := browseModel(t, "")
 	path = pngFile(t, root, 64, 64)
-	m.graphics = true
+	m.graphics = graphicsKitty
 	send(m, m.load(m.cwd)())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
 	m.selectName(t, "pic.png")
