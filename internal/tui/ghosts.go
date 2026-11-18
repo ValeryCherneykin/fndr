@@ -30,7 +30,7 @@ const ghostBar = 10
 func (m *Model) withGhosts(listing []indexer.Result) []indexer.Result {
 	var ghosts []indexer.Result
 	for _, t := range m.tasks {
-		for _, to := range t.targets() {
+		for _, to := range t.targets {
 			if filepath.Dir(to.path) == m.cwd {
 				ghosts = append(ghosts, indexer.Result{Entry: indexer.NewEntry(to.path, 0, 0, to.dir)})
 			}
@@ -51,12 +51,11 @@ type target struct {
 	dir  bool
 }
 
-// targets returns where t's copies go.
-func (t *task) targets() []target {
+func copyTargets(dir string, plan mutation.Plan) []target {
 	var out []target
-	for _, op := range t.plan {
+	for _, op := range plan {
 		if op.Kind == mutation.OpCopy {
-			out = append(out, target{path: mutation.Target(t.dir, op.To), dir: strings.HasSuffix(op.To, "/")})
+			out = append(out, target{path: mutation.Target(dir, op.To), dir: strings.HasSuffix(op.To, "/")})
 		}
 	}
 	return out
@@ -64,7 +63,7 @@ func (t *task) targets() []target {
 
 // makes reports whether one of t's copies goes to path.
 func (t *task) makes(path string) bool {
-	for _, to := range t.targets() {
+	for _, to := range t.targets {
 		if to.path == path {
 			return true
 		}

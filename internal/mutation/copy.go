@@ -74,6 +74,10 @@ func copyEntry(ctx context.Context, src, dst string, prog *Progress) error {
 		return err
 	}
 	crashPoint() // a whole copy, under its temporary name
+	if err := ctx.Err(); err != nil {
+		discard(tmp)
+		return err
+	}
 	if err := noReplace(tmp, dst); err != nil {
 		discard(tmp)
 		return err

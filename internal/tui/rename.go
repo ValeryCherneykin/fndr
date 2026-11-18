@@ -40,14 +40,15 @@ type renameState struct {
 
 // renamedMsg reports a rename carried out, or why it was not.
 type renamedMsg struct {
-	from, to string // absolute
-	dir      string
-	done     mutation.Plan   // the rename, if it was carried out
-	steps    []mutation.Step // the same, as ctrl+z takes it back
-	batch    string          // its batch's ID, begun in the journal
-	err      error
-	remove   []string // for the index, as after an OIL write
-	add      []indexer.Entry
+	from, to   string // absolute
+	dir        string
+	done       mutation.Plan   // the rename, if it was carried out
+	steps      []mutation.Step // the same, as ctrl+z takes it back
+	batch      string          // its batch's ID, begun in the journal
+	err        error
+	journalErr error
+	remove     []string // for the index, as after an OIL write
+	add        []indexer.Entry
 }
 
 // startRename enters RENAME for the selected entry.
@@ -139,6 +140,7 @@ func renameEntry(dir string, op mutation.Op, prune *indexer.Prune, j journaled) 
 			return msg
 		}
 		steps, err := mutation.RunIntent(context.Background(), in, nil, nil)
+		msg.journalErr = j.finish(steps)
 		msg.err, msg.done, msg.steps = err, plan[:len(steps)], steps
 		msg.remove, msg.add = indexChanges(dir, msg.done, nil, prune, made)
 		return msg

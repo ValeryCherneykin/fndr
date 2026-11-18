@@ -62,6 +62,26 @@ func TestCopyFile(t *testing.T) {
 	}
 }
 
+func TestCopyCanceledBeforePublish(t *testing.T) {
+	dir := tree(t, "src")
+	dst := filepath.Join(dir, "dst")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	before := crashPoint
+	crashPoint = cancel
+	defer func() { crashPoint = before }()
+
+	if err := copyEntry(ctx, filepath.Join(dir, "src"), dst, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("copy: %v, want canceled", err)
+	}
+	if _, err := os.Lstat(dst); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("destination appeared: %v", err)
+	}
+	if got := leftovers(t, dir); len(got) != 0 {
+		t.Fatalf("temporary copies left: %q", got)
+	}
+}
+
 // TestCopyFolder: a folder is copied with all it holds; a link inside
 // stays a link, never what it points to.
 func TestCopyFolder(t *testing.T) {

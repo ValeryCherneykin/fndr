@@ -31,10 +31,11 @@ import (
 
 // task is a plan with copies, queued or under way.
 type task struct {
-	id    int
-	dir   string
-	plan  mutation.Plan
-	total int64 // entries its copies hold, or -1 if not known (see copyTotal)
+	id      int
+	dir     string
+	plan    mutation.Plan
+	targets []target
+	total   int64 // entries its copies hold, or -1 if not known (see copyTotal)
 
 	progress *mutation.Progress // what it copied so far, counted by the copy
 	cancel   context.CancelFunc // nil until it starts
@@ -97,13 +98,14 @@ func (m *Model) queueTask() tea.Cmd {
 	st := m.oil
 	m.taskSeq++
 	t := &task{id: m.taskSeq, dir: st.dir, plan: st.plan, total: st.copyTotal(), progress: new(mutation.Progress)}
+	t.targets = copyTargets(t.dir, t.plan)
 	m.tasks = append(m.tasks, t)
 	quit := st.quitAfter
 	st.plan, st.wrote = nil, true // written, as far as the buffer goes: read again from the disk
 	// The ghost of the first copy into this folder is selected: what was
 	// asked for is in sight while it is made.
 	var reveal string
-	for _, to := range t.targets() {
+	for _, to := range t.targets {
 		if filepath.Dir(to.path) == st.dir {
 			reveal = filepath.Base(to.path)
 			break
@@ -163,7 +165,12 @@ func (m *Model) taskDone(msg *taskDoneMsg) tea.Cmd {
 	if m.leaving {
 		m.askLeave()
 	}
-	cmds := []tea.Cmd{m.relearn(w.dir, w.done), m.record(w.batch, w.steps), m.startTask()}
+	if w.journalErr != nil {
+		m.quitWhenDone = false
+		m.reportJournalError(w.journalErr)
+	}
+	m.rememberBatch(w.batch, w.steps)
+	cmds := []tea.Cmd{m.relearn(w.dir, w.done), m.startTask()}
 	if m.oil == nil {
 		// The listing, from the disk: its ghost gone, what it made there.
 		// The ghost under the cursor stays under it, the real row now; one

@@ -27,14 +27,15 @@ import (
 
 // oilWrittenMsg reports a plan carried out, fully or up to a failure.
 type oilWrittenMsg struct {
-	dir    string
-	done   mutation.Plan   // the steps that were carried out
-	steps  []mutation.Step // the same, as ctrl+z takes them back
-	batch  string          // their batch's ID, begun in the journal
-	err    error           // why the next one was not
-	quit   bool            // :wq: quit fndr once written
-	remove []string        // for the index: paths gone or moved away
-	add    []indexer.Entry
+	dir        string
+	done       mutation.Plan   // the steps that were carried out
+	steps      []mutation.Step // the same, as ctrl+z takes them back
+	batch      string          // their batch's ID, begun in the journal
+	err        error           // why the next one was not
+	journalErr error
+	quit       bool     // :wq: quit fndr once written
+	remove     []string // for the index: paths gone or moved away
+	add        []indexer.Entry
 }
 
 // oilWrite starts writing the buffer: it checks the edit and shows the
@@ -175,6 +176,7 @@ func applyPlan(ctx context.Context, dir string, plan mutation.Plan, quit bool, s
 			return msg
 		}
 		steps, err := mutation.RunIntent(ctx, in, trash, prog)
+		msg.journalErr = j.finish(steps)
 		msg.done, msg.steps, msg.err = plan[:len(steps)], steps, err // Run goes in the plan's order
 		msg.remove, msg.add = indexChanges(dir, msg.done, snap, prune, made)
 		return msg
@@ -301,7 +303,7 @@ func (m *Model) oilWritten(msg *oilWrittenMsg) tea.Cmd {
 		// it stays as typed, for the user to fix rather than retype.
 		return nil
 	}
-	if msg.quit && msg.err == nil {
+	if msg.quit && msg.err == nil && msg.journalErr == nil {
 		return m.quit() // :wq, written: quit fndr, as :wq quits Vim
 	}
 	if st.search != nil {

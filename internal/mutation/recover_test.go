@@ -106,6 +106,18 @@ func TestRecoverAnywhere(t *testing.T) {
 	}
 }
 
+func TestRecoverLeavesExistingDestinations(t *testing.T) {
+	dir := tree(t, "source", "existing-copy", "existing-file")
+	p := Plan{
+		{Kind: OpCopy, From: "source", To: "existing-copy"},
+		{Kind: OpCreate, To: "existing-file"},
+	}
+	steps, _, err := Recover(Prepare(dir, p), nil)
+	if err != nil || len(steps) != 0 {
+		t.Fatalf("Recover = %v, %v, want no applied steps", steps, err)
+	}
+}
+
 // TestRecoverWhole: a plan not cut off recovers as the steps Run returned.
 func TestRecoverWhole(t *testing.T) {
 	dir, trash := crashFolder(t)

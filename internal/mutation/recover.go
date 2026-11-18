@@ -42,7 +42,8 @@ type Intent struct {
 type Planned struct {
 	// ID is the entry an op moves, as it is before: a delete's, a
 	// rename's. Zero for others.
-	ID FileID `json:"id,omitzero"`
+	ID     FileID `json:"id,omitzero"`
+	Before FileID `json:"before,omitzero"`
 	// Temp is a rename's temporary name, between its two phases.
 	Temp string `json:"temp,omitempty"`
 	// Made is the top folder the op will make on the way, if any.
@@ -65,9 +66,13 @@ func Prepare(dir string, p Plan) Intent {
 			renames++
 			o.Made = madeIn(dir, Target(dir, op.To))
 		case OpCopy:
-			o.Made = madeIn(dir, Target(dir, op.To))
+			to := Target(dir, op.To)
+			o.Made = madeIn(dir, to)
+			o.Before, _ = idOf(to) //nolint:errcheck // an absent destination has no identity
 		case OpCreate:
-			o.Made = madeIn(dir, filepath.Join(dir, filepath.Clean(op.To)))
+			to := filepath.Join(dir, filepath.Clean(op.To))
+			o.Made = madeIn(dir, to)
+			o.Before, _ = idOf(to) //nolint:errcheck // an absent destination has no identity
 		}
 	}
 	return in
@@ -98,8 +103,10 @@ func Recover(in Intent, trash *Trash) (steps []Step, fixed int, err error) {
 				swept[d] = true
 				sweepCopies(d, in.PID)
 			}
-			if _, err := os.Lstat(to); err == nil {
-				steps = append(steps, took(OpCopy, from, to, o.Made))
+			if id, err := idOf(to); err == nil {
+				if id != o.Before {
+					steps = append(steps, Step{Kind: OpCopy, From: from, To: to, Made: o.Made, ID: id})
+				}
 			} else {
 				removeEmpty(filepath.Dir(to), o.Made) // made on the way to a copy that never got there
 			}
@@ -122,8 +129,10 @@ func Recover(in Intent, trash *Trash) (steps []Step, fixed int, err error) {
 			}
 		case OpCreate:
 			to := filepath.Join(dir, filepath.Clean(op.To))
-			if _, err := os.Lstat(to); err == nil {
-				steps = append(steps, took(OpCreate, "", to, o.Made))
+			if id, err := idOf(to); err == nil {
+				if id != o.Before {
+					steps = append(steps, Step{Kind: OpCreate, To: to, Made: o.Made, ID: id})
+				}
 			} else {
 				removeEmpty(filepath.Dir(to), o.Made)
 			}

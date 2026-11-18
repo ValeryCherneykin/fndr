@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/ValeryCherneykin/fndr/internal/mutation"
+	"github.com/ValeryCherneykin/fndr/internal/oil"
 )
 
 // BenchmarkView: one frame of a full screen of results, the work done
@@ -17,6 +20,31 @@ func BenchmarkView(b *testing.B) {
 	m := testModel(b, paths...)
 	m.Update(tea.WindowSizeMsg{Width: 160, Height: 45})
 	typeText(m, "file")
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = m.View()
+	}
+}
+
+func BenchmarkViewWithCopies(b *testing.B) {
+	paths := make([]string, 200)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("/r/file_%d.go", i)
+	}
+	m := testModel(b, paths...)
+	m.Update(tea.WindowSizeMsg{Width: 160, Height: 45})
+
+	plan := make(mutation.Plan, 100)
+	for i := range plan {
+		plan[i] = mutation.Op{Kind: mutation.OpCopy, From: "src", To: fmt.Sprintf("copy_%d", i)}
+	}
+	m.oil = &oilState{dir: m.cwd, buf: oil.New(nil), plan: plan}
+	m.queueTask()
+	m.listed(&listMsg{dir: m.cwd, entries: m.local.ix.Snapshot()})
+	if len(m.results) != len(paths)+len(plan) {
+		b.Fatalf("displayed %d rows", len(m.results))
+	}
+
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = m.View()

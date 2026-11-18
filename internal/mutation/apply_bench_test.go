@@ -29,3 +29,24 @@ func BenchmarkApply(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkCopy(b *testing.B) {
+	dir := b.TempDir()
+	const size = 8 << 20
+	if err := os.WriteFile(filepath.Join(dir, "source"), make([]byte, size), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	dst := filepath.Join(dir, "copy")
+	plan := Plan{{Kind: OpCopy, From: "source", To: "copy"}}
+	b.SetBytes(size)
+	for b.Loop() {
+		if _, err := Run(b.Context(), dir, plan, nil, nil); err != nil {
+			b.Fatal(err)
+		}
+		b.StopTimer()
+		if err := os.Remove(dst); err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+	}
+}

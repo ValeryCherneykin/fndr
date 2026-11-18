@@ -84,8 +84,6 @@ type (
 		undone int
 		err    error
 	}
-	// recordedMsg says a batch could not be written to the journal.
-	recordedMsg struct{ err error }
 	// recoveredMsg is what the changes cut off last time came to.
 	recoveredMsg struct {
 		cut, done, total, fixed int // cut: the changes made sense of
@@ -127,21 +125,23 @@ func (j journaled) begin(in mutation.Intent) error {
 	return appendRecord(j.path, record{Begin: &begun{ID: j.id, Time: time.Now(), Intent: in}})
 }
 
-// record keeps the steps of the change id carried out, for ctrl+z: in the
-// journal, in a command (a disk write, synced), or in memory without one.
-// A change that did nothing is written down too, if it was begun: its
-// begin is then known to be over, not cut off.
-func (m *Model) record(id string, steps []mutation.Step) tea.Cmd {
-	if id == "" || (len(steps) == 0 && m.journal == "") {
+func (j journaled) finish(steps []mutation.Step) error {
+	if j.path == "" {
 		return nil
 	}
-	b := batch{ID: id, Time: time.Now(), Steps: steps}
-	if m.journal == "" {
-		m.batches = append(m.batches, b)
-		return nil
+	return appendRecord(j.path, record{Batch: &batch{ID: j.id, Time: time.Now(), Steps: steps}})
+}
+
+func (m *Model) rememberBatch(id string, steps []mutation.Step) {
+	if m.journal == "" && len(steps) > 0 {
+		m.batches = append(m.batches, batch{ID: id, Time: time.Now(), Steps: steps})
 	}
-	path := m.journal
-	return func() tea.Msg { return recordedMsg{err: appendRecord(path, record{Batch: &b})} }
+}
+
+func (m *Model) reportJournalError(err error) {
+	if err != nil {
+		m.setNotice(m.notice+" · journal: "+err.Error(), true)
+	}
 }
 
 // recoverJournal makes sense of the changes the journal at path has begun

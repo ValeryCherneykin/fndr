@@ -296,7 +296,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 
 	case oilWrittenMsg:
 		learn := m.relearn(msg.dir, msg.done)
-		return tea.Batch(learn, m.record(msg.batch, msg.steps), m.oilWritten(&msg))
+		m.rememberBatch(msg.batch, msg.steps)
+		written := m.oilWritten(&msg)
+		m.reportJournalError(msg.journalErr)
+		return tea.Batch(learn, written)
 	case trashCountedMsg:
 		m.trashCounted(&msg)
 	case taskDoneMsg:
@@ -306,7 +309,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return cmd
 	case renamedMsg:
 		learn := m.relearn(msg.dir, msg.done)
-		return tea.Batch(learn, m.record(msg.batch, msg.steps), m.renamed(&msg))
+		m.rememberBatch(msg.batch, msg.steps)
+		renamed := m.renamed(&msg)
+		m.reportJournalError(msg.journalErr)
+		return tea.Batch(learn, renamed)
 
 	case undoFoundMsg:
 		m.undoFound(&msg)
@@ -315,11 +321,6 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.undone(&msg)
 	case recoveredMsg:
 		return m.recovered(&msg)
-	case recordedMsg:
-		if msg.err != nil {
-			m.setNotice("done, but ctrl+z will not find it: "+msg.err.Error(), true)
-		}
-		return nil
 
 	case tea.KeyPressMsg:
 		catchUp := m.keyCatchUp(time.Now())

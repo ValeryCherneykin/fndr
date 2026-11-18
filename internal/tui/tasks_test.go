@@ -10,6 +10,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/ValeryCherneykin/fndr/internal/journal"
 )
 
 // copyPlanned is OIL with the plan to copy src/ (2 files) to lib/ shown.
@@ -161,6 +163,42 @@ func TestQuitAsksWhileCopying(t *testing.T) {
 	}
 	if !runAll(m, run) || exists(filepath.Join(root, "lib")) {
 		t.Errorf("after s: lib there %v", exists(filepath.Join(root, "lib")))
+	}
+}
+
+func TestCopyJournalIsReadyBeforeExit(t *testing.T) {
+	m, root := copyPlanned(t)
+	path := filepath.Join(t.TempDir(), "journal")
+	m.journal = path
+	run := pressY(m)
+	key(m, 'c', tea.ModCtrl)
+	typeText(m, "w")
+
+	msgs := runCmd(run)
+	recs, err := journal.Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cutOff(recs)) != 0 {
+		t.Fatal("copy completed before its journal record")
+	}
+	if _, ok := lastBatch(recs); !ok {
+		t.Fatal("copy missing from undo journal")
+	}
+	var quit bool
+	for _, msg := range msgs {
+		quit = send(m, msg) || quit
+	}
+	if !quit {
+		t.Fatal("did not quit after the copy")
+	}
+
+	next, _ := browseModel(t, "")
+	next.journal = path
+	ctrlZ(next)
+	typeText(next, "y")
+	if exists(filepath.Join(root, "lib")) {
+		t.Fatalf("copy survived undo: %q", next.notice)
 	}
 }
 
