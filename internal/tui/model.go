@@ -30,6 +30,7 @@ const promptWidth = 3
 // only reads it, which is what makes the interface testable without a
 // terminal: feed messages to Update, inspect the result.
 type Model struct {
+	tutor  *tutorState
 	start  string         // directory fndr started in, where _ goes back to in OIL
 	cwd    string         // directory shown and searched (LOCAL); always at or below local.root
 	home   string         // $HOME, shown as "~"
@@ -286,7 +287,26 @@ func (m *Model) Init() tea.Cmd {
 // catches up with the selection, wherever the event moved it: a key, a search
 // reply, a folder listing.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.tutor != nil {
+		if key, ok := msg.(tea.KeyPressMsg); ok {
+			switch {
+			case m.tutor.skip(key):
+				return m, nil
+			case key.String() == "ctrl+c" && !m.leaving:
+				cmd := m.quit()
+				return m, cmd
+			}
+		}
+		if size, ok := msg.(tea.WindowSizeMsg); ok {
+			m.tutor.footerHeight = min(6, max(0, size.Height-4))
+			size.Height -= m.tutor.footerHeight
+			msg = size
+		}
+	}
 	cmd := m.update(msg)
+	if m.tutor != nil {
+		m.tutor.advance(m, msg)
+	}
 	pane := m.wantPreview()
 	if !m.probeGraphics && !m.graphics.inline() {
 		return m, tea.Batch(cmd, pane)

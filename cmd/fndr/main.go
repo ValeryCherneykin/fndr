@@ -82,6 +82,10 @@ func runTUI(root, configPath string) (string, error) {
 		configPath, _ = config.DefaultPath()
 	}
 	model.SetConfigPath(configPath, written != "")
+	return runModel(model)
+}
+
+func runModel(model *tui.Model) (string, error) {
 	// 120 frames a second, Bubble Tea's most: a frame is ready as soon as a
 	// key is handled, but goes out on the next tick, and a key that
 	// searches waits for two (the letter, then the results). At 60, that
@@ -90,7 +94,7 @@ func runTUI(root, configPath string) (string, error) {
 	// about 0.35% more of one core.
 	final, err := tea.NewProgram(model, tea.WithFPS(120), tea.WithOutput(model.TerminalOutput(os.Stdout))).Run()
 	if err != nil {
-		return "", err
+		return "", errors.Join(err, model.Close())
 	}
 	m, ok := final.(*tui.Model)
 	if !ok {
@@ -183,6 +187,10 @@ func run(args []string, stdout, stderr io.Writer, ui ui) int {
 
 	fs := flag.NewFlagSet("fndr", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		_, _ = fmt.Fprintln(stderr, "Usage: fndr [options] | fndr tutor | fndr config | fndr init zsh|bash|fish")
+		fs.PrintDefaults()
+	}
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	cwdFile := fs.String("cwd-file", "", "on exit with Ctrl+E, write the folder to jump to to this file")
 	configPath := fs.String("config", "", "read settings from this file instead of ~/.config/fndr/config")
@@ -205,10 +213,20 @@ func run(args []string, stdout, stderr io.Writer, ui ui) int {
 		return 0
 	}
 
-	root, err := startDir()
 	var exitDir string
-	if err == nil {
-		exitDir, err = ui(root, *configPath)
+	var err error
+	if fs.NArg() > 0 && fs.Arg(0) == "tutor" {
+		if fs.NArg() != 1 {
+			_, _ = fmt.Fprintln(stderr, "usage: fndr tutor")
+			return 2
+		}
+		err = runTutor()
+	} else {
+		var root string
+		root, err = startDir()
+		if err == nil {
+			exitDir, err = ui(root, *configPath)
+		}
 	}
 	if err == nil && *cwdFile != "" && exitDir != "" {
 		err = os.WriteFile(*cwdFile, []byte(exitDir), 0o600)

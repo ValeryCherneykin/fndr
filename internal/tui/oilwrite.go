@@ -55,6 +55,9 @@ func (m *Model) oilWrite(quit bool) tea.Cmd {
 	case len(plan) == 0:
 		m.setNotice("nothing to write", false)
 	default:
+		if !m.tutorPlan(st.dir, plan) {
+			return nil
+		}
 		st.plan, st.quitAfter = plan, quit
 		return countTrash(st.dir, plan)
 	}
@@ -162,7 +165,13 @@ func (m *Model) confirmKey(msg tea.KeyPressMsg) tea.Cmd {
 func applyPlan(ctx context.Context, dir string, plan mutation.Plan, quit bool, snap []indexer.Entry, prune *indexer.Prune, prog *mutation.Progress, j journaled) tea.Cmd {
 	return func() tea.Msg {
 		msg := oilWrittenMsg{dir: dir, quit: quit, batch: j.id}
-		trash, err := mutation.HomeTrash()
+		endWrite, err := j.tutor.beginWrite()
+		if err != nil {
+			msg.err = err
+			return msg
+		}
+		defer endWrite()
+		trash, err := j.trash()
 		if err != nil {
 			msg.err = err // before anything is done: nothing half applied
 			return msg

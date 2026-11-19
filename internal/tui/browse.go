@@ -116,6 +116,10 @@ func (m *Model) showListing() {
 
 // activate is enter on the selected row: go into a folder, open a file.
 func (m *Model) activate() tea.Cmd {
+	if m.tutor != nil && m.searching {
+		m.setNotice("wait for the search results, then press enter", false)
+		return nil
+	}
 	if len(m.results) == 0 || m.ghostRefuses() {
 		return nil
 	}
@@ -125,6 +129,9 @@ func (m *Model) activate() tea.Cmd {
 		return tea.Batch(save, m.openSelected())
 	}
 	if opener.IsApp(e.Path, e.IsDir) {
+		if !m.tutorAllows(e.Path) {
+			return nil
+		}
 		// Started, as Finder and Spotlight do; OIL still goes inside.
 		return tea.Batch(save, m.launch(e.Path))
 	}
@@ -169,6 +176,9 @@ func (m *Model) up() tea.Cmd {
 // crawl listed without entering (node_modules, .github, a bin/ that
 // .gitignore names).
 func (m *Model) chdir(dir, reveal string) tea.Cmd {
+	if !m.tutorAllows(dir) {
+		return nil
+	}
 	m.cwd, m.reveal = dir, reveal
 	m.globalOn = false // a folder entered is searched in: LOCAL there
 	m.dropWide()       // it searched the folder left

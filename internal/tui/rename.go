@@ -123,6 +123,9 @@ func (m *Model) applyRename() tea.Cmd {
 		m.setNotice("not a rename", true)
 		return nil
 	}
+	if !m.tutorPlan(st.dir, plan) {
+		return nil
+	}
 	st.applying = true
 	return renameEntry(st.dir, plan[0], m.prune, m.journaled())
 }
@@ -131,6 +134,12 @@ func (m *Model) applyRename() tea.Cmd {
 func renameEntry(dir string, op mutation.Op, prune *indexer.Prune, j journaled) tea.Cmd {
 	return func() tea.Msg {
 		msg := renamedMsg{from: filepath.Join(dir, op.From), to: mutation.Target(dir, op.To), dir: dir, batch: j.id}
+		endWrite, err := j.tutor.beginWrite()
+		if err != nil {
+			msg.err = err
+			return msg
+		}
+		defer endWrite()
 		plan := mutation.Plan{op}
 		// No trash: a plan without deletes never asks for one.
 		made := madeOnTheWay(dir, plan)

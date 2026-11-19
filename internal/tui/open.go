@@ -21,10 +21,11 @@ import (
 // bar.
 type (
 	openMsg struct {
-		name     string
-		argv     []string
-		terminal bool // a terminal editor: suspend the UI while it runs
-		reveal   bool // shown in the file manager, not opened (ctrl+g)
+		name      string
+		workspace string
+		argv      []string
+		terminal  bool // a terminal editor: suspend the UI while it runs
+		reveal    bool // shown in the file manager, not opened (ctrl+g)
 	}
 	openedMsg struct {
 		name     string
@@ -49,8 +50,22 @@ func (m *Model) openSelected() tea.Cmd {
 func (m *Model) open(path string) tea.Cmd {
 	// Copied out of m: the command runs on another goroutine and must not
 	// touch the model.
+	if !m.tutorAllows(path) {
+		return nil
+	}
 	editor, gui := m.editor, m.editorGUI
-	return func() tea.Msg { return resolveOpen(path, editor, gui) }
+	workspace := ""
+	if m.tutor != nil {
+		workspace = filepath.Dir(m.tutor.trash)
+	}
+	return func() tea.Msg {
+		msg := resolveOpen(path, editor, gui)
+		if opened, ok := msg.(openMsg); ok && opened.terminal {
+			opened.workspace = workspace
+			return opened
+		}
+		return msg
+	}
 }
 
 // resolveOpen decides how to open path. It reads the start of the file,
@@ -89,6 +104,10 @@ const openWaitDelay = 500 * time.Millisecond
 func (msg openMsg) run() tea.Cmd {
 	cmd := exec.Command(msg.argv[0], msg.argv[1:]...)
 	if msg.terminal {
+		if msg.workspace != "" {
+			cmd.Dir = msg.workspace
+			cmd.Env = append(cmd.Environ(), "TMPDIR="+msg.workspace, "NVIM_LOG_FILE="+filepath.Join(msg.workspace, "nvim.log"))
+		}
 		// ExecProcess releases the terminal, runs the editor in the
 		// foreground, and restores the UI with its state intact when the
 		// editor exits.
@@ -138,6 +157,9 @@ func (m *Model) opened(msg openedMsg) {
 // stays open: ctrl+g in search, gx in OIL. Only the command is built
 // here; Update runs it as any system open.
 func (m *Model) showInFiles(path string, isDir bool) tea.Cmd {
+	if !m.tutorAllows(path) {
+		return nil
+	}
 	name := filepath.Base(path)
 	argv, err := opener.Reveal(path, isDir)
 	if err != nil {

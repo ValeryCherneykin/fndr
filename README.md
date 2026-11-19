@@ -256,6 +256,14 @@ Icons need a [Nerd Font](https://www.nerdfonts.com/).
 
 ---
 
+## Learn with fndr tutor
+
+```sh
+fndr tutor
+```
+
+Practice in fndr with sample files. Start by typing a fuzzy search, then work through navigation, preview, opening text in an editor, filter chips, search scopes, and Oil. Rename, copy, trash, and undo operate on the temporary workspace. The tutor uses default keybindings and removes the workspace when it exits normally. Press `F6` to skip a step or continue past an explanation.
+
 ## ⌨️ Keys
 
 | Key | Action |

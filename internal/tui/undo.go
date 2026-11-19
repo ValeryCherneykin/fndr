@@ -103,10 +103,22 @@ func journalPath() (string, error) {
 
 // journaled is where a change is written down: the journal ("" for
 // none) and the change's ID, for its begin and its batch.
-type journaled struct{ path, id string }
+type journaled struct {
+	path, id string
+	tutor    *tutorState
+}
+
+func (j journaled) trash() (*mutation.Trash, error) {
+	if j.tutor != nil {
+		return mutation.LocalTrash(j.tutor.trash), nil
+	}
+	return mutation.HomeTrash()
+}
 
 // journal names a change about to start, to be written down.
-func (m *Model) journaled() journaled { return journaled{path: m.journal, id: m.newBatchID()} }
+func (m *Model) journaled() journaled {
+	return journaled{path: m.journal, id: m.newBatchID(), tutor: m.tutor}
+}
 
 // newBatchID names a change about to start, for its begin and its batch:
 // unique across fndr running at once, in other panes.
@@ -405,9 +417,15 @@ func (m *Model) undoKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	m.setNotice("undoing…", false)
-	path, b := m.journal, st.batch
+	j, b := journaled{path: m.journal, tutor: m.tutor}, st.batch
+	path := j.path
 	return func() tea.Msg {
-		trash, err := mutation.HomeTrash()
+		endWrite, err := j.tutor.beginWrite()
+		if err != nil {
+			return undoneMsg{batch: b, err: err}
+		}
+		defer endWrite()
+		trash, err := j.trash()
 		if err != nil {
 			return undoneMsg{batch: b, err: err}
 		}

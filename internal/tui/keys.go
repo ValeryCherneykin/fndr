@@ -147,6 +147,10 @@ var actions = map[string]actionFunc{
 		return nil, true
 	},
 	"jump": func(m *Model) (tea.Cmd, bool) {
+		if m.tutor != nil {
+			m.setNotice("in a regular session, ctrl+e quits and jumps to this folder", false)
+			return nil, true
+		}
 		m.exitDir = m.jumpTarget()
 		_ = m.learn(m.exitDir) // its save never runs, quitting: SaveHistory writes it once the interface has closed
 		return m.quit(), true
@@ -169,10 +173,16 @@ var actions = map[string]actionFunc{
 		}
 		return m.up(), true
 	},
-	"help":    func(m *Model) (tea.Cmd, bool) { m.help = &helpState{lines: m.helpLines()}; return nil, true },
-	"session": func(m *Model) (tea.Cmd, bool) { return m.openSession(), true },
-	"undo":    func(m *Model) (tea.Cmd, bool) { return m.startUndo(), true },
-	"stop":    func(m *Model) (tea.Cmd, bool) { return m.stopTask(), true },
+	"help": func(m *Model) (tea.Cmd, bool) { m.help = &helpState{lines: m.helpLines()}; return nil, true },
+	"session": func(m *Model) (tea.Cmd, bool) {
+		if m.tutor != nil {
+			m.setNotice("enable tmux in your config to open sessions in regular fndr", false)
+			return nil, true
+		}
+		return m.openSession(), true
+	},
+	"undo": func(m *Model) (tea.Cmd, bool) { return m.startUndo(), true },
+	"stop": func(m *Model) (tea.Cmd, bool) { return m.stopTask(), true },
 }
 
 // moveBy returns the action that moves the selection by delta(m) rows.

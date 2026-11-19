@@ -127,6 +127,10 @@ func (m *Model) saveIndexOrNil() tea.Cmd {
 // Close finishes what fndr writes in the background, for the end of the
 // program: the saves of the index handed out, and the history.
 func (m *Model) Close() error {
+	if m.tutor != nil {
+		m.stop()
+		m.tutor.close()
+	}
 	var errs []error
 	for _, w := range m.indexSaves {
 		errs = append(errs, w.write())

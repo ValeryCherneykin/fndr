@@ -48,6 +48,9 @@ func HomeTrash() (*Trash, error) {
 	return freedesktop(filepath.Join(data, "Trash")), nil
 }
 
+// LocalTrash keeps discarded files in dir without desktop trash metadata.
+func LocalTrash(dir string) *Trash { return &Trash{files: dir} }
+
 func freedesktop(dir string) *Trash {
 	return &Trash{files: filepath.Join(dir, "files"), info: filepath.Join(dir, "info")}
 }

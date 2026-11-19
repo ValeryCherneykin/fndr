@@ -24,6 +24,7 @@ func TestRun(t *testing.T) {
 		{name: "version", args: []string{"-version"}, wantCode: 0, wantStdout: "fndr "},
 		{name: "help is not an error", args: []string{"-h"}, wantCode: 0},
 		{name: "unknown flag", args: []string{"-nope"}, wantCode: 2},
+		{name: "tutor rejects extra arguments", args: []string{"tutor", "extra"}, wantCode: 2},
 		{name: "no args opens the interface", args: nil, wantCode: 0},
 	}
 

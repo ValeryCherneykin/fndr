@@ -255,6 +255,9 @@ func (m *Model) oilGo(act oil.Action) tea.Cmd {
 			m.setNotice("already at the top", false)
 			return nil
 		}
+		if !m.tutorAllows(parent) {
+			return nil
+		}
 		return loadOil(parent, st.hidden, filepath.Base(st.dir)) // the folder just left, selected
 	case oil.Open:
 		if line.ID == 0 {
@@ -269,6 +272,9 @@ func (m *Model) oilGo(act oil.Action) tea.Cmd {
 		if err != nil {
 			m.setNotice(err.Error(), true)
 			return save
+		}
+		if !m.tutorAllows(dir) {
+			return nil
 		}
 		return tea.Batch(save, loadOil(dir, st.hidden, ""))
 	}

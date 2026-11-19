@@ -15,6 +15,14 @@ import (
 
 // View renders the whole screen: exactly height lines of exactly width cells.
 func (m *Model) View() tea.View {
+	view := m.view()
+	if m.tutor != nil && m.tutor.footerHeight > 0 {
+		view.SetContent(view.Content + "\n" + m.tutor.footer(m.width))
+	}
+	return view
+}
+
+func (m *Model) view() tea.View {
 	if m.width <= 0 || m.height <= 0 {
 		return tea.NewView("") // before the first WindowSizeMsg
 	}
