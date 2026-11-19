@@ -16,6 +16,34 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a78bfa?style=flat-square" alt="License"></a>
 </p>
 
+## Quick start
+
+Install fndr with Homebrew on macOS or Linux.
+
+```sh
+brew install --cask ValeryCherneykin/fndr/fndr
+```
+
+**Just installed fndr? Run the interactive tutorial.**
+
+```sh
+fndr tutor
+```
+
+Learn search, filters, navigation, previews, and Oil in 35 guided steps.
+Practice renaming, copying, trashing, and undoing changes in a temporary
+workspace. Press `F6` to skip a step.
+
+<details>
+<summary>Install with Go</summary>
+
+```sh
+go install github.com/ValeryCherneykin/fndr/cmd/fndr@latest
+fndr tutor
+```
+
+</details>
+
 <p align="center">
   <img src="assets/demo.gif" alt="fndr demo" width="100%" />
 </p>
@@ -224,21 +252,7 @@ the buffer is what you wrote, even what the search would no longer find.
 
 ---
 
-## 🚀 Install
-
-### Homebrew (macOS, Linux)
-
-```bash
-brew install --cask ValeryCherneykin/fndr/fndr
-```
-
-### Go
-
-```bash
-go install github.com/ValeryCherneykin/fndr/cmd/fndr@latest
-```
-
-### Shell integration
+## Shell integration
 
 A program cannot change its parent shell's directory, so `Ctrl+E` needs a
 small shell function. One line, for your shell:
@@ -255,14 +269,6 @@ Now `fndr` is a function that runs the binary and `cd`s where you jumped.
 Icons need a [Nerd Font](https://www.nerdfonts.com/).
 
 ---
-
-## Learn with fndr tutor
-
-```sh
-fndr tutor
-```
-
-Practice in fndr with sample files. Start by typing a fuzzy search, then work through navigation, preview, opening text in an editor, filter chips, search scopes, and Oil. Rename, copy, trash, and undo operate on the temporary workspace. The tutor uses default keybindings and removes the workspace when it exits normally. Press `F6` to skip a step or continue past an explanation.
 
 ## ⌨️ Keys
 
@@ -402,6 +408,7 @@ noticeably slower is treated as a bug.
 - [x] **Undo anything, even after a crash** — a journal on disk: `Ctrl+Z`
   takes back the last change, a cut-off one is put right at the next start
 - [x] Copies in the background, shown where they go; `Ctrl+X` stops one
+- [x] Interactive tutorial with `fndr tutor`
 
 ---
 
