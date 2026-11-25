@@ -7,6 +7,7 @@ import (
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 	"github.com/ValeryCherneykin/fndr/internal/mutation"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
 // A copy under way is shown where it goes, before it is there: a ghost
@@ -27,19 +28,19 @@ const ghostBar = 10
 
 // withGhosts returns listing with the ghosts of the folder's copies under
 // way after its habits; listing itself if there are none.
-func (m *Model) withGhosts(listing []indexer.Result) []indexer.Result {
-	var ghosts []indexer.Result
+func (m *Model) withGhosts(listing []search.Result) []search.Result {
+	var ghosts []search.Result
 	for _, t := range m.tasks {
 		for _, to := range t.targets {
 			if filepath.Dir(to.path) == m.cwd {
-				ghosts = append(ghosts, indexer.Result{Entry: indexer.NewEntry(to.path, 0, 0, to.dir)})
+				ghosts = append(ghosts, search.Result{Entry: indexer.NewEntry(to.path, 0, 0, to.dir)})
 			}
 		}
 	}
 	if len(ghosts) == 0 {
 		return listing
 	}
-	out := make([]indexer.Result, 0, len(listing)+len(ghosts))
+	out := make([]search.Result, 0, len(listing)+len(ghosts))
 	out = append(out, listing[:m.habits]...)
 	out = append(out, ghosts...)
 	return append(out, listing[m.habits:]...)

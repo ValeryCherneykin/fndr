@@ -69,7 +69,7 @@ func BenchmarkKeySearch(b *testing.B) {
 
 // BenchmarkTyping: a name typed key by key over 300k entries, each key's
 // search answered and drawn, as the user sees it: narrowed by the key
-// before (narrow.go), and searching the whole index every key, as before.
+// before, and searching the whole index every key, as before.
 func BenchmarkTyping(b *testing.B) {
 	paths := make([]string, 300_000)
 	for i := range paths {

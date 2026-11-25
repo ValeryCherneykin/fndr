@@ -1,7 +1,6 @@
 package filter
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -199,33 +198,6 @@ func FuzzParse(f *testing.F) {
 			}
 		}
 	})
-}
-
-// BenchmarkSearch: what tags cost a whole search over 100k entries, as
-// the TUI makes it: with a query (tags only see what it found), and with
-// tags alone (every entry is tested, and ranked by time).
-func BenchmarkSearch(b *testing.B) {
-	es := benchIndex()
-	code, err := Parse("code|doc")
-	if err != nil {
-		b.Fatal(err)
-	}
-	keep := Stack{code}.Keep(es, under, time.Now())
-	for _, q := range []indexer.Query{
-		{Text: "pkgmain", Under: under},
-		{Text: "pkgmain", Under: under, Keep: keep},
-		{Under: under, Keep: keep},
-	} {
-		name := fmt.Sprintf("text=%q/tags=%t", q.Text, q.Keep != nil)
-		b.Run(name, func(b *testing.B) {
-			b.ReportAllocs()
-			for b.Loop() {
-				if _, _, err := indexer.Search(context.Background(), es, q); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
 }
 
 func benchIndex() []indexer.Entry {

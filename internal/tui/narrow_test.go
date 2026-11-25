@@ -32,9 +32,7 @@ func TestTypingNarrows(t *testing.T) {
 	m := testModel(t, paths...)
 	narrowed := 0
 	for _, r := range "xray_12" {
-		snap := m.current().ix.Snapshot()
-		next := m.keyOf(snap, m.query+string(r), false)
-		if m.within(next) != nil {
+		if m.narrow != nil {
 			narrowed++
 		}
 		typeText(m, string(r))
@@ -57,51 +55,5 @@ func TestNarrowSeesNewEntries(t *testing.T) {
 	typeText(m, "n")
 	if !slices.Contains(m.resultPaths(), "/r/c/main_test.go") {
 		t.Errorf("results %q: the entry added between keys is missed", m.resultPaths())
-	}
-}
-
-// TestNarrowsWhen: narrowing only when nothing but the text changed, and
-// the new text goes on from the old.
-func TestNarrowsWhen(t *testing.T) {
-	snap := []indexer.Entry{indexer.NewEntry("/r/a", 1, 1, false)}
-	other := []indexer.Entry{indexer.NewEntry("/r/a", 1, 1, false)}
-	base := searchKey{text: "fi", under: "/r", tags: ".go", day: "2026-11-13", snap: &snap[0], n: 1}
-	for _, tc := range []struct {
-		name string
-		edit func(k *searchKey)
-		want bool
-	}{
-		{"a letter more", func(k *searchKey) { k.text = "fil" }, true},
-		{"the same text", func(*searchKey) {}, true},
-		{"a letter less", func(k *searchKey) { k.text = "f" }, false},
-		{"another text", func(k *searchKey) { k.text = "fo" }, false},
-		{"another folder", func(k *searchKey) { k.text, k.under = "fil", "/r/b" }, false},
-		{"folders only", func(k *searchKey) { k.text, k.dirs = "fil", true }, false},
-		{"other tags", func(k *searchKey) { k.text, k.tags = "fil", ".md" }, false},
-		{"another day", func(k *searchKey) { k.text, k.day = "fil", "2026-11-14" }, false},
-		{"another snapshot", func(k *searchKey) { k.text, k.snap = "fil", &other[0] }, false},
-		{"the snapshot grown", func(k *searchKey) { k.text, k.n = "fil", 2 }, false},
-	} {
-		next := base
-		tc.edit(&next)
-		if got := base.narrows(next); got != tc.want {
-			t.Errorf("%s: narrows %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-// TestNarrowIsUsed: the next key searches only what the last matched. Told
-// that nothing matched, it finds nothing; searching the whole index again,
-// as it would with the narrowing lost, it would find main.go.
-func TestNarrowIsUsed(t *testing.T) {
-	m := testModel(t, "/r/a/main.go", "/r/b/notes.md")
-	typeText(m, "mai")
-	if m.narrow == nil {
-		t.Fatal("a search kept nothing to narrow the next")
-	}
-	m.narrow.matched = []int32{}
-	typeText(m, "n")
-	if len(m.results) != 0 {
-		t.Errorf("results %q: the key searched the whole index again", m.resultPaths())
 	}
 }

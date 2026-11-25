@@ -9,7 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
 // Row layout, in terminal cells:
@@ -51,7 +51,7 @@ type rowLook struct {
 //
 // A habit row (a place the user often goes, shown above a folder's contents)
 // carries a clock instead of its type icon: it says why the row is there.
-func renderRow(r *indexer.Result, root string, width int, look rowLook, a *accent) string {
+func renderRow(r *search.Result, root string, width int, look rowLook, a *accent) string {
 	path := safeText(r.Entry.Path) // same length: offsets and positions still fit
 	nameLo := len(path) - len(r.Entry.Name())
 	dirLo, dirHi := relDir(path, nameLo, root)

@@ -1,9 +1,11 @@
-package indexer
+package search
 
 import (
 	"path/filepath"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
 
 // Score weights for fuzzyScore, in the spirit of fzf. Only their relative
@@ -38,7 +40,7 @@ const (
 //
 // If pos is non-nil it receives the byte offsets in e.Path of the matched
 // characters, in ascending order, for highlighting. It must have room for
-// one offset per rune of lowerQuery. Search passes nil while ranking every
+// one offset per rune of lowerQuery. scanResults passes nil while ranking every
 // candidate and asks for positions only for the rows on screen, so the hot
 // path never allocates.
 //
@@ -52,25 +54,25 @@ const (
 //     possible. This makes the match compact: for "go" in "/a/go.mod", pass
 //     one alone would take the "o" of "mod"; pass two takes "go".
 //
-// Only e.Path[from:] is matched: Search passes the offset just past the
+// Only e.Path[from:] is matched: scanResults passes the offset just past the
 // search root, so the root's own directories, shared by every entry, never
 // match. Positions are still offsets into the whole path.
 //
 // Both passes are O(len(path)) and allocation-free. The result is a very good
 // match, not always the best one: fzf's optimal algorithm costs
 // O(len(path) * len(query)) per entry, which is not worth it for paths.
-func fuzzyScore(e *Entry, from int, lowerQuery string, pos []int) (score int, ok bool) {
+func fuzzyScore(e *indexer.Entry, from int, lowerQuery string, pos []int) (score int, ok bool) {
 	score, _, ok = scoreRunes(e, from, []rune(lowerQuery), pos)
 	return score, ok
 }
 
-// scoreRunes is fuzzyScore with the query already decoded, as Search
+// scoreRunes is fuzzyScore with the query already decoded, as scanResults
 // passes it: decoded once per search, not again at every byte of every
 // path, where it cost a fifth of a search. named reports whether a
-// character matched in the base name: what the query is about, for Search
-// to tell an entry typed for from one below it (see Query.Boost). An empty
+// character matched in the base name: what the query is about, for scanResults
+// to tell an entry typed for from one below it (see scanQuery.Boost). An empty
 // query is about everything.
-func scoreRunes(e *Entry, from int, q []rune, pos []int) (score int, named, ok bool) {
+func scoreRunes(e *indexer.Entry, from int, q []rune, pos []int) (score int, named, ok bool) {
 	if len(q) == 0 {
 		return 0, true, true
 	}
@@ -105,7 +107,7 @@ func scoreRunes(e *Entry, from int, q []rune, pos []int) (score int, named, ok b
 
 	// Pass 2: compact match from start, scoring as we go. Pass 1 proved that
 	// the whole query fits in s[start:], so this loop always completes.
-	nameOff := int(e.nameOff)
+	nameOff := e.NameOffset()
 	prevEnd := -1 // byte offset just past the previous match, -1 if none
 	k := 0        // next free slot in pos
 	for i := start; qi < len(q); {

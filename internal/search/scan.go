@@ -1,19 +1,19 @@
-package indexer
+package search
 
 import (
 	"cmp"
 	"context"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"unicode/utf8"
+
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
 
-// DefaultLimit is the number of results Search returns when Query.Limit is
-// not set: more than any terminal shows at once, few enough to rank cheaply.
+// DefaultLimit is the number of ranked results when Request.Limit is unset.
 const DefaultLimit = 100
 
 // chunkSize is how many entries a search worker claims at a time. Small
@@ -24,23 +24,17 @@ const DefaultLimit = 100
 // millisecond. It also bounds how long a canceled search keeps running.
 const chunkSize = 4096
 
-// Query describes one search.
-type Query struct {
-	// Text is what the user typed, matched fuzzily and case-insensitively
-	// against the part of the path below Under (the whole path if Under is
-	// empty). The directories above Under are the same for every entry;
-	// letters that happen to occur there would match everything. An empty
-	// Text matches nothing: listing a directory is a different operation.
+// scanQuery describes one search.
+type scanQuery struct {
+	// Text is matched fuzzily and case-insensitively against the part of the
+	// path below Under. Empty text is used for filter-only searches.
 	Text string
 
 	// Under restricts the search to entries strictly below this directory,
-	// which must be absolute and cleaned. Empty means the whole index. This
-	// is how one index serves both scopes: GLOBAL leaves it empty, LOCAL sets
-	// it to the current directory.
+	// which must be absolute and cleaned. Empty means the whole snapshot.
 	Under string
 
-	// Dirs restricts the search to directories. The TUI sets it for a query
-	// ending in "/", the way a path names a folder.
+	// Dirs restricts the search to directories.
 	Dirs bool
 
 	// Limit caps the number of results; zero or less means DefaultLimit.
@@ -51,7 +45,7 @@ type Query struct {
 	// the query touched: "fnd" is typed for fndr, not for fndr/internal/
 	// opener, however often opener is visited; matched in its folders
 	// alone, the habit would lift whatever is below a project above the
-	// project itself. Search only reads it, from every worker at once, so
+	// project itself. The scan only reads it, from every worker at once, so
 	// the caller must never change a map once it has been passed here;
 	// build a new one instead.
 	Boost map[string]int
@@ -61,18 +55,16 @@ type Query struct {
 	// test of Text let through. With Keep, an empty Text matches every
 	// entry kept, ranked by Boost, then newest first: "all .go files"
 	// shows the ones in use, not the ones with the shortest paths.
-	Keep func(Entry) bool
+	Keep func(indexer.Entry) bool
 
-	// Within, if set, is the positions in the snapshot to look at, and no
-	// other: what matched a query this one only adds letters to (see
-	// SearchMatches). A match of "file_7" must be a match of "file", so
-	// searching only those finds the same, at a fraction of the work.
+	// Within is the set of positions to scan, in snapshot order. Nil scans
+	// the whole snapshot. An empty non-nil set scans nothing.
 	Within []int32
 }
 
 // Result is one search hit.
 type Result struct {
-	Entry Entry
+	Entry indexer.Entry
 	Score int
 
 	// Positions holds the byte offsets in Entry.Path of the matched
@@ -80,10 +72,8 @@ type Result struct {
 	Positions []int
 }
 
-// Search returns the best matches for q in snap, best first, and the total
-// number of entries that matched. It returns ctx.Err() if ctx is canceled
-// before it finishes, so a search made stale by the next keystroke stops
-// within one chunk instead of running to the end.
+// scan ranks the best matches and counts all matches. Canceled workers
+// stop claiming chunks, limiting the work they still have to do.
 //
 // The work happens in three stages, each paying only for what survived the
 // previous one:
@@ -98,23 +88,8 @@ type Result struct {
 //
 // Ties are broken by shorter path, then by path, so the order is stable from
 // one keystroke to the next and the list on screen does not jump around.
-func Search(ctx context.Context, snap []Entry, q Query) (results []Result, total int, err error) {
-	results, total, _, err = search(ctx, snap, q, runtime.GOMAXPROCS(0), false)
-	return results, total, err
-}
-
-// SearchMatches is Search that also returns the positions in snap of every
-// entry that matched, in snapshot order: the Within of a next search whose
-// text only adds to this one's, as typing does. With most of snap
-// matching, matched is nil, the total no longer len(matched): narrowing
-// to nearly everything saves nothing. total says how many.
-func SearchMatches(ctx context.Context, snap []Entry, q Query) (results []Result, total int, matched []int32, err error) {
-	return search(ctx, snap, q, runtime.GOMAXPROCS(0), true)
-}
-
-// search is Search with an explicit worker count, so tests can check that the
-// result does not depend on it. With collect, matched holds every match.
-func search(ctx context.Context, snap []Entry, q Query, workers int, collect bool) (results []Result, total int, matched []int32, err error) {
+// With collect, matched holds candidate positions in snapshot order.
+func scan(ctx context.Context, snap []indexer.Entry, q scanQuery, workers int, collect bool) (results []Result, total int, matched []int32, err error) {
 	if q.Text == "" && q.Keep == nil {
 		return nil, 0, nil, nil
 	}
@@ -177,7 +152,7 @@ func search(ctx context.Context, snap []Entry, q Query, workers int, collect boo
 						i = int(q.Within[k])
 					}
 					e := &snap[i]
-					if q.Under != "" && !isBelow(e.Path, q.Under) {
+					if q.Under != "" && !indexer.IsBelow(e.Path, q.Under) {
 						continue
 					}
 					if q.Dirs && !e.IsDir {
@@ -259,7 +234,7 @@ type candidate struct {
 // ranks above b. Higher score wins; with recent, ties go to the newer
 // entry; then to the shorter path, then to the lexically smaller one,
 // which makes the order total and deterministic.
-func rank(snap []Entry, recent bool, a, b candidate) int {
+func rank(snap []indexer.Entry, recent bool, a, b candidate) int {
 	if a.score != b.score {
 		return cmp.Compare(b.score, a.score)
 	}
@@ -285,7 +260,7 @@ func rank(snap []Entry, recent bool, a, b candidate) int {
 // takes `any`: every Push would box the candidate into a heap allocation, in
 // the hottest loop of the search.
 type topK struct {
-	snap   []Entry
+	snap   []indexer.Entry
 	limit  int
 	recent bool // see rank
 	items  []candidate
@@ -354,16 +329,4 @@ func tailStart(dir string) int {
 	default:
 		return len(dir) + 1
 	}
-}
-
-// isBelow reports whether path lies strictly below dir. Both must be absolute
-// and cleaned.
-func isBelow(path, dir string) bool {
-	if dir == "" || len(path) <= len(dir) || !strings.HasPrefix(path, dir) {
-		return false
-	}
-	// A prefix match alone is not enough: /a/foobar is not below /a/foo. The
-	// byte after the prefix has to be a separator, unless dir already ends
-	// with one, which in a cleaned path happens only for the root "/".
-	return dir[len(dir)-1] == filepath.Separator || path[len(dir)] == filepath.Separator
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
 func tagModel(t *testing.T) *Model {
@@ -221,7 +222,7 @@ func TestEnterFolderDropsTags(t *testing.T) {
 // TestRowOfTheRootItself: a row that is the folder searched has no
 // directory to show; drawing it must not cut past the end of its path.
 func TestRowOfTheRootItself(t *testing.T) {
-	r := indexer.Result{Entry: indexer.NewEntry("/r/a", 0, 0, true)}
+	r := search.Result{Entry: indexer.NewEntry("/r/a", 0, 0, true)}
 	for _, root := range []string{"/r/a", "/r/a/b"} {
 		if row := renderRow(&r, root, 40, rowLook{icons: true}, &accentLocal); ansi.StringWidth(row) != 40 {
 			t.Errorf("root %s: row %q is not 40 cells", root, row)

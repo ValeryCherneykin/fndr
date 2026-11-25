@@ -8,14 +8,15 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
-func result(path string, positions ...int) indexer.Result {
-	return indexer.Result{Entry: indexer.NewEntry(path, 0, 0, false), Positions: positions}
+func result(path string, positions ...int) search.Result {
+	return search.Result{Entry: indexer.NewEntry(path, 0, 0, false), Positions: positions}
 }
 
 // plain renders a row and strips the colours, leaving what the user reads.
-func plain(r indexer.Result, root string, width int, selected bool) string {
+func plain(r search.Result, root string, width int, selected bool) string {
 	return ansi.Strip(renderRow(&r, root, width, rowLook{selected: selected, icons: true}, &accentLocal))
 }
 
@@ -110,10 +111,10 @@ func TestStyleRangeKeepsText(t *testing.T) {
 // the work of every keystroke. Names are plain ASCII, the common case
 // safeText lets through without a copy.
 func BenchmarkRenderRow(b *testing.B) {
-	rs := make([]indexer.Result, 40)
+	rs := make([]search.Result, 40)
 	for i := range rs {
 		p := fmt.Sprintf("/home/v/dev/project/internal/pkg%d/handler_%d.go", i, i)
-		rs[i] = indexer.Result{Entry: indexer.NewEntry(p, 0, 0, false), Positions: []int{len(p) - 10, len(p) - 9, len(p) - 3}}
+		rs[i] = search.Result{Entry: indexer.NewEntry(p, 0, 0, false), Positions: []int{len(p) - 10, len(p) - 9, len(p) - 3}}
 	}
 	for b.Loop() {
 		for i := range rs {

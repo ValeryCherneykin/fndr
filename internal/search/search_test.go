@@ -1,29 +1,32 @@
-package indexer
+package search
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
 
 // benchEntries wraps benchPaths in entries.
-func benchEntries(n int) []Entry {
+func benchEntries(n int) []indexer.Entry {
 	ps := benchPaths(n)
-	es := make([]Entry, n)
+	es := make([]indexer.Entry, n)
 	for i, p := range ps {
 		// Times repeat, so ranking by time has ties to break too.
-		es[i] = NewEntry(p, 0, int64(i*7919%1000), false)
+		es[i] = indexer.NewEntry(p, 0, int64(i*7919%1000), false)
 	}
 	return es
 }
 
 // naiveSearch is the obvious algorithm: score every entry, sort everything,
-// keep the first limit. It is the reference that Search must agree with,
+// keep the first limit. It is the reference that scanResults must agree with,
 // whatever the worker count, and the baseline for the benchmark.
-func naiveSearch(snap []Entry, q Query) (paths []string, total int) {
+func naiveSearch(snap []indexer.Entry, q scanQuery) (paths []string, total int) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = DefaultLimit
@@ -37,7 +40,7 @@ func naiveSearch(snap []Entry, q Query) (paths []string, total int) {
 		if q.Keep != nil && !q.Keep(snap[i]) {
 			continue
 		}
-		if q.Under != "" && !isBelow(snap[i].Path, q.Under) {
+		if q.Under != "" && !indexer.IsBelow(snap[i].Path, q.Under) {
 			continue
 		}
 		if q.Dirs && !snap[i].IsDir {
@@ -59,9 +62,9 @@ func naiveSearch(snap []Entry, q Query) (paths []string, total int) {
 // every entry, so letters in them must not match. Without this, "home"
 // matches every file below /home/v.
 func TestSearchIgnoresRootPrefix(t *testing.T) {
-	snap := []Entry{
-		NewEntry("/home/v/dev/src/main.go", 0, 0, false),
-		NewEntry("/home/v/dev/hd.txt", 0, 0, false),
+	snap := []indexer.Entry{
+		indexer.NewEntry("/home/v/dev/src/main.go", 0, 0, false),
+		indexer.NewEntry("/home/v/dev/hd.txt", 0, 0, false),
 	}
 	tests := []struct {
 		text, under string
@@ -74,26 +77,26 @@ func TestSearchIgnoresRootPrefix(t *testing.T) {
 		{"homevdev", "/", []string{"/home/v/dev/hd.txt", "/home/v/dev/src/main.go"}},
 	}
 	for _, tt := range tests {
-		rs, _, err := Search(context.Background(), snap, Query{Text: tt.text, Under: tt.under})
+		rs, _, err := scanResults(context.Background(), snap, scanQuery{Text: tt.text, Under: tt.under})
 		if err != nil {
 			t.Fatal(err)
 		}
 		got := resultPaths(rs)
 		slices.Sort(got)
 		if !slices.Equal(got, tt.want) {
-			t.Errorf("Search(%q under %q) = %q, want %q", tt.text, tt.under, got, tt.want)
+			t.Errorf("scanResults(%q under %q) = %q, want %q", tt.text, tt.under, got, tt.want)
 		}
 	}
 }
 
 func TestSearchDirsOnly(t *testing.T) {
-	snap := []Entry{
-		NewEntry("/r/internal", 0, 0, true),
-		NewEntry("/r/internal/tui", 0, 0, true),
-		NewEntry("/r/internal/tui/model.go", 0, 0, false),
-		NewEntry("/r/internal.md", 0, 0, false),
+	snap := []indexer.Entry{
+		indexer.NewEntry("/r/internal", 0, 0, true),
+		indexer.NewEntry("/r/internal/tui", 0, 0, true),
+		indexer.NewEntry("/r/internal/tui/model.go", 0, 0, false),
+		indexer.NewEntry("/r/internal.md", 0, 0, false),
 	}
-	rs, total, err := Search(context.Background(), snap, Query{Text: "internal", Dirs: true})
+	rs, total, err := scanResults(context.Background(), snap, scanQuery{Text: "internal", Dirs: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +106,7 @@ func TestSearchDirsOnly(t *testing.T) {
 		t.Errorf("Dirs search = %q (total %d), want only the folders %q", got, total, want)
 	}
 	// Without Dirs, folders and files are both found.
-	if _, total, _ := Search(context.Background(), snap, Query{Text: "internal"}); total != 4 {
+	if _, total, _ := scanResults(context.Background(), snap, scanQuery{Text: "internal"}); total != 4 {
 		t.Errorf("plain search found %d entries, want all 4, folders included", total)
 	}
 }
@@ -112,19 +115,19 @@ func TestSearchDirsOnly(t *testing.T) {
 // the boost decides the order even when the top-K cut is tight, which is
 // why it is applied in the workers, before the cut, not afterwards.
 func TestSearchBoost(t *testing.T) {
-	snap := []Entry{
-		NewEntry("/r/a/main.go", 0, 0, false),
-		NewEntry("/r/b/main.go", 0, 0, false),
-		NewEntry("/r/c/main.go", 0, 0, false),
+	snap := []indexer.Entry{
+		indexer.NewEntry("/r/a/main.go", 0, 0, false),
+		indexer.NewEntry("/r/b/main.go", 0, 0, false),
+		indexer.NewEntry("/r/c/main.go", 0, 0, false),
 	}
-	q := Query{Text: "main", Limit: 1}
-	rs, _, _ := Search(context.Background(), snap, q)
+	q := scanQuery{Text: "main", Limit: 1}
+	rs, _, _ := scanResults(context.Background(), snap, q)
 	if len(rs) != 1 || rs[0].Entry.Path == "/r/c/main.go" {
 		t.Fatalf("without a boost got %q; the test needs c not to win on its own", resultPaths(rs))
 	}
 
 	q.Boost = map[string]int{"/r/c/main.go": 30}
-	rs, _, _ = Search(context.Background(), snap, q)
+	rs, _, _ = scanResults(context.Background(), snap, q)
 	if len(rs) != 1 || rs[0].Entry.Path != "/r/c/main.go" {
 		t.Errorf("with c boosted got %q, want c first", resultPaths(rs))
 	}
@@ -146,15 +149,15 @@ func TestSearchMatchesNaive(t *testing.T) {
 		snap := benchEntries(n)
 		for _, text := range []string{"intfile9", "go", "nomatch!", "FILE_1", "", "+go"} {
 			for _, limit := range []int{1, 7, 100} {
-				q := Query{Text: text, Limit: limit}
+				q := scanQuery{Text: text, Limit: limit}
 				if text == "" || text[0] == '+' { // with a tag: names ending in 1
 					q.Text = strings.TrimPrefix(text, "+")
-					q.Keep = func(e Entry) bool { return strings.HasSuffix(e.Name(), "1") }
+					q.Keep = func(e indexer.Entry) bool { return strings.HasSuffix(e.Name(), "1") }
 				}
 				wantPaths, wantTotal := naiveSearch(snap, q)
 				for _, workers := range []int{1, 3, 8, 64} {
 					t.Run(fmt.Sprintf("n=%d/q=%s/limit=%d/w=%d", n, text, limit, workers), func(t *testing.T) {
-						rs, total, _, err := search(context.Background(), snap, q, workers, false)
+						rs, total, _, err := scan(context.Background(), snap, q, workers, false)
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -175,15 +178,15 @@ func TestSearchMatchesNaive(t *testing.T) {
 // the places the user goes to first, then the newest: "all .go files"
 // opens on the ones in use, not on the ones with the shortest paths.
 func TestSearchTagsOnly(t *testing.T) {
-	snap := []Entry{
-		NewEntry("/a/old.go", 0, 100, false),
-		NewEntry("/a/new.go", 0, 300, false),
-		NewEntry("/a/b/habit.go", 0, 50, false),
-		NewEntry("/a/mid.go", 0, 200, false),
-		NewEntry("/a/notes.md", 0, 999, false),
+	snap := []indexer.Entry{
+		indexer.NewEntry("/a/old.go", 0, 100, false),
+		indexer.NewEntry("/a/new.go", 0, 300, false),
+		indexer.NewEntry("/a/b/habit.go", 0, 50, false),
+		indexer.NewEntry("/a/mid.go", 0, 200, false),
+		indexer.NewEntry("/a/notes.md", 0, 999, false),
 	}
-	goFiles := func(e Entry) bool { return strings.HasSuffix(e.Name(), ".go") }
-	rs, total, err := Search(context.Background(), snap, Query{
+	goFiles := func(e indexer.Entry) bool { return strings.HasSuffix(e.Name(), ".go") }
+	rs, total, err := scanResults(context.Background(), snap, scanQuery{
 		Keep: goFiles, Boost: map[string]int{"/a/b/habit.go": 5},
 	})
 	if err != nil {
@@ -193,7 +196,7 @@ func TestSearchTagsOnly(t *testing.T) {
 	if got := resultPaths(rs); total != 4 || !slices.Equal(got, want) {
 		t.Errorf("got %q (%d), want %q", got, total, want)
 	}
-	if rs, _, _ := Search(context.Background(), snap, Query{}); rs != nil {
+	if rs, _, _ := scanResults(context.Background(), snap, scanQuery{}); rs != nil {
 		t.Errorf("no text, no tags: %d results, want none (the folder is listed instead)", len(rs))
 	}
 }
@@ -205,7 +208,7 @@ func TestSearchRanking(t *testing.T) {
 		"/p/main.go",
 		"/docs/readme.md",
 	)
-	rs, total, err := Search(context.Background(), snap, Query{Text: "main"})
+	rs, total, err := scanResults(context.Background(), snap, scanQuery{Text: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +222,7 @@ func TestSearchRanking(t *testing.T) {
 
 func TestSearchUnder(t *testing.T) {
 	snap := entries("/a/foo/x.go", "/a/foo", "/a/foobar/x.go", "/b/x.go")
-	rs, _, err := Search(context.Background(), snap, Query{Text: "x", Under: "/a/foo"})
+	rs, _, err := scanResults(context.Background(), snap, scanQuery{Text: "x", Under: "/a/foo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,14 +233,14 @@ func TestSearchUnder(t *testing.T) {
 }
 
 func TestSearchEmptyQuery(t *testing.T) {
-	rs, total, err := Search(context.Background(), entries("/a", "/b"), Query{})
+	rs, total, err := scanResults(context.Background(), entries("/a", "/b"), scanQuery{})
 	if err != nil || rs != nil || total != 0 {
 		t.Errorf("empty query: got %v, %d, %v; want nothing", rs, total, err)
 	}
 }
 
 func TestSearchPositions(t *testing.T) {
-	rs, _, err := Search(context.Background(), entries("/src/main.go"), Query{Text: "MNGO"})
+	rs, _, err := scanResults(context.Background(), entries("/src/main.go"), scanQuery{Text: "MNGO"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +255,7 @@ func TestSearchPositions(t *testing.T) {
 func TestSearchCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _, err := Search(ctx, benchEntries(3*chunkSize), Query{Text: "go"})
+	_, _, err := scanResults(ctx, benchEntries(3*chunkSize), scanQuery{Text: "go"})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
@@ -268,11 +271,11 @@ func BenchmarkSearch(b *testing.B) {
 			{"narrow", "intfile9"},
 			{"broad", "go"},
 		} {
-			q := Query{Text: tc.text}
+			q := scanQuery{Text: tc.text}
 			b.Run(fmt.Sprintf("n=%d/%s/search", n, tc.name), func(b *testing.B) {
 				b.ReportAllocs()
 				for b.Loop() {
-					if _, _, err := Search(context.Background(), snap, q); err != nil {
+					if _, _, err := scanResults(context.Background(), snap, q); err != nil {
 						b.Fatal(err)
 					}
 				}
@@ -292,18 +295,36 @@ func BenchmarkSearch(b *testing.B) {
 // visited every day, matches only through its folder fndr, and stays
 // below it. Typed for by its own name, opener is lifted as before.
 func TestSearchBoostNeedsName(t *testing.T) {
-	snap := []Entry{
-		NewEntry("/r/dev/fndr", 0, 0, true),
-		NewEntry("/r/dev/fndr/internal/opener", 0, 0, true),
-		NewEntry("/r/dev/fndr/internal/openers", 0, 0, true),
+	snap := []indexer.Entry{
+		indexer.NewEntry("/r/dev/fndr", 0, 0, true),
+		indexer.NewEntry("/r/dev/fndr/internal/opener", 0, 0, true),
+		indexer.NewEntry("/r/dev/fndr/internal/openers", 0, 0, true),
 	}
 	boost := map[string]int{"/r/dev/fndr/internal/opener": 100}
-	rs, _, _ := Search(context.Background(), snap, Query{Text: "fnd", Under: "/r/dev", Boost: boost})
+	rs, _, _ := scanResults(context.Background(), snap, scanQuery{Text: "fnd", Under: "/r/dev", Boost: boost})
 	if ps := resultPaths(rs); len(ps) == 0 || ps[0] != "/r/dev/fndr" {
 		t.Errorf("fnd: %q, want fndr first", ps)
 	}
-	rs, _, _ = Search(context.Background(), snap, Query{Text: "open", Under: "/r/dev", Boost: boost})
+	rs, _, _ = scanResults(context.Background(), snap, scanQuery{Text: "open", Under: "/r/dev", Boost: boost})
 	if ps := resultPaths(rs); len(ps) == 0 || ps[0] != "/r/dev/fndr/internal/opener" {
 		t.Errorf("open: %q, want the habit, opener, first", ps)
 	}
+}
+
+// entries builds file entries for the given paths.
+func entries(paths ...string) []indexer.Entry {
+	es := make([]indexer.Entry, len(paths))
+	for i, p := range paths {
+		es[i] = indexer.NewEntry(p, 0, 0, false)
+	}
+	return es
+}
+
+func scanResults(ctx context.Context, snap []indexer.Entry, q scanQuery) (results []Result, total int, err error) {
+	results, total, _, err = scan(ctx, snap, q, runtime.GOMAXPROCS(0), false)
+	return results, total, err
+}
+
+func scanMatches(ctx context.Context, snap []indexer.Entry, q scanQuery) (results []Result, total int, matched []int32, err error) {
+	return scan(ctx, snap, q, runtime.GOMAXPROCS(0), true)
 }

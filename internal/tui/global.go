@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
 // GLOBAL search runs over the whole home instead of the folder: Tab
@@ -39,9 +40,9 @@ func (m *Model) loadHomeHabits() tea.Cmd {
 // homeHabitsLoaded stores the habits, and shows them if GLOBAL's empty
 // query is still what is on screen.
 func (m *Model) homeHabitsLoaded(msg *homeHabitsMsg) {
-	m.homeHabits = make([]indexer.Result, 0, len(msg.entries)) // empty, not nil: read, and nothing there
+	m.homeHabits = make([]search.Result, 0, len(msg.entries)) // empty, not nil: read, and nothing there
 	for _, e := range msg.entries {
-		m.homeHabits = append(m.homeHabits, indexer.Result{Entry: e})
+		m.homeHabits = append(m.homeHabits, search.Result{Entry: e})
 	}
 	if m.globalOn && m.browsing() {
 		m.showListing()

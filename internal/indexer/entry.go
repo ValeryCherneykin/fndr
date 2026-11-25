@@ -65,6 +65,11 @@ func (e Entry) Name() string {
 	return e.Path[e.nameOff:]
 }
 
+// NameOffset returns the byte offset of Name within Path.
+func (e Entry) NameOffset() int {
+	return int(e.nameOff)
+}
+
 // nameOffset returns the byte offset where the base name of a cleaned path
 // starts: just past the last separator.
 func nameOffset(path string) uint32 {

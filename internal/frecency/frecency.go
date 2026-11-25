@@ -266,7 +266,7 @@ func weight(age time.Duration) float64 {
 }
 
 // Boosts returns the ranking bonus of every remembered path at now, for
-// indexer.Query.Boost. The map is new on every call and never changed
+// search.Request.Boost. The map is new on every call and never changed
 // afterwards, so searches running in parallel can read it without locks
 // while the store keeps recording visits.
 func (s *Store) Boosts(now time.Time) map[string]int {

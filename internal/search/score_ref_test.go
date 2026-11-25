@@ -1,4 +1,4 @@
-package indexer
+package search
 
 import (
 	"slices"
@@ -6,6 +6,8 @@ import (
 	"testing"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
 
 // The scoring and matching as they were before the fast paths (a query
@@ -22,7 +24,7 @@ func refFold(r rune) rune {
 	return unicode.ToLower(r)
 }
 
-func fuzzyScoreRef(e *Entry, from int, lowerQuery string, pos []int) (score int, ok bool) {
+func fuzzyScoreRef(e *indexer.Entry, from int, lowerQuery string, pos []int) (score int, ok bool) {
 	if lowerQuery == "" {
 		return 0, true
 	}
@@ -46,7 +48,7 @@ func fuzzyScoreRef(e *Entry, from int, lowerQuery string, pos []int) (score int,
 
 	// Pass 2: compact match from start, scoring as we go. Pass 1 proved that
 	// the whole query fits in s[start:], so this loop always completes.
-	nameOff := int(e.nameOff)
+	nameOff := e.NameOffset()
 	prevEnd := -1 // byte offset just past the previous match, -1 if none
 	k := 0        // next free slot in pos
 	for i := start; qi < len(lowerQuery); {
@@ -153,7 +155,7 @@ func FuzzScoreMatchesRef(f *testing.F) {
 		f.Add(s[0], s[1], 0)
 	}
 	f.Fuzz(func(t *testing.T, path, query string, from int) {
-		e := NewEntry(path, 0, 0, false)
+		e := indexer.NewEntry(path, 0, 0, false)
 		from = max(min(from, len(path)), 0)
 		lq := strings.ToLower(query)
 		n := utf8.RuneCountInString(lq)
@@ -164,9 +166,9 @@ func FuzzScoreMatchesRef(f *testing.F) {
 			t.Fatalf("%q in %q from %d: %d %v %v, want %d %v %v", lq, path, from, got, gotOK, gotPos, want, wantOK, wantPos)
 		}
 		// named: some matched character is in the base name.
-		inName := n == 0 || slices.ContainsFunc(wantPos, func(p int) bool { return p >= int(e.nameOff) })
+		inName := n == 0 || slices.ContainsFunc(wantPos, func(p int) bool { return p >= e.NameOffset() })
 		if gotOK && named != inName {
-			t.Fatalf("%q in %q from %d: named %v at %v, name from %d", lq, path, from, named, wantPos, e.nameOff)
+			t.Fatalf("%q in %q from %d: named %v at %v, name from %d", lq, path, from, named, wantPos, e.NameOffset())
 		}
 		if a, b := hasSubsequenceFold(path, lq), hasSubsequenceFoldRef(path, lq); a != b {
 			t.Fatalf("%q in %q: matches %v, want %v", lq, path, a, b)

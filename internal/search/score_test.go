@@ -1,16 +1,18 @@
-package indexer
+package search
 
 import (
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
 
 // score is a test helper around fuzzyScore that fails the test on no match.
 func score(t *testing.T, path, query string) int {
 	t.Helper()
-	e := NewEntry(path, 0, 0, false)
+	e := indexer.NewEntry(path, 0, 0, false)
 	s, ok := fuzzyScore(&e, 0, strings.ToLower(query), nil)
 	if !ok {
 		t.Fatalf("fuzzyScore(%q, %q): no match", path, query)
@@ -59,7 +61,7 @@ func TestFuzzyScorePositions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path+"/"+tt.query, func(t *testing.T) {
-			e := NewEntry(tt.path, 0, 0, false)
+			e := indexer.NewEntry(tt.path, 0, 0, false)
 			pos := make([]int, utf8.RuneCountInString(tt.query))
 			if _, ok := fuzzyScore(&e, 0, strings.ToLower(tt.query), pos); !ok {
 				t.Fatal("no match")
@@ -84,7 +86,7 @@ func FuzzFuzzyScore(f *testing.F) {
 		if !utf8.ValidString(path) || !utf8.ValidString(query) {
 			t.Skip()
 		}
-		e := NewEntry(path, 0, 0, false)
+		e := indexer.NewEntry(path, 0, 0, false)
 		lq := strings.ToLower(query)
 		qr := []rune(lq)
 		pos := make([]int, len(qr))
@@ -138,7 +140,7 @@ func FuzzStagesAgree(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, path, query string) {
 		lq := strings.ToLower(query)
-		e := NewEntry(path, 0, 0, false)
+		e := indexer.NewEntry(path, 0, 0, false)
 		pos := make([]int, utf8.RuneCountInString(lq))
 
 		filtered := hasSubsequenceFold(path, lq)

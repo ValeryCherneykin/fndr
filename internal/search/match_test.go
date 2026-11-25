@@ -1,4 +1,4 @@
-package indexer
+package search
 
 import (
 	"fmt"

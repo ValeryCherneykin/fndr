@@ -10,6 +10,7 @@ import (
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 	"github.com/ValeryCherneykin/fndr/internal/mutation"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 	"github.com/ValeryCherneykin/fndr/internal/tmux"
 )
 
@@ -76,7 +77,7 @@ func (m *Model) openSession() tea.Cmd {
 // the selection's path below the folder searched does not hold it whole.
 func (m *Model) newProject() string {
 	text := strings.TrimSuffix(strings.TrimSpace(m.query), "/") // "x/" searches folders only; "" is returned as it is
-	if len(m.results) > 0 && holdsWhole(nil, text, m.under())(m.results[m.cursor].Entry) {
+	if len(m.results) > 0 && search.ContainsWhole(m.results[m.cursor].Entry.Path, m.under(), text) {
 		return ""
 	}
 	return text

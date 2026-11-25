@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
 // testModel returns a model over a fixed index, sized like a small terminal.
@@ -279,10 +280,14 @@ func TestStaleSearchIsDropped(t *testing.T) {
 	m := testModel(t, "/r/main.go", "/r/other.go")
 	typeText(m, "main")
 	want := m.resultPaths()
+	narrow, total := m.narrow, m.total
 
-	m.Update(searchMsg{seq: m.seq - 1, results: []indexer.Result{result("/r/other.go")}, total: 1})
+	m.Update(searchMsg{seq: m.seq - 1, results: []search.Result{result("/r/other.go")}, total: 2})
 	if got := m.resultPaths(); len(got) != len(want) || got[0] != want[0] {
 		t.Errorf("stale reply replaced results: got %q, want %q", got, want)
+	}
+	if m.narrow != narrow || m.total != total {
+		t.Error("stale reply replaced the candidates or total of the current search")
 	}
 }
 

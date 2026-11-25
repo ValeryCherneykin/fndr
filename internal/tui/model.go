@@ -15,6 +15,7 @@ import (
 	"github.com/ValeryCherneykin/fndr/internal/filter"
 	"github.com/ValeryCherneykin/fndr/internal/frecency"
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 	"github.com/ValeryCherneykin/fndr/internal/tmux"
 )
 
@@ -83,7 +84,7 @@ type Model struct {
 
 	// homeHabits is what GLOBAL shows on an empty query: the places below
 	// the home the user goes to most. nil until read.
-	homeHabits []indexer.Result
+	homeHabits []search.Result
 
 	// hist is what fndr has learned about where the user goes: entered
 	// folders, opened files, jumps. nil when it could not be opened; fndr
@@ -113,7 +114,7 @@ type Model struct {
 
 	// With an empty query the list shows cwd's contents (browse); otherwise
 	// search results. listing is nil until the directory has been read.
-	listing []indexer.Result
+	listing []search.Result
 	habits  int // the first habits rows of listing are places the user goes, not contents
 	listErr error
 	reveal  string // path to select when the listing arrives: the folder just left
@@ -127,19 +128,19 @@ type Model struct {
 	// for the help page (help.go); help is that page, nil while closed.
 	actionKeys map[string][]string
 	help       *helpState
-	configPath string     // where the settings are, for the help page to say
-	binds      []binding  // the user's chords, from the config (binds.go)
-	copier     copier     // how to copy here (copy.go); none in tests unless set
-	yanking    bool       // ctrl+y was pressed: the next key says what to copy (copy.go)
-	narrow     *narrowing // the last search's matches, for the next key to search within (narrow.go)
-	release    func()     // gives freed memory back to the system: debug.FreeOSMemory, a counter in tests (crawl.go)
+	configPath string            // where the settings are, for the help page to say
+	binds      []binding         // the user's chords, from the config (binds.go)
+	copier     copier            // how to copy here (copy.go); none in tests unless set
+	yanking    bool              // ctrl+y was pressed: the next key says what to copy (copy.go)
+	narrow     *search.Narrowing // candidates from the last accepted search
+	release    func()            // gives freed memory back to the system: debug.FreeOSMemory, a counter in tests (crawl.go)
 
 	// caughtUp is when the indexes last caught up with the disk, lastKey
 	// when the last key came (catchup.go).
 	caughtUp, lastKey time.Time
-	pending           []string         // the keys of a chord pressed so far, waiting for the rest
-	results           []indexer.Result // what the list shows: the listing or search results
-	total             int              // matches in the index, of which results holds the best
+	pending           []string        // the keys of a chord pressed so far, waiting for the rest
+	results           []search.Result // what the list shows: the listing or search results
+	total             int             // matches in the index, of which results holds the best
 
 	// oil is the folder being edited in OIL mode (oil.go), nil outside it.
 	oil *oilState

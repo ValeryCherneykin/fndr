@@ -9,6 +9,7 @@ import (
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 	"github.com/ValeryCherneykin/fndr/internal/opener"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
 // revealed presses k and returns the command fndr would run to show
@@ -106,7 +107,7 @@ func TestOilRevealEditedFolder(t *testing.T) {
 func TestEnterStartsApp(t *testing.T) {
 	m := testModel(t, "/r/main.go")
 	app := "/Applications/Ghostty.app"
-	m.results = []indexer.Result{{Entry: indexer.NewEntry(app, 0, 0, true)}}
+	m.results = []search.Result{{Entry: indexer.NewEntry(app, 0, 0, true)}}
 	m.cursor = 0
 	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	var opened []string

@@ -10,6 +10,7 @@ import (
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
 	"github.com/ValeryCherneykin/fndr/internal/opener"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
 // Browsing works like Finder: an empty query shows the contents of cwd,
@@ -76,12 +77,12 @@ func (m *Model) listed(msg *listMsg) {
 	m.habits = len(msg.habits)
 	// Habits first, then the folder's contents: one list, so moving,
 	// Enter and Ctrl+E work on habit rows exactly as on any other.
-	m.listing = make([]indexer.Result, 0, len(msg.habits)+len(msg.entries))
+	m.listing = make([]search.Result, 0, len(msg.habits)+len(msg.entries))
 	for _, e := range msg.habits {
-		m.listing = append(m.listing, indexer.Result{Entry: e})
+		m.listing = append(m.listing, search.Result{Entry: e})
 	}
 	for _, e := range msg.entries {
-		m.listing = append(m.listing, indexer.Result{Entry: e})
+		m.listing = append(m.listing, search.Result{Entry: e})
 	}
 	if m.browsing() {
 		m.showListing()

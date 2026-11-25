@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
 // OIL over search results: ctrl+o with a query or tags edits what was
@@ -20,7 +22,7 @@ import (
 //
 // After y the buffer is what was written, read again from the disk, not
 // the search run again: .jpeg renamed to .jpg under the tag .jpeg would
-// otherwise vanish the moment it is done (CLAUDE.md, 4.3).
+// otherwise vanish the moment it is done (AGENTS.md, 4.3).
 
 // oilMaxResults is the most a search may find to be edited. ggdG over all
 // files of a home would put the home in the trash, and a plan of 80 000
@@ -47,30 +49,36 @@ func (m *Model) oilFromSearch() tea.Cmd {
 	// finds file_70_99 and file_7_909, 1596 of them for 11 that the eye
 	// sees on top, and ggdG would trash them all. Fuzzy finds; an edit is
 	// of what was meant. The rest is counted, and the header says so.
-	run, fuzzy := m.searcher(oilMaxResults+1, true), m.searcher(1, false)
-	dir, search, typed := m.under(), &oilSearch{label: m.searchLabel()}, m.query
-	ctx := m.ctx
+	snap := m.current().ix.Snapshot()
+	whole := m.searchRequest()
+	whole.Mode, whole.Limit = search.Contiguous, oilMaxResults+1
+	fuzzy := whole
+	fuzzy.Mode, fuzzy.Limit = search.Fuzzy, 1
+	dir, label, typed, ctx := whole.Under, m.searchLabel(), whole.Query, m.ctx
 	return func() tea.Msg {
-		rs, total, _, err := run(ctx)
-		if err == nil && strings.TrimSuffix(typed, "/") != "" {
-			var all int
-			if _, all, _, err = fuzzy(ctx); err == nil {
-				search.fuzzyLeft = all - total
+		state := &oilSearch{label: label}
+		resp, err := whole.Run(ctx, snap, time.Now())
+		if err == nil && whole.HasText() {
+			var count search.Response
+			count, err = fuzzy.Run(ctx, snap, time.Now())
+			if err == nil {
+				state.fuzzyLeft = count.Total - resp.Total
 			}
 		}
+		total := resp.Total
 		switch {
 		case err != nil:
-			return oilMsg{search: search, err: err}
+			return oilMsg{search: state, err: err}
 		case total > oilMaxResults:
-			return oilMsg{search: search, err: fmt.Errorf("%d found, %d at most: narrow the search first", total, oilMaxResults)}
-		case total == 0 && search.fuzzyLeft > 0:
-			return oilMsg{search: search, err: fmt.Errorf("nothing holds %q whole; OIL takes no fuzzy match (%d left out)", typed, search.fuzzyLeft)}
+			return oilMsg{search: state, err: fmt.Errorf("%d found, %d at most: narrow the search first", total, oilMaxResults)}
+		case total == 0 && state.fuzzyLeft > 0:
+			return oilMsg{search: state, err: fmt.Errorf("nothing holds %q whole; OIL takes no fuzzy match (%d left out)", typed, state.fuzzyLeft)}
 		}
-		es := make([]indexer.Entry, len(rs))
-		for i := range rs {
-			es[i] = rs[i].Entry
+		es := make([]indexer.Entry, len(resp.Results))
+		for i := range resp.Results {
+			es[i] = resp.Results[i].Entry
 		}
-		return oilMsg{dir: dir, entries: es, search: search}
+		return oilMsg{dir: dir, entries: es, search: state}
 	}
 }
 
@@ -106,7 +114,7 @@ func (st *oilState) oilReread() tea.Cmd {
 			groups = append(groups, []string{strings.TrimSuffix(it.Name, "/")})
 		}
 	}
-	dir, search, row := st.dir, st.search, st.buf.Row()
+	dir, state, row := st.dir, st.search, st.buf.Row()
 	return func() tea.Msg {
 		var es []indexer.Entry
 		seen := map[string]bool{}
@@ -122,15 +130,15 @@ func (st *oilState) oilReread() tea.Cmd {
 				break
 			}
 		}
-		return oilMsg{dir: dir, entries: es, search: search, row: row}
+		return oilMsg{dir: dir, entries: es, search: state, row: row}
 	}
 }
 
 // oilLine is the line of e in a buffer of dir: its name, or, for results,
 // its path from dir; a folder's with a "/" after it, as Oil.nvim shows.
-func oilLine(e *indexer.Entry, dir string, search bool) string {
+func oilLine(e *indexer.Entry, dir string, fromSearch bool) string {
 	name := e.Name()
-	if search {
+	if fromSearch {
 		name = strings.TrimPrefix(strings.TrimPrefix(e.Path, dir), string(filepath.Separator))
 	}
 	if e.IsDir {

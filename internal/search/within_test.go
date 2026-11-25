@@ -1,4 +1,4 @@
-package indexer
+package search
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/ValeryCherneykin/fndr/internal/indexer"
 )
 
 // TestWithinMatchesFull: a search narrowed to what the query before it
@@ -21,12 +23,12 @@ func TestWithinMatchesFull(t *testing.T) {
 			snap[i].IsDir = true
 		}
 	}
-	keep := func(e Entry) bool { return strings.Contains(e.Path, "a") }
+	keep := func(e indexer.Entry) bool { return strings.Contains(e.Path, "a") }
 	letters := "abcdefgilmnoprstu_./"
 	r := rand.New(rand.NewPCG(7, 11)) //nolint:gosec // seeded on purpose: a failure must replay
 	ctx := context.Background()
 	for chain := range 200 {
-		q := Query{Limit: 1 + r.IntN(60)}
+		q := scanQuery{Limit: 1 + r.IntN(60)}
 		if r.IntN(3) == 0 {
 			q.Under = snap[r.IntN(len(snap))].Path[:strings.LastIndexByte(snap[r.IntN(len(snap))].Path, '/')]
 		}
@@ -38,13 +40,13 @@ func TestWithinMatchesFull(t *testing.T) {
 		text := ""
 		for range 1 + r.IntN(6) {
 			text += string(letters[r.IntN(len(letters))])
-			full, total, _, err := search(ctx, snap, Query{Text: text, Under: q.Under, Dirs: q.Dirs, Keep: q.Keep, Limit: q.Limit}, 1+r.IntN(8), false)
+			full, total, _, err := scan(ctx, snap, scanQuery{Text: text, Under: q.Under, Dirs: q.Dirs, Keep: q.Keep, Limit: q.Limit}, 1+r.IntN(8), false)
 			if err != nil {
 				t.Fatal(err)
 			}
 			nq := q
 			nq.Text, nq.Within = text, within
-			got, gotTotal, matched, err := search(ctx, snap, nq, 1+r.IntN(8), true)
+			got, gotTotal, matched, err := scan(ctx, snap, nq, 1+r.IntN(8), true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -59,11 +61,11 @@ func TestWithinMatchesFull(t *testing.T) {
 	}
 }
 
-// TestSearchMatchesAll: what SearchMatches reports matched is every entry
+// TestSearchMatchesAll: what scanMatches reports matched is every entry
 // a search matches, by its position, each once.
 func TestSearchMatchesAll(t *testing.T) {
 	snap := benchEntries(9_000)
-	_, _, matched, err := SearchMatches(context.Background(), snap, Query{Text: "file_12"})
+	_, _, matched, err := scanMatches(context.Background(), snap, scanQuery{Text: "file_12"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,18 +86,18 @@ func TestSearchMatchesAll(t *testing.T) {
 func BenchmarkSearchNarrowed(b *testing.B) {
 	snap := benchEntries(300_000)
 	ctx := context.Background()
-	_, _, within, err := SearchMatches(ctx, snap, Query{Text: "file_123"})
+	_, _, within, err := scanMatches(ctx, snap, scanQuery{Text: "file_123"})
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.Run("whole", func(b *testing.B) {
 		for b.Loop() {
-			_, _, _ = Search(ctx, snap, Query{Text: "file_1234"})
+			_, _, _ = scanResults(ctx, snap, scanQuery{Text: "file_1234"})
 		}
 	})
 	b.Run("narrowed", func(b *testing.B) {
 		for b.Loop() {
-			_, _, _, _ = SearchMatches(ctx, snap, Query{Text: "file_1234", Within: within})
+			_, _, _, _ = scanMatches(ctx, snap, scanQuery{Text: "file_1234", Within: within})
 		}
 	})
 	b.ReportMetric(float64(len(within)), "within")
@@ -105,7 +107,7 @@ func BenchmarkSearchNarrowed(b *testing.B) {
 // positions are not kept: narrowing to them would save nothing.
 func TestSearchMatchesKeepsLittle(t *testing.T) {
 	snap := benchEntries(9_000)
-	_, total, matched, err := SearchMatches(context.Background(), snap, Query{Text: "project"})
+	_, total, matched, err := scanMatches(context.Background(), snap, scanQuery{Text: "project"})
 	if err != nil || total != len(snap) || matched != nil {
 		t.Errorf("total %d, %d kept, %v; want all counted and none kept", total, len(matched), err)
 	}
@@ -118,12 +120,12 @@ func TestSearchMatchesKeepsLittle(t *testing.T) {
 func TestNarrowedKeepsNarrowing(t *testing.T) {
 	snap := benchEntries(20_000)
 	ctx := context.Background()
-	_, _, first, err := SearchMatches(ctx, snap, Query{Text: "file_12"})
+	_, _, first, err := scanMatches(ctx, snap, scanQuery{Text: "file_12"})
 	if err != nil || first == nil {
 		t.Fatalf("file_12: kept %d, %v", len(first), err)
 	}
 	// file_12g: every file_12 so far is a .go, so all of first match it.
-	_, _, next, err := SearchMatches(ctx, snap, Query{Text: "file_12g", Within: first})
+	_, _, next, err := scanMatches(ctx, snap, scanQuery{Text: "file_12g", Within: first})
 	if err != nil || next == nil || len(next) != len(first) {
 		t.Errorf("file_12g within file_12: kept %d of %d, %v; want them all", len(next), len(first), err)
 	}

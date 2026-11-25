@@ -1,6 +1,8 @@
 package indexer
 
 import (
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -104,9 +106,21 @@ func (ix *Index) Len() int {
 // `git checkout`) would want sorted roots and a binary search instead.
 func underAny(path string, roots []string) bool {
 	for _, r := range roots {
-		if path == r || isBelow(path, r) {
+		if path == r || IsBelow(path, r) {
 			return true
 		}
 	}
 	return false
+}
+
+// IsBelow reports whether path lies strictly below dir. Both must be absolute
+// and cleaned.
+func IsBelow(path, dir string) bool {
+	if dir == "" || len(path) <= len(dir) || !strings.HasPrefix(path, dir) {
+		return false
+	}
+	// A prefix match alone is not enough: /a/foobar is not below /a/foo. The
+	// byte after the prefix has to be a separator, unless dir already ends
+	// with one, which in a cleaned path happens only for the root "/".
+	return dir[len(dir)-1] == filepath.Separator || path[len(dir)] == filepath.Separator
 }

@@ -1,4 +1,4 @@
-// Package indexer builds and searches an in-memory index of the file system.
+// Package indexer builds and publishes immutable snapshots of the file system.
 //
 // The index is a flat []Entry rather than a tree of nodes: one contiguous
 // allocation that a search scans front to back. That layout keeps the CPU

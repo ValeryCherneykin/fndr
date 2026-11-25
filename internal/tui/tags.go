@@ -66,3 +66,12 @@ func (m *Model) viewChips() string {
 	}
 	return b.String()
 }
+
+// searchLabelTags is the tags as text, the same tags giving the same text.
+func (m *Model) searchLabelTags() string {
+	parts := make([]string, len(m.tags))
+	for i, t := range m.tags {
+		parts[i] = t.String()
+	}
+	return strings.Join(parts, " ")
+}

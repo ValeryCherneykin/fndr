@@ -2,12 +2,11 @@ package tui
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/ValeryCherneykin/fndr/internal/indexer"
+	"github.com/ValeryCherneykin/fndr/internal/search"
 )
 
 // Search runs off the UI goroutine on a snapshot of the index, one at a
@@ -17,15 +16,12 @@ import (
 // searchMsg carries the results of one search.
 type searchMsg struct {
 	seq     int
-	results []indexer.Result
+	results []search.Result
 	total   int
 	indexed int // snapshot length the search ran on
 	err     error
 
-	// key and matched are the search and all it matched, for the next key
-	// to search within (narrow.go).
-	key     searchKey
-	matched []int32
+	narrow *search.Narrowing
 }
 
 // setQuery replaces the query, resets the selection to the top, and starts a
@@ -58,47 +54,18 @@ func (m *Model) search() tea.Cmd {
 	m.cancelSearch = cancel
 	m.searching = true
 
-	text, dirs := strings.CutSuffix(m.query, "/")
 	snap := m.current().ix.Snapshot()
-	q := indexer.Query{Text: text, Under: m.under(), Dirs: dirs, Boost: m.boosts}
-	key := m.keyOf(snap, text, dirs)
-	q.Within = m.within(key)   // nil: the whole index
-	tags, seq := m.tags, m.seq // never changed in place: safe on the search's goroutines
+	req, seq := m.searchRequest(), m.seq
+	req.TrackMatches, req.Previous = true, m.narrow
 	return func() tea.Msg {
 		defer cancel() // release the context once done; canceling twice is harmless
-		if len(tags) > 0 {
-			// Here, not in Update: a has: tag goes over the whole snapshot.
-			q.Keep = tags.Keep(snap, q.Under, time.Now())
-		}
-		rs, total, matched, err := indexer.SearchMatches(ctx, snap, q)
-		return searchMsg{seq: seq, results: rs, total: total, indexed: len(snap), err: err, key: key, matched: matched}
+		resp, err := req.Run(ctx, snap, time.Now())
+		return searchMsg{seq: seq, results: resp.Results, total: resp.Total, indexed: len(snap), err: err, narrow: resp.Narrowing}
 	}
 }
 
-// searcher returns the search for what is typed and tagged now, at most
-// limit results (0: indexer.DefaultLimit), to run off the UI goroutine.
-// It holds everything it needs: the user may type on while it runs.
-//
-// whole keeps only entries holding what is typed whole, in one piece: the
-// search for OIL, where a fuzzy match is not one to edit (oilsearch.go).
-func (m *Model) searcher(limit int, whole bool) func(context.Context) (rs []indexer.Result, total, indexed int, err error) {
-	// A trailing "/" asks for folders only, the way a path names a folder:
-	// "internal/" finds the folder, not the files that live in it.
-	text, dirs := strings.CutSuffix(m.query, "/")
-	snap := m.current().ix.Snapshot()
-	q := indexer.Query{Text: text, Under: m.under(), Dirs: dirs, Boost: m.boosts, Limit: limit}
-	tags := m.tags // never changed in place: safe on the search's goroutines
-	return func(ctx context.Context) ([]indexer.Result, int, int, error) {
-		if len(tags) > 0 {
-			// Here, not in Update: a has: tag goes over the whole snapshot.
-			q.Keep = tags.Keep(snap, q.Under, time.Now())
-		}
-		if whole && text != "" {
-			q.Keep = holdsWhole(q.Keep, text, q.Under)
-		}
-		rs, total, err := indexer.Search(ctx, snap, q)
-		return rs, total, len(snap), err
-	}
+func (m *Model) searchRequest() search.Request {
+	return search.Request{Query: m.query, Under: m.under(), Tags: m.tags, Boost: m.boosts}
 }
 
 // searched shows the results of the latest search; replies of older ones
@@ -111,10 +78,7 @@ func (m *Model) searched(msg *searchMsg) tea.Cmd {
 	if msg.err != nil {
 		return nil // canceled; a newer search is already on its way
 	}
-	m.narrow = nil
-	if msg.matched != nil { // nil: most matched, nothing to gain (indexer.SearchMatches)
-		m.narrow = &narrowing{key: msg.key, matched: msg.matched}
-	}
+	m.narrow = msg.narrow
 	m.results, m.total = msg.results, msg.total
 	m.cursor = m.pickedRow()
 	m.scrollToCursor()
@@ -124,17 +88,4 @@ func (m *Model) searched(msg *searchMsg) tea.Cmd {
 		return m.search()
 	}
 	return nil
-}
-
-// holdsWhole adds to keep (nil: keep all) that the path below under holds
-// text in one piece, in any case: file_7_99 in file_7_99.go, not spread
-// over file_70_99 or file_7_909 as a fuzzy match may be. It runs on what
-// the cheap fuzzy test let through, once, for OIL: not worth a faster
-// path than a lower-case copy.
-func holdsWhole(keep func(indexer.Entry) bool, text, under string) func(indexer.Entry) bool {
-	lower := strings.ToLower(text)
-	return func(e indexer.Entry) bool {
-		rel := strings.TrimPrefix(e.Path, under)
-		return strings.Contains(strings.ToLower(rel), lower) && (keep == nil || keep(e))
-	}
 }
